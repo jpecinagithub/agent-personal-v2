@@ -677,11 +677,16 @@ test("browser G2 regression: defaults editable and deletable, explicit create mo
     assert.equal(switched.body.education_ids, undefined, "fixed -> dynamic clears the education key");
     // Correct and delete declarations through the domain UI.
     await app.page.click("#tab-person");
-    await app.page.click("#facts-refresh");
-    // Wait for the re-render to settle before filling: otherwise the
-    // async refresh can replace the input mid-edit and the save
-    // would post the old value again.
-    await app.page.waitForFunction(() => (document.querySelector("#person-facts-list")?.textContent ?? "").includes("Nivel de inglés"));
+    // Wait for THIS refresh's fetch and render to complete before
+    // filling: the previous wait only checked for text that was
+    // already in the DOM from the earlier render, so a pending
+    // re-render could still replace the input mid-edit and the save
+    // would post the old value again (flaky: C1 instead of C2).
+    await Promise.all([
+      app.page.waitForResponse((r) => r.url().includes("/api/facts") && r.request().method() === "GET"),
+      app.page.click("#facts-refresh"),
+    ]);
+    await app.page.waitForFunction(() => (document.querySelector("#person-facts-list .fact-value")?.value ?? "") === "C1");
     const factCard = app.page.locator("#person-facts-list .profile-card").first();
     await factCard.locator(".fact-value").fill("C2");
     await factCard.getByRole("button", { name: "Corregir valor" }).click();
