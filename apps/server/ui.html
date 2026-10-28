@@ -174,6 +174,13 @@ Lo que quites de un perfil sigue estando aquí.</small></p>
 <input id="person-phone" placeholder="Ej.: +34 600 000 000">
 <label for="person-availability">Disponibilidad</label>
 <input id="person-availability" placeholder="Ej.: inmediata">
+<label for="person-mobility">Movilidad (disposición a mudarte)</label>
+<select id="person-mobility">
+<option value="">Sin preferencia declarada</option>
+<option value="local">Solo en mi zona</option>
+<option value="spain">Dispuesto/a a mudarme dentro de España</option>
+<option value="anywhere">Dispuesto/a a mudarme a cualquier país</option>
+</select>
 <label for="person-languages">Idiomas (una línea por idioma: idioma, nivel)</label>
 <textarea id="person-languages" rows="3" placeholder="English, C1"></textarea>
 <label for="person-links">Enlaces personales (uno por línea)</label>
@@ -182,6 +189,59 @@ Lo que quites de un perfil sigue estando aquí.</small></p>
 exclusiones y la expectativa salarial ya no se editan aquí: son datos
 específicos de cada perfil y viven en la pestaña Perfiles. Lo que ya
 tengas guardado en esos campos se conserva al guardar esta pestaña.</small></p>
+<h3>Autorizaciones de trabajo</h3>
+<p><small>Por país: si estás autorizado/a para trabajar allí y si
+necesitas patrocinio. Editar aquí conserva el identificador estable de
+cada autorización y todos sus datos adicionales (vigencia, notas).
+Borrar una autorización la quita de la persona; nada se inventa.</small></p>
+<div id="person-authorisations-list"></div>
+<label for="auth-add-country">País (código de 2 letras, ej.: ES)</label>
+<input id="auth-add-country" placeholder="ES">
+<label><input id="auth-add-authorised" type="checkbox" checked> Autorizado/a para trabajar</label>
+<label><input id="auth-add-sponsorship" type="checkbox"> Necesita patrocinio</label>
+<label for="auth-add-valid-until">Vigencia (opcional, YYYY o YYYY-MM)</label>
+<input id="auth-add-valid-until" placeholder="2030-12">
+<button id="authorisations-add" type="button">Añadir autorización</button>
+<button id="authorisations-save" type="button">Guardar autorizaciones</button>
+<p class="status" id="authorisations-status"></p>
+<h3>Valores por defecto para perfiles nuevos</h3>
+<p><small>Estos son los antiguos campos específicos que quedaron guardados
+en la persona al moverlos a los perfiles. Aquí puedes verlos, editarlos
+o eliminarlos. Solo afectan a los perfiles que crees después: cambiar
+o borrar un valor por defecto NUNCA cambia los perfiles que ya
+existen. Al crear un perfil puedes elegir heredarlos o empezar vacío.</small></p>
+<label for="defaults-desired-roles">Puestos deseados por defecto (uno por línea)</label>
+<textarea id="defaults-desired-roles" rows="3"></textarea>
+<button type="button" class="defaults-delete" data-default-key="desired_roles">Eliminar puestos deseados por defecto</button>
+<label for="defaults-locations">Ubicaciones por defecto (una por línea)</label>
+<textarea id="defaults-locations" rows="3"></textarea>
+<button type="button" class="defaults-delete" data-default-key="locations">Eliminar ubicaciones por defecto</button>
+<label for="defaults-skills">Habilidades por defecto (una por línea)</label>
+<textarea id="defaults-skills" rows="3"></textarea>
+<button type="button" class="defaults-delete" data-default-key="skills">Eliminar habilidades por defecto</button>
+<label for="defaults-exclusions">Exclusiones por defecto (una por línea)</label>
+<textarea id="defaults-exclusions" rows="3"></textarea>
+<button type="button" class="defaults-delete" data-default-key="exclusions">Eliminar exclusiones por defecto</button>
+<label for="defaults-salary-currency">Moneda de la expectativa salarial por defecto</label>
+<input id="defaults-salary-currency" placeholder="EUR">
+<label for="defaults-salary-min">Salario mínimo esperado por defecto</label>
+<input id="defaults-salary-min" type="number" placeholder="50000">
+<label for="defaults-salary-max">Salario máximo esperado por defecto</label>
+<input id="defaults-salary-max" type="number" placeholder="70000">
+<label for="defaults-salary-period">Periodo salarial por defecto</label>
+<input id="defaults-salary-period" placeholder="year">
+<button type="button" class="defaults-delete" data-default-key="salary_expectations">Eliminar expectativa salarial por defecto</button>
+<button id="defaults-save" type="button">Guardar valores por defecto</button>
+<p class="status" id="defaults-status"></p>
+<h3>Declaraciones reutilizables</h3>
+<p><small>Las respuestas que ya declaraste y que el agente reutiliza para
+las preguntas de selección. Puedes corregir el valor o borrar la
+declaración. La procedencia se muestra tal cual consta (declarado por
+ti, importado de tu CV…): no se escribe a mano, para que nunca se
+pueda disfrazar una suposición de hecho declarado.</small></p>
+<div id="person-facts-list"></div>
+<button id="facts-refresh" type="button">Actualizar declaraciones</button>
+<p class="status" id="facts-status"></p>
 <h3>Empleo — historial maestro</h3>
 <p><small>El registro completo. Cada puesto tiene su propio formulario
 y conserva su identificador estable: reordenar, añadir o quitar un
@@ -210,6 +270,13 @@ puede diferir de otro. Archivar un perfil no libera su plaza: el
 límite cuenta los perfiles activos y los archivados; solo eliminar
 libera una plaza, y eliminar nunca borra las instantáneas de
 candidaturas anteriores.</small></p>
+<label>Valores iniciales del perfil</label>
+<label><input type="radio" name="profile-seed-mode" value="inherit" checked> Heredar los de Persona</label>
+<label><input type="radio" name="profile-seed-mode" value="empty"> Empezar vacíos</label>
+<p><small>«Heredar» rellena los campos vacíos con los valores por defecto
+de la pestaña Persona. «Empezar vacíos» no hereda nada: un campo
+vacío queda vacío, incluida la expectativa salarial. Lo que escribas
+siempre gana sobre cualquiera de las dos opciones.</small></p>
 <label for="profile-name">Nombre del perfil</label>
 <input id="profile-name" placeholder="Ej.: Finanzas">
 <label for="profile-focus">Enfoque</label>
@@ -234,17 +301,22 @@ candidaturas anteriores.</small></p>
 <input id="profile-salary-max" type="number" placeholder="70000">
 <label for="profile-salary-period">Periodo salarial</label>
 <input id="profile-salary-period" placeholder="year">
-<p><small>Qué presenta este perfil de tu historial maestro. Si no tocas
-estas casillas, el perfil presenta todo el historial. Si desmarcas
-todas las de un bloque, ese bloque no presenta ninguna entrada. Las
-entradas que borres del historial maestro después simplemente dejan
-de presentarse. Al crear, los campos vacíos se rellenan con tus
-valores guardados en la persona, para que nada de lo que ya tenías se
-pierda en el cambio.</small></p>
+<p><small>Qué presenta este perfil de tu historial maestro.</small></p>
+<label>Modo de historial</label>
+<label><input type="radio" name="profile-history-mode" value="dynamic" checked> Todo el historial, siempre actualizado</label>
+<label><input type="radio" name="profile-history-mode" value="fixed"> Selección fija</label>
+<p><small>«Todo el historial» no guarda ninguna selección: el perfil
+presenta siempre todo, incluidas las entradas que añadas al historial
+maestro después. «Selección fija» guarda exactamente las entradas
+marcadas; si desmarcas todas las de un bloque, ese bloque no presenta
+ninguna entrada. Las entradas que borres del historial maestro después
+simplemente dejan de presentarse.</small></p>
+<div id="profile-history-fixed">
 <label>Empleo que presenta este perfil</label>
 <div id="profile-employment-select"></div>
 <label>Estudios que presenta este perfil</label>
 <div id="profile-education-select"></div>
+</div>
 <button id="profile-create">Crear perfil</button>
 <button id="profiles-refresh">Actualizar lista</button>
 <p class="status" id="profiles-status"></p>
@@ -395,6 +467,7 @@ function personDetailsFromForm() {
   d.email = $("person-email").value.trim() || null;
   d.phone = $("person-phone").value.trim() || null;
   d.availability = $("person-availability").value.trim() || null;
+  d.mobility = $("person-mobility").value || null;
   // Top-level lists: send when non-empty, or as [] when the loaded
   // person had them (explicit clear); omit when the person never had
   // them, so an unchanged save stays identical.
@@ -579,28 +652,246 @@ function fillPersonForm(details) {
   $("person-email").value = details.email || "";
   $("person-phone").value = details.phone || "";
   $("person-availability").value = details.availability || "";
+  $("person-mobility").value = details.mobility || "";
   $("person-languages").value = (details.languages || []).map((l) => l.language + ", " + l.level).join("\n");
   formHad = {
     languages: (details.languages || []).length > 0,
     links: (details.links || []).length > 0,
   };
-  // NOTE (user order 2026-10-28): stored authorisations are
-  // deliberately not rendered here; the form never sends them, so a
-  // save preserves them exactly (see personDetailsFromForm). The same
-  // holds for the per-profile fields since the redesign: they are
-  // edited on the Perfiles tab, never here.
+  // G2 regression (2026-10-28): authorisations and reusable
+  // declarations are back in the UI as domain sections below (they
+  // save through their own buttons, never through personDetailsFromForm,
+  // so an ordinary person save still preserves stored authorisations
+  // exactly). The per-profile defaults are also shown here, editable
+  // and deletable, and saved only through their own button.
   $("person-links").value = (details.links || []).join("\n");
+  fillDefaultsForm(details);
+  authDeletedIds = new Set();
+  renderAuthorisations(details.authorisations || []);
   deletedEmploymentIds = new Set();
   deletedEducationIds = new Set();
   renderEntries("person-employment-list", "employment", details.employment || [], deletedEmploymentIds);
   renderEntries("person-education-list", "education", details.education || [], deletedEducationIds);
   // The profile create form selects from this master history, so it
-  // re-renders from the loaded person. Type profile fields after
-  // loading the person, not before, or a person load will reset the
-  // create form's selections to "all entries".
+  // re-renders from the loaded person. In fixed mode the previously
+  // ticked entries are preserved (see renderCreateSelections); in
+  // dynamic mode nothing is reset, because no selection is stored.
   lastPersonDetails = details;
   renderCreateSelections(details);
 }
+// ---- G2 regression (2026-10-28): domain UI in the Persona tab ----
+// Country names are rendered with Intl.DisplayNames, never from a
+// hand-kept table, so a code always shows its readable name (or the
+// code itself when it is not a known region).
+function countryName(code) {
+  try {
+    const names = new Intl.DisplayNames(["es"], { type: "region" });
+    return names.of(String(code).toUpperCase()) || code;
+  } catch { return code; }
+}
+// Work authorisations, per country, in plain language. A card edits
+// only authorised (status), sponsorship and validity; every other
+// stored field (valid_from, source_note, ...) is preserved because
+// the save starts from the stored entry and the backend merge only
+// overwrites the keys the card sends. Ids are stable: a stored card
+// keeps its id, a new card gets a fresh client id that the backend
+// stores as a new entry, and deleting a stored card sends an
+// explicit { id, deleted: true } marker on save.
+let authDeletedIds = new Set();
+let authOriginalById = new Map();
+function authCard(entry, stored) {
+  const card = document.createElement("div");
+  card.className = "auth-card profile-card";
+  card.dataset.id = entry.id || "";
+  card.dataset.stored = stored ? "1" : "";
+  const title = document.createElement("h3");
+  title.textContent = entry.country ? countryName(entry.country) + " (" + String(entry.country).toUpperCase() + ")" : "Nueva autorización";
+  card.appendChild(title);
+  const mk = (label, cls, value, placeholder) => {
+    const lab = document.createElement("label");
+    lab.textContent = label;
+    const input = document.createElement("input");
+    input.className = cls;
+    input.value = value || "";
+    input.placeholder = placeholder || "";
+    card.append(lab, input);
+  };
+  mk("País (código de 2 letras)", "auth-country", entry.country, "ES");
+  const authLab = document.createElement("label");
+  const auth = document.createElement("input");
+  auth.type = "checkbox";
+  auth.className = "auth-authorised";
+  auth.checked = entry.status !== "not_authorised";
+  authLab.append(auth, document.createTextNode(" Autorizado/a para trabajar"));
+  card.appendChild(authLab);
+  const spLab = document.createElement("label");
+  const sp = document.createElement("input");
+  sp.type = "checkbox";
+  sp.className = "auth-sponsorship";
+  sp.checked = Boolean(entry.sponsorship_required);
+  spLab.append(sp, document.createTextNode(" Necesita patrocinio"));
+  card.appendChild(spLab);
+  mk("Vigencia (opcional, YYYY o YYYY-MM)", "auth-valid-until", entry.valid_until, "2030-12");
+  const del = document.createElement("button");
+  del.type = "button";
+  del.textContent = "Eliminar";
+  del.onclick = () => { if (stored && entry.id) authDeletedIds.add(entry.id); card.remove(); };
+  card.appendChild(del);
+  return card;
+}
+function renderAuthorisations(entries) {
+  const container = $("person-authorisations-list");
+  container.innerHTML = "";
+  authOriginalById = new Map();
+  for (const e of entries || []) {
+    if (e.id) authOriginalById.set(e.id, e);
+    container.appendChild(authCard(e, true));
+  }
+}
+function collectAuthorisations() {
+  const out = [];
+  for (const card of document.querySelectorAll("#person-authorisations-list .auth-card")) {
+    const id = card.dataset.id;
+    const base = id && authOriginalById.get(id) ? { ...authOriginalById.get(id) } : {};
+    const field = (cls) => { const el = card.querySelector("." + cls); return el ? el.value.trim() : ""; };
+    const entry = { ...base };
+    entry.country = field("auth-country").toUpperCase();
+    entry.status = card.querySelector(".auth-authorised")?.checked ? "authorised" : "not_authorised";
+    entry.sponsorship_required = card.querySelector(".auth-sponsorship")?.checked ?? false;
+    entry.valid_until = field("auth-valid-until") || null;
+    if (id) entry.id = id;
+    out.push(entry);
+  }
+  return out;
+}
+$("authorisations-add").onclick = () => {
+  $("person-authorisations-list").appendChild(authCard({ id: newEntryId("auth"), country: "", status: "authorised", sponsorship_required: false }, false));
+};
+$("authorisations-save").onclick = async () => { try {
+  if (!personId) throw new Error("guarda primero una persona");
+  const authorisations = collectAuthorisations();
+  for (const id of authDeletedIds) authorisations.push({ id, deleted: true });
+  const d = await call("/api/person", "POST", { authorisations });
+  if (d.person && d.person.details) fillPersonForm(d.person.details);
+  $("authorisations-status").textContent = "Autorizaciones guardadas";
+} catch (e) { $("authorisations-status").textContent = "Error: " + e.message; } };
+// Per-profile defaults stored on the person (G2 regression): the
+// migration path for existing local databases is this UI itself —
+// the values are shown, editable and deletable here. Saving them
+// changes future profile seeds ONLY; existing profiles are never
+// touched, because profiles carry their own copies in body_json.
+function fillDefaultsForm(details) {
+  $("defaults-desired-roles").value = (details.desired_roles || []).join("\n");
+  $("defaults-locations").value = (details.locations || []).join("\n");
+  $("defaults-skills").value = (details.skills || []).join("\n");
+  $("defaults-exclusions").value = (details.exclusions || []).join("\n");
+  const s = details.salary_expectations || {};
+  $("defaults-salary-currency").value = s.currency || "";
+  $("defaults-salary-min").value = s.min === undefined || s.min === null ? "" : String(s.min);
+  $("defaults-salary-max").value = s.max === undefined || s.max === null ? "" : String(s.max);
+  $("defaults-salary-period").value = s.period || "";
+}
+function defaultsFromForm() {
+  // An emptied field sends null, which the backend merge reads as
+  // "delete this key from the person JSON" — so clearing a default
+  // really removes it instead of leaving a hidden value behind.
+  const listOrNull = (id) => { const v = lines(id); return v.length ? v : null; };
+  const salary = salaryFromInputs($("defaults-salary-currency"), $("defaults-salary-min"), $("defaults-salary-max"), $("defaults-salary-period"));
+  return {
+    desired_roles: listOrNull("defaults-desired-roles"),
+    locations: listOrNull("defaults-locations"),
+    skills: listOrNull("defaults-skills"),
+    exclusions: listOrNull("defaults-exclusions"),
+    salary_expectations: Object.keys(salary).length ? salary : null,
+  };
+}
+$("defaults-save").onclick = async () => { try {
+  if (!personId) throw new Error("guarda primero una persona");
+  const d = await call("/api/person", "POST", defaultsFromForm());
+  if (d.person && d.person.details) fillPersonForm(d.person.details);
+  $("defaults-status").textContent = "Valores por defecto guardados";
+} catch (e) { $("defaults-status").textContent = "Error: " + e.message; } };
+for (const btn of document.querySelectorAll(".defaults-delete")) {
+  btn.onclick = async () => { try {
+    if (!personId) throw new Error("guarda primero una persona");
+    const d = await call("/api/person", "POST", { [btn.dataset.defaultKey]: null });
+    if (d.person && d.person.details) fillPersonForm(d.person.details);
+    $("defaults-status").textContent = "Valor por defecto eliminado";
+  } catch (e) { $("defaults-status").textContent = "Error: " + e.message; } };
+}
+// Reusable declarations: human-readable concept labels, value shown
+// and corrected as plain text, provenance shown read-only. The old
+// technical concept/scope/provenance editor is NOT brought back:
+// provenance is displayed, never typed, so a guess can never be
+// dressed up as a declared fact.
+const CONCEPT_LABELS = {
+  work_authorisation: "Autorización de trabajo", sponsorship_required: "Necesita patrocinio",
+  salary_expectations: "Expectativa salarial", experience_years: "Años de experiencia",
+  english_level: "Nivel de inglés", spanish_level: "Nivel de español",
+  desired_role: "Puesto deseado", current_location: "Ubicación actual",
+  highest_education: "Estudios más altos", notice_period: "Plazo de preaviso",
+  current_employment_status: "Situación laboral actual", relocation_willingness: "Disposición a mudarse",
+};
+const PROVENANCE_LABELS = {
+  user: "Declarado por ti", "cv-import": "Importado de tu CV",
+  "portal-form": "Formulario del portal", manual: "Añadido manualmente", document: "Documento",
+};
+function conceptLabel(concept) { return CONCEPT_LABELS[concept] || String(concept).replace(/_/g, " "); }
+function scopeLabel(scope) {
+  if (!scope) return "";
+  return /^[A-Za-z]{2}$/.test(scope) ? " (" + countryName(scope) + ")" : " (" + scope + ")";
+}
+async function refreshFacts() {
+  const list = $("person-facts-list");
+  if (!personId) { list.innerHTML = "<p><small>Guarda primero una persona.</small></p>"; return; }
+  try {
+    const data = await call("/api/facts?personId=" + personId, "GET");
+    list.innerHTML = "";
+    for (const f of data.facts || []) {
+      const card = document.createElement("div");
+      card.className = "profile-card";
+      const title = document.createElement("h3");
+      title.textContent = conceptLabel(f.concept) + scopeLabel(f.scope);
+      card.appendChild(title);
+      const prov = document.createElement("p");
+      prov.innerHTML = "<small>Procedencia: " + (PROVENANCE_LABELS[f.provenance] || f.provenance) + "</small>";
+      card.appendChild(prov);
+      if (typeof f.value === "string") {
+        const lab = document.createElement("label");
+        lab.textContent = "Valor";
+        const input = document.createElement("input");
+        input.className = "fact-value";
+        input.value = f.value;
+        card.append(lab, input);
+        const save = document.createElement("button");
+        save.type = "button";
+        save.textContent = "Corregir valor";
+        save.onclick = async () => { try {
+          await call("/api/facts", "POST", { personId, concept: f.concept, scope: f.scope || "", value: input.value, provenance: f.provenance });
+          $("facts-status").textContent = "Declaración corregida";
+          await refreshFacts();
+        } catch (e) { $("facts-status").textContent = "Error: " + e.message; } };
+        card.appendChild(save);
+      } else {
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify(f.value);
+        card.appendChild(pre);
+      }
+      const del = document.createElement("button");
+      del.type = "button";
+      del.textContent = "Eliminar";
+      del.onclick = async () => { try {
+        await fetch("/api/facts/" + f.id, { method: "DELETE" }).then(async (r) => { if (!r.ok) throw new Error("HTTP " + r.status); });
+        $("facts-status").textContent = "Declaración eliminada";
+        await refreshFacts();
+      } catch (e) { $("facts-status").textContent = "Error: " + e.message; } };
+      card.appendChild(del);
+      list.appendChild(card);
+    }
+    if (!(data.facts || []).length) list.innerHTML = "<p><small>Sin declaraciones todavía.</small></p>";
+  } catch (e) { $("facts-status").textContent = "Error: " + e.message; }
+}
+$("facts-refresh").onclick = refreshFacts;
 const MISSING_LABELS = { identity: "identidad", name: "nombre", focus: "enfoque", cv_validated: "CV validado", cv_conflicts_unresolved: "CV con conflictos sin resolver (resuélvelos en la sección de CV)", policy: "política aceptada", consent: "consentimiento", xai: "xAI verificado", profile_deleted: "perfil eliminado" };
 function missingLabel(m) { return m.startsWith("fact ") ? "hecho " + m.slice(5) : (MISSING_LABELS[m] || m); }
 let conflictedCvs = [];
@@ -654,10 +945,61 @@ function buildSelectionCheckboxes(container, entries, labelFn, checkedIds) {
     container.appendChild(hint);
   }
 }
-function renderCreateSelections(details) {
-  buildSelectionCheckboxes($("profile-employment-select"), details.employment || [], (e) => (e.title || "") + " @ " + (e.employer || ""), null);
-  buildSelectionCheckboxes($("profile-education-select"), details.education || [], (e) => (e.title || "") + " @ " + (e.institution || ""), null);
+function createHistoryMode() {
+  const checked = document.querySelector('input[name="profile-history-mode"]:checked');
+  return checked ? checked.value : "dynamic";
 }
+function createSeedMode() {
+  const checked = document.querySelector('input[name="profile-seed-mode"]:checked');
+  return checked ? checked.value : "inherit";
+}
+function setCreateHistoryVisibility(fixed) {
+  $("profile-history-fixed").style.display = fixed ? "" : "none";
+}
+// G2 regression (2026-10-28): the create form's fixed selection no
+// longer resets on person load/save. The checked sets are preserved
+// across re-renders: entries seen before keep their tick, entries new
+// to the master history start ticked (so fixed means "hide what I
+// untick", not "lose what I ticked when the person reloads"). In
+// dynamic mode no selection exists to preserve, so a re-render
+// touches nothing at all — this fixes the 4deb2b2 quirk where typing
+// profile fields before loading the person lost the selection.
+let createSeen = { employment: new Set(), education: new Set() };
+let createChecked = { employment: new Set(), education: new Set() };
+function renderCreateSelections(details) {
+  if (createHistoryMode() !== "fixed") { setCreateHistoryVisibility(false); return; }
+  setCreateHistoryVisibility(true);
+  const renderOne = (containerId, entries, labelFn, kind) => {
+    const container = $(containerId);
+    // The DOM is the truth for what the user ticked: reading the
+    // last render's set would re-tick a box the user just unticked
+    // as soon as the person reloads. Only entries never rendered
+    // before default to ticked.
+    const current = hasSelectionCheckboxes(container) ? new Set(checkedIdsIn(container)) : createChecked[kind];
+    const seen = createSeen[kind];
+    const checkedIds = entries.filter((e) => !seen.has(e.id) || current.has(e.id)).map((e) => e.id);
+    buildSelectionCheckboxes(container, entries, labelFn, checkedIds);
+    createSeen[kind] = new Set(entries.map((e) => e.id));
+    createChecked[kind] = new Set(checkedIds);
+  };
+  renderOne("profile-employment-select", details.employment || [], (e) => (e.title || "") + " @ " + (e.employer || ""), "employment");
+  renderOne("profile-education-select", details.education || [], (e) => (e.title || "") + " @ " + (e.institution || ""), "education");
+}
+for (const radio of document.querySelectorAll('input[name="profile-history-mode"]')) {
+  radio.onchange = () => {
+    if (createHistoryMode() === "fixed") {
+      // Switching dynamic -> fixed starts from ALL entries ticked,
+      // so the user unchecks what to hide instead of ticking what to
+      // keep; the stored array is whatever remains ticked at create.
+      createSeen = { employment: new Set(), education: new Set() };
+      createChecked = { employment: new Set(), education: new Set() };
+      renderCreateSelections(lastPersonDetails || {});
+    } else {
+      setCreateHistoryVisibility(false);
+    }
+  };
+}
+setCreateHistoryVisibility(false);
 function checkedIdsIn(container) {
   return [...container.querySelectorAll("input[type=checkbox]")].filter((cb) => cb.checked).map((cb) => cb.dataset.entryId);
 }
@@ -786,6 +1128,38 @@ async function refreshProfiles() {
     eduSelLabel.textContent = "Estudios que presenta este perfil";
     const eduSel = document.createElement("div");
     buildSelectionCheckboxes(eduSel, stored.education || [], (e) => (e.title || "") + " @ " + (e.institution || ""), p.body.education_ids === undefined ? null : p.body.education_ids);
+    // History mode (G2 regression): explicit, not inferred. A legacy
+    // profile with NO selection keys displays as dynamic ("todo el
+    // historial, siempre actualizado"); a profile with keys displays
+    // as fixed. Switching dynamic -> fixed re-ticks every entry, so
+    // the user unchecks what to hide; switching fixed -> dynamic
+    // hides the checkboxes and the save deletes the stored keys.
+    const histModeLabel = document.createElement("label");
+    histModeLabel.textContent = "Modo de historial";
+    const histDynamicLab = document.createElement("label");
+    const histDynamic = document.createElement("input");
+    histDynamic.type = "radio"; histDynamic.name = "hist-mode-" + p.id; histDynamic.value = "dynamic";
+    histDynamicLab.append(histDynamic, document.createTextNode(" Todo el historial, siempre actualizado"));
+    const histFixedLab = document.createElement("label");
+    const histFixed = document.createElement("input");
+    histFixed.type = "radio"; histFixed.name = "hist-mode-" + p.id; histFixed.value = "fixed";
+    histFixedLab.append(histFixed, document.createTextNode(" Selección fija"));
+    const editIsDynamic = p.body.employment_ids === undefined && p.body.education_ids === undefined;
+    histDynamic.checked = editIsDynamic;
+    histFixed.checked = !editIsDynamic;
+    const histWrap = document.createElement("div");
+    histWrap.append(empSelLabel, empSel, eduSelLabel, eduSel);
+    histWrap.style.display = editIsDynamic ? "none" : "";
+    const applyEditHistMode = () => {
+      if (histDynamic.checked) { histWrap.style.display = "none"; }
+      else {
+        histWrap.style.display = "";
+        buildSelectionCheckboxes(empSel, stored.employment || [], (e) => (e.title || "") + " @ " + (e.employer || ""), null);
+        buildSelectionCheckboxes(eduSel, stored.education || [], (e) => (e.title || "") + " @ " + (e.institution || ""), null);
+      }
+    };
+    histDynamic.onchange = applyEditHistMode;
+    histFixed.onchange = applyEditHistMode;
     const draftOut = document.createElement("p");
     draftOut.className = "status";
     const saveBtn = document.createElement("button");
@@ -802,14 +1176,19 @@ async function refreshProfiles() {
       body.skills = skInput.value.split("\n").map((l) => l.trim()).filter(Boolean);
       body.exclusions = exInput.value.split("\n").map((l) => l.trim()).filter(Boolean);
       body.salary_expectations = salaryFromInputs(salCurInput, salMinInput, salMaxInput, salPerInput);
-      // Selections: when the person has history, the ticked ids are
-      // stored explicitly. When there is no history to tick, carry
-      // over whatever the body already had (or nothing, preserving
-      // the absent-means-all rule) instead of storing an empty list.
-      if (hasSelectionCheckboxes(empSel)) body.employment_ids = checkedIdsIn(empSel);
-      else if (body.employment_ids === undefined) delete body.employment_ids;
-      if (hasSelectionCheckboxes(eduSel)) body.education_ids = checkedIdsIn(eduSel);
-      else if (body.education_ids === undefined) delete body.education_ids;
+      // History mode (G2 regression): dynamic deletes the stored
+      // selection keys, so the profile presents all entries again,
+      // including future master additions. Fixed stores exactly the
+      // ticked ids (possibly none). With no history to tick, a fixed
+      // save keeps whatever the body already had, preserving the
+      // absent-means-all rule instead of storing an empty list.
+      if (histDynamic.checked) { delete body.employment_ids; delete body.education_ids; }
+      else {
+        if (hasSelectionCheckboxes(empSel)) body.employment_ids = checkedIdsIn(empSel);
+        else if (body.employment_ids === undefined) delete body.employment_ids;
+        if (hasSelectionCheckboxes(eduSel)) body.education_ids = checkedIdsIn(eduSel);
+        else if (body.education_ids === undefined) delete body.education_ids;
+      }
       await call("/api/drafts/" + draftId, "PUT", { body }); draftOut.textContent = "Borrador guardado"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
     const confirmBtn = document.createElement("button");
     confirmBtn.textContent = "Confirmar borrador";
@@ -820,31 +1199,33 @@ async function refreshProfiles() {
     editArea.append(focusLabel, focusInput, templateLabel, templateInput, cvLabel, cvSelect,
       drLab, drInput, locLab, locInput, skLab, skInput, exLab, exInput,
       salCurLab, salCurInput, salMinLab, salMinInput, salMaxLab, salMaxInput, salPerLab, salPerInput,
-      empSelLabel, empSel, eduSelLabel, eduSel,
+      histModeLabel, histDynamicLab, histFixedLab, histWrap,
       saveBtn, confirmBtn, discardBtn, draftOut);
     editBtn.onclick = async () => { try { const d = await call("/api/profiles/" + p.id + "/drafts", "POST", {}); draftsByCard.set(p.id, d.id); editArea.style.display = "block"; } catch (e) { readinessOut.textContent = "Error: " + e.message; } };
     card.append(editBtn, editArea);
     list.appendChild(card);
   }
 }
-$("person-save").onclick = async () => { try { const d = await call("/api/person", "POST", personDetailsFromForm()); personId = d.id; $("person-status").textContent = "Persona guardada: " + (d.person.details.full_name || ""); show($("person-out"), d); if (d.person && d.person.details) fillPersonForm(d.person.details); await refreshProfileCvOptions(); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
-$("person-load").onclick = async () => { try { const d = await call("/api/person", "GET"); if (d.person) { personId = d.person.id; fillPersonForm(d.person.details || {}); $("person-status").textContent = "Persona actual: " + (d.person.details.full_name || ""); await refreshProfileCvOptions(); } else { $("person-status").textContent = "Sin persona guardada"; } show($("person-out"), d); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
+$("person-save").onclick = async () => { try { const d = await call("/api/person", "POST", personDetailsFromForm()); personId = d.id; $("person-status").textContent = "Persona guardada: " + (d.person.details.full_name || ""); show($("person-out"), d); if (d.person && d.person.details) fillPersonForm(d.person.details); await refreshFacts(); await refreshProfileCvOptions(); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
+$("person-load").onclick = async () => { try { const d = await call("/api/person", "GET"); if (d.person) { personId = d.person.id; fillPersonForm(d.person.details || {}); $("person-status").textContent = "Persona actual: " + (d.person.details.full_name || ""); await refreshFacts(); await refreshProfileCvOptions(); } else { $("person-status").textContent = "Sin persona guardada"; } show($("person-out"), d); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
 $("profile-create").onclick = async () => { try {
   if (!personId) throw new Error("guarda primero una persona");
-  // Seeding (redesign 2026-10-28): a per-profile field left empty in
-  // the create form is seeded from the person's stored values, so
-  // what the user already had (roles, skills, salary, locations)
-  // carries into their first new profile instead of vanishing with
-  // the move out of the person form. A typed value always wins over
-  // the seed; a field empty in both places is omitted, not stored
-  // as an empty value.
+  // G2 regression (2026-10-28): the seed is now an explicit choice,
+  // not a silent inheritance. "Heredar" seeds empty fields from the
+  // person's defaults (typed values always win); "Empezar vacíos"
+  // seeds nothing, so a profile with no salary expectation can be
+  // created even when the person holds an old one. History mode is
+  // explicit too: dynamic stores NO selection keys (absent = all,
+  // including future master additions); fixed stores exactly the
+  // ticked ids (possibly none).
   const personData = await call("/api/person", "GET");
   const stored = personData.person ? personData.person.details || {} : {};
   lastPersonDetails = stored;
+  const seed = createSeedMode() === "inherit";
   const pickList = (fieldId, storedValue) => {
     const typed = lines(fieldId);
     if (typed.length) return typed;
-    if (storedValue && storedValue.length) return storedValue;
+    if (seed && storedValue && storedValue.length) return storedValue;
     return undefined;
   };
   const body = { focus: $("profile-focus").value, template: $("profile-template").value };
@@ -858,14 +1239,12 @@ $("profile-create").onclick = async () => { try {
   if (exclusions !== undefined) body.exclusions = exclusions;
   const typedSalary = salaryFromInputs($("profile-salary-currency"), $("profile-salary-min"), $("profile-salary-max"), $("profile-salary-period"));
   if (Object.keys(typedSalary).length) body.salary_expectations = typedSalary;
-  else if (stored.salary_expectations && Object.keys(stored.salary_expectations).length) body.salary_expectations = stored.salary_expectations;
+  else if (seed && stored.salary_expectations && Object.keys(stored.salary_expectations).length) body.salary_expectations = stored.salary_expectations;
   if ($("profile-cv").value) body.cv_import_id = $("profile-cv").value;
-  // Selections: stored only when the person actually has history to
-  // select from. Otherwise the keys are omitted, so the profile
-  // presents all entries — including ones added to the master
-  // history later — instead of an empty list frozen at creation.
-  if (hasSelectionCheckboxes($("profile-employment-select"))) body.employment_ids = checkedIdsIn($("profile-employment-select"));
-  if (hasSelectionCheckboxes($("profile-education-select"))) body.education_ids = checkedIdsIn($("profile-education-select"));
+  if (createHistoryMode() === "fixed") {
+    if (hasSelectionCheckboxes($("profile-employment-select"))) body.employment_ids = checkedIdsIn($("profile-employment-select"));
+    if (hasSelectionCheckboxes($("profile-education-select"))) body.education_ids = checkedIdsIn($("profile-education-select"));
+  }
   await call("/api/profiles", "POST", { personId, name: $("profile-name").value, body });
   await refreshProfiles();
 } catch (e) { show($("profiles-out"), "Error: " + e.message); } };

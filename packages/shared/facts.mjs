@@ -41,6 +41,18 @@ export function listFacts(db, personId) {
   }));
 }
 
+/**
+ * Delete one declared fact by id (G2 regression, 2026-10-28: the
+ * domain UI lets the user delete a reusable declaration). Throws when
+ * the id does not exist, so a UI delete can never silently no-op.
+ * @param {any} db
+ * @param {string} factId
+ */
+export function deleteFact(db, factId) {
+  const r = db.prepare("DELETE FROM declared_facts WHERE id = ?").run(factId);
+  if (r.changes === 0) throw new Error("fact not found");
+}
+
 export function getConfirmedFact(db, personId, concept, scope = "") {
   const row = db.prepare("SELECT * FROM declared_facts WHERE person_id = ? AND concept = ? AND scope = ? AND confirmation_state = 'confirmed'").get(personId, concept, scope);
   return row ? { ...row, value: JSON.parse(row.value_json) } : null;

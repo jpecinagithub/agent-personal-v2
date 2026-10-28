@@ -15,7 +15,7 @@ import fs from "node:fs";
 import { createPersonFull, updatePersonDetails, getPerson, listPersons } from "../../packages/shared/person.mjs";
 import { createProfileFull, listProfiles, getProfileFull, archiveProfile, unarchiveProfile, deleteProfile, duplicateProfile, profileReadiness, createAttempt, getAttempt } from "../../packages/shared/profiles.mjs";
 import { createDraft, getDraft, listDrafts, updateDraft, discardDraft, confirmDraft } from "../../packages/shared/drafts.mjs";
-import { declareFact, listFacts } from "../../packages/shared/facts.mjs";
+import { declareFact, listFacts, deleteFact } from "../../packages/shared/facts.mjs";
 import { resolveScreening, answerPendingQuestion, listPendingQuestions } from "../../packages/shared/resolve.mjs";
 import { defineMapping, getMapping, listMappings } from "../../packages/shared/mappings.mjs";
 // F2 corrections: CV importer, policies/consents/settings.
@@ -267,6 +267,11 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, ver
       }
       if (req.method === "GET" && url.pathname === "/api/facts") {
         return send(res, 200, { facts: listFacts(db, url.searchParams.get("personId") ?? "") });
+      }
+      if (req.method === "DELETE" && url.pathname.startsWith("/api/facts/")) {
+        if (!requireControlOrigin(req, res)) return;
+        deleteFact(db, url.pathname.split("/")[3]);
+        return send(res, 200, { ok: true });
       }
       if (req.method === "POST" && url.pathname === "/api/resolve") {
         if (!requireControlOrigin(req, res)) return;

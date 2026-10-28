@@ -403,17 +403,16 @@ test("browser G2 re-review 3: consecutive saves without reload refresh reference
   }
 });
 
-test("browser: person form no longer shows authorisations, and a form save preserves them", async () => {
-  // WHY (user order 2026-10-28): the person form no longer shows or
-  // edits work authorisations. The card-driven G2 re-review 3/4
-  // browser tests (legacy id adoption, extra-field preservation,
-  // card delete, card edit, same-country distinction) were removed
-  // because the cards they drove no longer exist. Backend edit,
-  // delete-by-id and persisted-id behaviour stays covered by the
-  // g2-rereview3/4 module tests, and form-save preservation by
-  // form-authorisation-preservation.test.mjs. This test guards the new
-  // contract through the real screen: no authorisations UI at all,
-  // and a form save leaves stored authorisations byte-identical.
+test("browser G2 regression: authorisations domain UI edits by country and preserves extra fields", async () => {
+  // WHY (G2 regression 2026-10-28): the user review ruled that
+  // removing the authorisations editor from the UI breaks pliego
+  // completeness ("sin acceso al código", T-V2-018, G2 criterion),
+  // even though the backend stayed intact. The old test asserting
+  // "no authorisations UI at all" is therefore superseded: the UI
+  // now has a domain editor (authorised/sponsorship per country),
+  // and this test guards that an ordinary person save still preserves
+  // stored authorisations byte-identical, while a domain save edits
+  // by id and preserves extra fields (valid_from, source_note).
   const app = await startApp();
   try {
     const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
@@ -433,20 +432,34 @@ test("browser: person form no longer shows authorisations, and a form save prese
     assert.equal(before.length, 2, "seeded authorisations stored (ids normalised on read)");
     await app.page.click("#person-load");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
-    // The rest of the form still renders, but no authorisations UI.
-    assert.equal(await app.page.locator("#person-full-name").inputValue(), "Synthetic Original");
-    assert.equal(await app.page.locator("#person-authorisations-list").count(), 0, "no authorisations list in the form");
-    assert.equal(await app.page.getByRole("button", { name: "Añadir autorización" }).count(), 0, "no add-authorisation button");
-    assert.ok(!(await bodyText(app.page)).includes("Autorizaciones de trabajo"), "no authorisations heading in the form");
-    // Save through the form (changing an unrelated field) and check
-    // the stored authorisations survived exactly.
-    // WHY (redesign 2026-10-28): skills moved to the profiles tab, so
-    // this test now changes links, which stayed in the person form.
+    // The domain UI renders countries readably, not as raw codes.
+    assert.ok((await bodyText(app.page)).includes("Autorizaciones de trabajo"));
+    assert.equal(await app.page.locator("#person-authorisations-list .auth-card").count(), 2);
+    assert.ok((await app.page.locator("#person-authorisations-list").textContent()).includes("España"));
+    // An ordinary person save (changing links) preserves them exactly.
     await app.page.fill("#person-links", "https://example.test/professional-profile");
     await app.page.click("#person-save");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
-    const after = (await getPerson()).authorisations;
-    assert.deepEqual(after, before, "form save preserves stored authorisations byte-identical, ids and extra fields intact");
+    assert.deepEqual((await getPerson()).authorisations, before, "form save preserves stored authorisations byte-identical");
+    // Edit through the domain UI: turn sponsorship ON for Spain.
+    // Card checkboxes in order: authorised, sponsorship.
+    const esCard = app.page.locator("#person-authorisations-list .auth-card").filter({ hasText: "España" });
+    await esCard.locator("input[type=checkbox]").nth(1).check();
+    await app.page.click("#authorisations-save");
+    await app.page.waitForFunction(() => (document.querySelector("#authorisations-status")?.textContent ?? "").includes("Autorizaciones guardadas"));
+    const edited = (await getPerson()).authorisations;
+    const es = edited.find((a) => a.country === "ES");
+    assert.equal(es.sponsorship_required, true, "sponsorship edited through the domain UI");
+    assert.equal(es.valid_from, "2025-01", "extra field valid_from preserved across a domain edit");
+    assert.equal(es.source_note, "Synthetic user declaration", "extra field source_note preserved across a domain edit");
+    // Delete France through the domain UI and save.
+    const frCard = app.page.locator("#person-authorisations-list .auth-card").filter({ hasText: "Francia" });
+    await frCard.getByRole("button", { name: "Eliminar" }).click();
+    await app.page.click("#authorisations-save");
+    await app.page.waitForFunction(() => (document.querySelector("#authorisations-status")?.textContent ?? "").includes("Autorizaciones guardadas"));
+    const remaining = (await getPerson()).authorisations;
+    assert.equal(remaining.length, 1, "only Spain remains after deleting France");
+    assert.equal(remaining[0].country, "ES");
   } finally {
     await stopApp(app);
   }
@@ -499,6 +512,10 @@ test("browser redesign: tabs switch views, profile create seeds from person and 
     await app.page.click("#person-load");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
     await app.page.click("#tab-profiles");
+    // G2 regression: dynamic is the default history mode, so the
+    // fixed checkboxes are hidden until that mode is chosen.
+    assert.equal(await app.page.locator("#profile-history-fixed").isVisible(), false);
+    await app.page.check('input[name="profile-history-mode"][value="fixed"]');
     assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").count(), 2);
     assert.equal(await app.page.locator("#profile-education-select input[type=checkbox]").count(), 1);
     assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").nth(0).isChecked(), true);
@@ -544,3 +561,139 @@ test("browser redesign: tabs switch views, profile create seeds from person and 
     await stopApp(app);
   }
 });
+test("browser G2 regression: defaults editable and deletable, explicit create modes, dynamic vs fixed history", async () => {
+  // WHY (G2 regression 2026-10-28): the redesign left the person's
+  // old per-profile fields as hidden silent seeds (two sources of
+  // truth), created profiles inherited them without asking, and the
+  // history selection froze implicitly. This test guards the fixed
+  // contract through the real screen: defaults are visible, editable
+  // and deletable in Persona and never touch existing profiles;
+  // "Empezar vacíos" creates a profile with no salary expectation
+  // even when defaults exist; dynamic stores no selection keys and
+  // fixed stores exactly the ticked ids; a fixed selection survives
+  // a person save (the 4deb2b2 re-render quirk); and switching a
+  // profile from fixed to dynamic clears the stored keys.
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    const seed = {
+      full_name: "Test Person",
+      email: "test.person@example.test",
+      desired_roles: ["Finance Manager"],
+      locations: ["Madrid"],
+      skills: ["accounting"],
+      exclusions: ["night shifts"],
+      salary_expectations: { currency: "EUR", min: 50000, max: 70000, period: "year" },
+      employment: [
+        { id: "job-1", employer: "Alpha Corp", title: "Analyst", start: "2020-01" },
+        { id: "job-2", employer: "Beta Ltd", title: "Accountant", start: "2022-01" },
+      ],
+      education: [
+        { id: "edu-1", institution: "Fixture University", title: "BSc Test Studies", start: "2016", end: "2020" },
+      ],
+    };
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(seed) });
+    assert.equal(created.status, 201);
+    const personId = (await (await fetch(`${base}/api/person`)).json()).person.id;
+    const getPerson = async () => (await (await fetch(`${base}/api/person`)).json()).person.details;
+    const getProfiles = async () => (await (await fetch(`${base}/api/profiles?personId=${personId}`)).json()).profiles;
+    await fetch(`${base}/api/facts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personId, concept: "english_level", value: "C1", provenance: "user" }) });
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    // Defaults are visible in Persona, and the declaration renders
+    // with a human label and a read-only provenance.
+    assert.equal(await app.page.locator("#defaults-skills").inputValue(), "accounting");
+    assert.equal(await app.page.locator("#defaults-salary-min").inputValue(), "50000");
+    await app.page.click("#facts-refresh");
+    await app.page.waitForFunction(() => (document.querySelector("#person-facts-list")?.textContent ?? "").includes("Nivel de inglés"));
+    assert.ok((await app.page.locator("#person-facts-list").textContent()).includes("Declarado por ti"));
+    // Inherit-create a profile, then change a default: the existing
+    // profile must not move.
+    await app.page.click("#tab-profiles");
+    await app.page.fill("#profile-name", "Heredado");
+    await app.page.fill("#profile-focus", "Finance");
+    await app.page.click("#profile-create");
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Heredado"));
+    let profiles = await getProfiles();
+    assert.deepEqual(profiles[0].body.skills, ["accounting"]);
+    await app.page.click("#tab-person");
+    await app.page.fill("#defaults-skills", "forecasting");
+    await app.page.click("#defaults-save");
+    await app.page.waitForFunction(() => (document.querySelector("#defaults-status")?.textContent ?? "").includes("Valores por defecto guardados"));
+    assert.deepEqual((await getPerson()).skills, ["forecasting"]);
+    assert.deepEqual((await getProfiles())[0].body.skills, ["accounting"], "changing a default never changes an existing profile");
+    // Delete the locations default: it leaves the person JSON.
+    await app.page.locator('.defaults-delete[data-default-key="locations"]').click();
+    await app.page.waitForFunction(() => (document.querySelector("#defaults-status")?.textContent ?? "").includes("Valor por defecto eliminado"));
+    assert.equal((await getPerson()).locations, undefined, "deleted default is gone from the person JSON");
+    // Empty-create: no seeded value at all, even though defaults
+    // (skills, salary) still exist on the person.
+    await app.page.click("#tab-profiles");
+    await app.page.check('input[name="profile-seed-mode"][value="empty"]');
+    await app.page.fill("#profile-name", "Vacío");
+    await app.page.fill("#profile-focus", "Finance");
+    await app.page.click("#profile-create");
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Vacío"));
+    profiles = await getProfiles();
+    const empty = profiles.find((p) => p.name === "Vacío");
+    assert.equal(empty.body.salary_expectations, undefined, "empty mode creates a profile with no salary expectation");
+    assert.equal(empty.body.skills, undefined, "empty mode seeds no skills");
+    assert.equal(empty.body.employment_ids, undefined, "dynamic mode (default) stores no employment key");
+    assert.equal(empty.body.education_ids, undefined, "dynamic mode (default) stores no education key");
+    // Fixed mode: untick job-2, save the person, come back — the
+    // untick must survive the person save (4deb2b2 quirk).
+    await app.page.check('input[name="profile-history-mode"][value="fixed"]');
+    assert.equal(await app.page.locator("#profile-history-fixed").isVisible(), true);
+    assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").count(), 2);
+    await app.page.locator("#profile-employment-select input[type=checkbox]").nth(1).uncheck();
+    await app.page.click("#tab-person");
+    await app.page.click("#person-save");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+    await app.page.click("#tab-profiles");
+    assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").nth(1).isChecked(), false, "fixed untick survives a person save");
+    assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").nth(0).isChecked(), true);
+    await app.page.check('input[name="profile-seed-mode"][value="inherit"]');
+    await app.page.fill("#profile-name", "Fijo");
+    await app.page.fill("#profile-focus", "Finance");
+    await app.page.click("#profile-create");
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Fijo"));
+    profiles = await getProfiles();
+    const fixed = profiles.find((p) => p.name === "Fijo");
+    assert.deepEqual(fixed.body.employment_ids, ["job-1"], "fixed mode stores exactly the ticked ids");
+    // Edit the fixed profile: switch it to dynamic, save and confirm
+    // — the stored keys must be cleared.
+    const card = app.page.locator("#profiles-list .profile-card").filter({ hasText: "Fijo" }).first();
+    await card.getByRole("button", { name: "Editar" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Guardar borrador"));
+    await card.locator('input[type="radio"][value="dynamic"]').check();
+    await card.getByRole("button", { name: "Guardar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Borrador guardado"));
+    await card.getByRole("button", { name: "Confirmar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-status")?.textContent ?? "").includes("Borrador confirmado"));
+    profiles = await getProfiles();
+    const switched = profiles.find((p) => p.name === "Fijo");
+    assert.equal(switched.body.employment_ids, undefined, "fixed -> dynamic clears the employment key");
+    assert.equal(switched.body.education_ids, undefined, "fixed -> dynamic clears the education key");
+    // Correct and delete declarations through the domain UI.
+    await app.page.click("#tab-person");
+    await app.page.click("#facts-refresh");
+    // Wait for the re-render to settle before filling: otherwise the
+    // async refresh can replace the input mid-edit and the save
+    // would post the old value again.
+    await app.page.waitForFunction(() => (document.querySelector("#person-facts-list")?.textContent ?? "").includes("Nivel de inglés"));
+    const factCard = app.page.locator("#person-facts-list .profile-card").first();
+    await factCard.locator(".fact-value").fill("C2");
+    await factCard.getByRole("button", { name: "Corregir valor" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#facts-status")?.textContent ?? "").includes("Declaración corregida"));
+    let facts = (await (await fetch(`${base}/api/facts?personId=${personId}`)).json()).facts;
+    assert.equal(facts[0].value, "C2", "declaration value corrected through the UI");
+    await app.page.locator("#person-facts-list .profile-card").first().getByRole("button", { name: "Eliminar" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#facts-status")?.textContent ?? "").includes("Declaración eliminada"));
+    facts = (await (await fetch(`${base}/api/facts?personId=${personId}`)).json()).facts;
+    assert.equal(facts.length, 0, "declaration deleted through the UI");
+  } finally {
+    await stopApp(app);
+  }
+});
+

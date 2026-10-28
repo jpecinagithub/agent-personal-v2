@@ -43,6 +43,13 @@ const ALLOWED_BODY_KEYS = new Set([
 // resolving to what was presented at that moment; do not change
 // attempt/snapshot logic to "fix" this — read the selection at
 // generation time instead.
+// G2 REGRESSION REQUIREMENT (2026-10-28, binding on F3): T-V2-034
+// (ranking and comparison by profile) MUST use the profile's own
+// fields plus presentedHistory(personSnapshotDetails,
+// profileSnapshotBody), NOT the whole person history. A profile that
+// hides financial experience must rank and compare without it, and a
+// profile that selects a specific training must rank with it. This is
+// a requirement on F3, not a change made here: F3 has not started.
 
 /**
  * R4: a profile's CV must be explicitly selected for THAT profile and

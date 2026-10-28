@@ -8,10 +8,16 @@ import { randomUUID } from "node:crypto";
 
 const ALLOWED_KEYS = new Set([
   "full_name", "display_name", "email", "phone", "languages",
-  "authorisations", "availability", "exclusions", "desired_roles",
+  "authorisations", "availability", "mobility", "exclusions", "desired_roles",
   "locations", "salary_expectations", "employment", "education",
   "links", "skills",
 ]);
+
+// Mobility (G2 regression, 2026-10-28): a person-level willingness to
+// relocate, stored as one coded value so the UI can offer it as plain
+// words instead of free text. "" is never stored: the form sends null
+// for "sin preferencia", which deletes the key (see merge semantics).
+const MOBILITY_VALUES = new Set(["local", "spain", "anywhere"]);
 
 const DATE_RE = /^\d{4}(-\d{2})?$/;
 
@@ -69,6 +75,11 @@ export function validatePersonDetails(details) {
     }
   }
   if (details.exclusions !== undefined) checkStringArray(details.exclusions, "exclusions");
+  if (details.mobility !== undefined && details.mobility !== null) {
+    if (typeof details.mobility !== "string" || !MOBILITY_VALUES.has(details.mobility)) {
+      throw new Error(`mobility must be one of: ${[...MOBILITY_VALUES].join(", ")}`);
+    }
+  }
   if (details.desired_roles !== undefined) checkStringArray(details.desired_roles, "desired_roles");
   if (details.locations !== undefined) checkStringArray(details.locations, "locations");
   if (details.skills !== undefined) checkStringArray(details.skills, "skills");
