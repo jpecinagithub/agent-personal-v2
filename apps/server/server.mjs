@@ -49,7 +49,13 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, ver
   // key + model). Readiness requires verified. The key value is never
   // returned to the UI, only booleans and the model list (see
   // /api/xai-status).
-  const xaiKey = () => secrets.get("xai_api_key") ?? process.env.XAI_API_KEY ?? null;
+  // Trim on read as well as on save: a key stored with pasted
+  // whitespace must verify with the same fingerprint it is checked with.
+  const xaiKey = () => {
+    const raw = secrets.get("xai_api_key") ?? process.env.XAI_API_KEY ?? null;
+    const trimmed = typeof raw === "string" ? raw.trim() : null;
+    return trimmed ? trimmed : null;
+  };
   const xaiConfigured = () => Boolean(xaiKey());
   const xaiModel = () => getSetting(db, "xai_model") ?? DEFAULT_XAI_MODEL;
   const xaiVerified = () => isXaiVerified(db, { apiKey: xaiKey(), model: xaiModel() });
@@ -364,8 +370,8 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, ver
       if (req.method === "POST" && url.pathname === "/api/xai-key") {
         if (!requireControlOrigin(req, res)) return;
         const body = await readJson(req);
-        if (typeof body.value !== "string" || !body.value) throw new Error("xAI key value is required");
-        secrets.set("xai_api_key", body.value);
+        if (typeof body.value !== "string" || !body.value.trim()) throw new Error("xAI key value is required");
+        secrets.set("xai_api_key", body.value.trim());
         // A new key invalidates any previous verification (R3).
         clearXaiVerifications(db);
         return send(res, 200, xaiStatus());

@@ -26,12 +26,17 @@ export function keyFingerprint(key) {
  * @returns {Promise<{ok: boolean, models: string[], reason: string | null}>}
  */
 export async function verifyXaiConnection({ fetchFn = globalThis.fetch, apiKey, model = DEFAULT_XAI_MODEL }) {
-  if (!apiKey) return { ok: false, models: [], reason: "no_key" };
+  // Keys pasted from a dashboard often carry a trailing space or newline;
+  // the provider rejects such a token outright (http_400), so trim before
+  // sending. The stored key is trimmed the same way on save (server.mjs),
+  // so the fingerprint used for verification records always matches.
+  const key = String(apiKey ?? "").trim();
+  if (!key) return { ok: false, models: [], reason: "no_key" };
   let res;
   try {
     res = await fetchFn(XAI_MODELS_URL, {
       method: "GET",
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: { Authorization: `Bearer ${key}` },
     });
   } catch (err) {
     return { ok: false, models: [], reason: `network: ${err instanceof Error ? err.message : String(err)}` };

@@ -65,3 +65,14 @@ test("R3: a later failed verification revokes, and clearing removes verification
   clearXaiVerifications(db);
   assert.equal(isXaiVerified(db, { apiKey: "FAKE-KEY-ONLY", model: DEFAULT_XAI_MODEL }), false);
 });
+
+test("xAI: a pasted key with surrounding whitespace is trimmed before sending", async () => {
+  let sentAuth = null;
+  const fetchFn = async (url, opts) => {
+    sentAuth = opts.headers.Authorization;
+    return { ok: true, status: 200, json: async () => MODELS };
+  };
+  const r = await verifyXaiConnection({ fetchFn, apiKey: "  FAKE-KEY-ONLY\n", model: DEFAULT_XAI_MODEL });
+  assert.equal(r.ok, true);
+  assert.equal(sentAuth, "Bearer FAKE-KEY-ONLY");
+});
