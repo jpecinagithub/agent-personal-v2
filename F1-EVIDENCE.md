@@ -152,10 +152,11 @@ after a clean `npm ci`: `npm run typecheck` exit 0 (zero tsc errors),
 - Workflow fixes applied anyway (so the run is valid once runners are
   available): `npm ci` step added (required now that typescript is a
   devDependency), `npm run typecheck` step added, workflow YAML parsed
-  locally and its step list verified. The new commit's CI run will
-  almost certainly fail the same way until the account billing/spending
-  limit is fixed — that step belongs to the account holder, not to this
-  repo. CI is therefore NOT claimed green. Locally, the exact CI
+  locally and its step list verified. The new commit's CI run
+  (run 40655937719, head e0f0cd6) failed exactly as predicted: 7 s,
+  conclusion failure, 0 steps, same billing annotation. CI is therefore
+  NOT claimed green, and fixing it belongs to the account holder
+  (billing/spending limit), not to this repo. Locally, the exact CI
   sequence (npm ci → typecheck → test → check) was run and passes.
 - What would unblock it: resolve the GitHub billing/spending-limit
   issue on the account, then rerun or push; no code change is needed
