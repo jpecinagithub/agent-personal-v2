@@ -3,6 +3,7 @@
 // secrets endpoint lists names only; values never leave this process in
 // a response.
 import http from "node:http";
+import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { openDatabase } from "../../packages/shared/db.mjs";
 import { enqueue, claim, complete, fail, pauseJob, resumeJob, cancelJob, recover, getJob } from "../../packages/shared/queue.mjs";
@@ -446,7 +447,7 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, ver
   return { server, db, secrets, stopRecovery };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const host = process.env.HOST ?? "127.0.0.1";
   if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") {
     console.error("refusing to bind a non-loopback host in private deployment");
