@@ -260,3 +260,221 @@ as docs-only; the code it describes is unchanged from `ab3371a`.
   person identity edits apply immediately rather than through
   drafts; F1 raw `updateProfile` after pinning is not used by F2
   code) and the F10 qualification above. Real xAI calls in F2: 0.
+
+# Corrections 2026-10-28 (G2 held open)
+
+The user reviewed the code and evidence of the F2 delivery above and
+did NOT accept G2 as closed: F2 stayed a partial delivery. The cause
+was confirmed in the user's review and is accepted here: the previous
+implementation followed a brief that REASSIGNED the F2 task numbers
+(it turned T-V2-016, the CV importer, into "ten profiles"). That
+reassignment was not agreed with the user. These corrections were
+built against the authoritative task list in the user's uploaded
+pliego, `05-FASES-Y-TAREAS.md`, section F2, before any code was
+written. No F3 work was started.
+
+## Task-correspondence table (pliego numbers, exactly)
+
+| Pliego task | Pliego deliverable | Implemented as (this repo) | Status after corrections |
+|---|---|---|---|
+| T-V2-015 (RF-V2-002, 009, 020) | Setup assistant + identity/contact editor, no seed, no SQL | `person.mjs`: validated person entity, named-form UI | Implemented (was already present; kept) |
+| T-V2-016 (RF-V2-011, 012) | PDF/DOCX/text importer with preview, extraction, provenance, scanned handling; corrupt/empty never approved | `cv.mjs` + `/api/cv*` + CV UI section | NEW in these corrections (was missing) |
+| T-V2-017 (RF-V2-013, 014) | Employment/education CRUD with IDs and date precision; simultaneous experience and current job | `person.mjs` employment/education fields (validated, IDs, YYYY/YYYY-MM) + form rows | Implemented (was present as person fields; kept) |
+| T-V2-018 (RF-V2-015, 016) | Editors for languages, skills, links, authorisation by country, availability, compensation; no inferred sensitive values | `person.mjs` editors + named-form UI fields | Implemented (was present; kept) |
+| T-V2-019 (RF-V2-017, 048, 054) | Concept dictionary + scoped declaration editor; human question to reusable declaration | `facts.mjs` + `resolve.mjs` (concept + scope, deterministic) | Implemented (was present; kept) |
+| T-V2-020 (RF-V2-010, 018) | Create/duplicate/archive/delete profiles, focus and template; TEN limit and cross-source conflict detection | `profiles.mjs`: duplicate/archive/delete, limit corrected (see item 3) | CORRECTED (limit + deletion semantics were wrong) |
+| T-V2-021 (RF-V2-019, 059) | Snapshots and versions; changing a profile does not alter the earlier file; explicit regeneration before sending | `drafts.mjs` + profile/person snapshots + `createAttempt` pinning | CORRECTED (attempt now snapshots the whole person, item 5) |
+| T-V2-022 (RF-V2-007, 008, 020) | Policies, consent and configuration screen; readiness per profile; automatic mode OFF initially | Policies/consents/xAI/settings UI + `profileReadiness` (see item 4) | CORRECTED (policies/consents/xAI + readiness were missing/wrong) |
+
+Note on `specs/002-agent-personal/tasks.md`: its F2 summary already
+matches the pliego (015 identity, 016 CV importer, 017 employment and
+education, 018 languages/skills/authorisations, 019 concept
+dictionary, 020 profiles, 021 snapshots, 022 policies and readiness).
+It did NOT need correcting; the divergence was only in the previous
+implementation brief and in the old F2 evidence's scope note, which
+this section supersedes. Code header comments that carried the wrong
+numbers (`profiles.mjs`, `drafts.mjs`, `facts.mjs`, `mappings.mjs`,
+`resolve.mjs`, `person.mjs`) were corrected to the pliego numbers.
+Field mappings have no standalone F2 row in the pliego; they are kept
+as supporting T-V2-021 (RF-V2-059) infrastructure, not presented as
+their own task.
+
+## 1. CV importer (pliego T-V2-016)
+
+- `packages/shared/cv.mjs`, migration `003_f2_corrections.sql`
+  (`cv_imports` table), server routes `POST /api/cv` (base64 upload),
+  `GET /api/cv`, `GET /api/cv/:id`, `POST /api/cv/:id/confirm`,
+  `POST /api/cv/:id/reject`, and a CV section in the UI (file input,
+  preview, confirm, reject).
+- Libraries added deliberately, with a committed lockfile: pdfjs-dist
+  4 for PDF, mammoth 1.13 for DOCX. The stdlib-only choice did not
+  authorise dropping the task. Rejected alternative, recorded:
+  pdf-parse 1.1.1 was tried first and discarded — its index runs a
+  debug snippet on import, and its bundled pdf.js (v1.10, 2017) fails
+  on modern PDFs ("bad XRef entry", "Invalid PDF structure"); the
+  same fixtures extract correctly with pdfjs-dist 4.
+- Flow: preview stores the import in `preview` status and its
+  candidate facts (email, phone, name guess) with provenance
+  `cv-import` in `pending` state — pending facts never answer
+  screening. Confirm requires extractable text, then marks the CV
+  `confirmed` (validated) and confirms its facts. A preview never
+  downgrades an already-confirmed fact back to pending.
+- Corrupt/empty: a non-PDF file named `.pdf`, an empty or
+  whitespace-only text file, and a fake ZIP named `.docx` are all
+  rejected at upload and leave no import record. A scanned PDF with
+  no text layer (fixture `tests/fixtures/scanned.pdf`, a real PDF
+  with an empty page) previews with a `scanned_no_text` warning and
+  its confirmation is refused.
+- Tests (`tests/cv.test.mjs`, synthetic fixtures generated for this
+  task: `sample.pdf` via pdf-lib, `sample.docx` via python-docx,
+  `sample.txt`, `scanned.pdf`): preview returns the known text for
+  PDF, DOCX and TXT; facts stay pending until confirmed and then
+  resolve; corrupt/empty rejected; scanned preview warned and
+  confirmation refused; rejected imports never validate.
+
+## 2. Form-based UI, tested through the screen (T-V2-022)
+
+- `apps/server/ui.html` rewritten as real HTML forms: person form
+  with named fields (name, email, phone, languages, authorisations,
+  roles, locations, skills, exclusions, availability, salary,
+  employment and education rows parsed from `employer | title |
+  start | end` lines — IDs are generated by the page, never shown
+  or copied by the user), profile creation form (name, focus,
+  template), per-profile cards with Duplicar, Archivar/Desarchivar,
+  Eliminar, Editar (draft form with Guardar/Confirmar/Descartar
+  borrador) and Comprobar preparación, CV file input with preview
+  and confirm/reject, policies list with accept buttons, consent
+  button, xAI key field (password, never displayed) with status, and
+  automatic-mode controls. No JSON textarea remains for person or
+  profile configuration, and profile cards never print UUIDs
+  (asserted in the browser test).
+- Browser tests (`tests/ui-browser.test.mjs`, playwright-core driving
+  headless Chromium from the Playwright browser cache): they open
+  the served page and, by clicking and typing in the page itself
+  (no direct API calls in these tests), create a person via the
+  form, create a profile via the form, duplicate a profile, archive
+  a profile, delete an archived profile, preview and confirm a CV
+  import from the file input, accept a policy, record the consent,
+  save an xAI key, and check readiness on the profile card — all
+  asserted on what the page shows afterwards.
+- Two real bugs found by these tests and fixed, not hidden: (a) the
+  readiness button re-rendered the profile list after checking,
+  wiping its own result — it no longer refreshes after a readiness
+  check; (b) the PDF extractor collapsed a page into one line, so
+  the name heuristic failed — pdf.js `hasEOL` markers are now used
+  to preserve line breaks.
+- Browser requirement, stated plainly: the browser tests need a
+  Chromium binary (`AGENTV2_CHROMIUM_PATH`, or the Playwright cache;
+  tested against `~/.cache/ms-playwright/chromium-1243`). Without
+  one they fail loudly with that exact cause; they do not fall back
+  to API assertions. The parent's Oracle smoke test will need that
+  binary on Oracle (or the env var) for the browser tests to run
+  there.
+
+## 3. Profile limit and deletion semantics (T-V2-020, corrected)
+
+- The limit now counts NON-DELETED profiles (active + archived):
+  `countNonDeletedProfiles`. Creating an 11th profile after
+  archiving one is now REJECTED (the old test that demanded the
+  wrong behaviour was rewritten, not kept). Unarchiving no longer
+  carries a limit check, because an archived profile already
+  occupies its slot — the old check could wrongly reject an
+  unarchive at exactly ten profiles. Only deletion frees a slot.
+- Deletion is now a soft delete (`deleted = 1`): snapshots and
+  drafts are never deleted, and `listProfiles` excludes deleted
+  profiles by default (with an `includeDeleted` option for audit).
+  A profile with past attempts can now be deleted after archiving,
+  and its attempts and pinned snapshots still resolve afterwards
+  (tested explicitly). Draft creation/confirmation on a deleted
+  profile is rejected.
+
+## 4. Policies, consents, xAI and correct readiness (T-V2-022, RF-V2-020)
+
+- `packages/shared/policies.mjs` + migration 003 (`policies`,
+  `consents`, `settings` tables; seeded policies `data_processing`
+  required and `auto_apply` optional; `auto_mode` seeded `"off"`).
+  Server routes: `GET /api/policies`, `POST /api/policies/:key/accept`,
+  `GET/POST /api/consents`, `GET /api/xai-status` (boolean only, the
+  key is never returned), `POST /api/xai-key` (stored in the
+  encrypted secret store), `GET/POST /api/settings`.
+- `profileReadiness` now requires ALL of: identity, name, focus,
+  every referenced fact confirmed, a validated CV, every required
+  policy accepted, the `apply_on_behalf` consent recorded, and xAI
+  available (key in the secret store or environment; the server
+  computes this, the default is "not available", never assumed).
+  The UI shows the missing elements in Spanish
+  (identidad, nombre, enfoque, CV validado, política aceptada,
+  consentimiento, xAI disponible, hecho …).
+- Automatic mode: OFF initially; enabling requires a ready profile
+  whose person accepted the `auto_apply` policy, and it can always
+  be disabled immediately.
+- Tests (`tests/readiness.test.mjs`): each missing element blocks
+  individually (cv, policy, consent, xAI removed one at a time),
+  and all present means ready. The old UI API test was updated to
+  the same flow (it previously asserted readiness with only name
+  and focus).
+
+## 5. Full-person attempt snapshot (T-V2-021)
+
+- Migration 003 adds `person_snapshots` and
+  `attempts.person_snapshot_id`. `createAttempt` now, in one
+  transaction, pins the profile snapshot in force AND snapshots the
+  whole person (identity, contacts, employment and education
+  history as stored in the person details) and stores the snapshot
+  id on the attempt; `getAttempt` returns the snapshot as
+  `personSnapshot`. Immediate identity edits remain allowed — the
+  obligation is that they never alter a past attempt, and the test
+  proves it: after an attempt, the person's name, email, employment
+  and education are all replaced, and the attempt still contains
+  the original person data unchanged while the current person shows
+  the new data.
+
+## Commands and observed results
+
+Working copy, then fresh clone (both 2026-10-28):
+
+```sh
+cd ~/workspace/agent-personal-v2
+npm run typecheck    # tsc --noEmit, exit 0
+npm test             # 56 tests, 56 pass, 0 fail (F1: 24, F2 original: 21, corrections: 11)
+npm run check        # node --check on all sources, exit 0
+```
+
+Fresh-clone verification (code commit, before this evidence commit):
+
+```sh
+rm -rf /tmp/agentv2-f2corr-clean
+git clone https://github.com/jpecinagithub/agent-personal-v2.git /tmp/agentv2-f2corr-clean
+cd /tmp/agentv2-f2corr-clean
+git rev-parse HEAD   # 78f5de0541246a698a5537eeb61f3f08c93d2df9
+node --version       # v24.22.1
+npm ci               # installs pdfjs-dist, mammoth, playwright-core from the lockfile
+npm run typecheck    # exit 0
+npm test             # 56 tests, 56 pass, 0 fail (17.0 s, browser tests included)
+npm run check        # exit 0
+ls .github           # No such file or directory (exit 2 from ls itself: correctly absent)
+```
+
+Tested commit: `78f5de0`. This evidence section was committed
+afterwards as docs-only; the code it describes is unchanged from
+`78f5de0`.
+
+## Gate G2 assessment after corrections
+
+- The five pending items are implemented and tested as above. The
+  previous G2 closure is superseded: G2 is NOT declared closed by
+  this report — the parent's Oracle smoke test (including the
+  browser tests, which need a Chromium binary on Oracle) is still
+  pending, and the user re-reviews before any G2 closure.
+- Remaining qualifications, stated plainly: person identity edits
+  still apply immediately (the obligation met here is that past
+  attempts keep the original person snapshot); the F1 raw
+  `updateProfile` sharp edge from the earlier evidence is unchanged
+  (F2 code paths do not use it after pinning); a full F10 deployment
+  (compose, install, backup/restore) is still pending and is not
+  claimed here.
+- Real xAI calls in these corrections: 0. All xAI tests use mock
+  fetches; the browser test's xAI key is an obviously fake value
+  that is stored in the test server's secret store only and never
+  displayed. Secret scan: no real key patterns in code, tests or
+  docs (test values are obviously fake).
