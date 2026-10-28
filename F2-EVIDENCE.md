@@ -788,3 +788,114 @@ re-review, as ordered; this report does not close G2.
   parent verification does not close G2. A full F10 deployment
   (compose, install, backup/restore) is still pending and is not
   claimed.
+
+## G2 re-review 2 corrections 2026-10-28 (f9726ef)
+
+The user independently re-reviewed f9726ef (typecheck ok, 37 existing
+tests ok, 44 independent checks: 38 pass, 6 fail in 3 issues) and
+kept G2 pending. All three issues are fixed below; the behaviours
+the user verified as working (per-profile CV assignment and reuse,
+xAI invalidation, auto policy, deleted-profile blocking, archive
+not freeing a slot, deletion freeing exactly one slot) were kept
+green and are covered by the existing suite.
+
+### 1. A CV with pending conflicts enabled an attempt (P1)
+
+- Reproduction (user's): confirm CV1, confirm a discrepant CV2
+  without resolving (status `confirmed_with_conflicts`, common fact
+  correctly kept), assign CV2 to a ready profile, readiness returned
+  true and POST /api/attempts returned 201.
+- Cause: `getValidatedCvImport` accepted `confirmed_with_conflicts`
+  exactly like `confirmed`, and the CV selector offered it.
+- Fix by class: only a FULLY confirmed import validates. A
+  conflicted import may still be SELECTED for a profile (so the
+  user can see and resolve it), but readiness returns
+  `cv_conflicts_unresolved` as the explained reason, and attempt
+  creation — which checks readiness before opening any
+  transaction — rejects it creating no attempt and no snapshot.
+  The UI selector offers only fully confirmed CVs and shows
+  conflicted ones as disabled options with the reason; the profile
+  editor shows an assigned conflicted CV the same way. Use is
+  restored only after an explicit keep/replace resolution, after
+  which the import becomes `confirmed`.
+- Tests (exact user names): "An unresolved CV conflict blocks
+  readiness" and "An unresolved CV conflict cannot enter an
+  attempt" (fresh synthetic offer, so no deduplication masks the
+  failure), plus "Resolving the conflict explicitly unlocks
+  readiness". One pre-existing test (R4 CV change) was updated to
+  the new contract: switching to an unresolved conflicted CV is
+  now rejected, resolving it unlocks the new attempt, and the
+  historical attempt still pins the old CV version.
+
+### 2. The form still saved some edits incorrectly (P1)
+
+Three sub-cases, all through the real browser, plus the class fix
+behind them: the form now sends its full state, and the backend
+distinguishes an absent field (preserve) from an explicit deletion
+(a null value deletes the key; an empty array clears a list).
+
+- (a) Unchecking "Empleo actual" left current=true: the form only
+  sent current when true. The card now sends current as false when
+  the entry previously had true (and omits it when the entry never
+  had the flag, so an unchanged save stays identical), and an end
+  date entered alongside is saved.
+- (b) Clearing "Enlaces personales" kept the old list: empty lists
+  were omitted and the merge read omission as "no change". Lists
+  are now sent explicitly — as [] when the loaded person had them
+  (explicit clear), omitted when the person never had them.
+- (c) Saving an authorisation lost valid_until and
+  sponsorship_required: the screen rebuilt only country/status and
+  the backend replaced the whole array. Authorisations are now
+  structured cards (country, status, validity, sponsorship
+  checkbox) with stable ids, and the backend merges them per entry
+  by id (or by country for legacy id-less entries, which gain an
+  id on merge), preserving unedited nested properties; a null
+  nested value clears that property explicitly.
+- The same had-flag rule was applied to entry list fields
+  (achievements, links) and to the salary object, after the first
+  version of this fix broke the existing R2 unchanged-save test by
+  adding keys (current:false, achievements:[], links:[]) to entries
+  that never had them. That regression was caught by the suite,
+  fixed, and the R2 test passes unchanged.
+- Tests: module tests for each sub-case plus a real-browser test
+  ("browser G2 re-review 2: unchecking current, clearing links and
+  editing authorisations saves explicitly") that edits through the
+  screen, reloads, and checks the persisted state both on screen
+  and through the API.
+
+### 3. A rejected cross-import correction already modified the other CV (P2)
+
+- Reproduction (user's): PUT /api/cv/<A>/proposals/<proposal-of-B>
+  returned 400 ("proposal does not belong to this CV import") but
+  B's value had already changed, because the server wrote first
+  and checked belonging afterwards.
+- Fix by class: `correctProposal` now takes the URL import id and
+  validates belonging BEFORE any write, and the UPDATE itself is
+  conditioned on both identifiers in one statement. The server
+  route passes the URL import id and no longer checks afterwards.
+- Tests: "Rejected cross-import correction does not modify the
+  other CV" (module level, both imports byte-identical after the
+  rejection) and "Rejected cross-import correction over HTTP
+  leaves both imports intact" (real HTTP, 400, B unchanged).
+
+### Verification of this correction round
+
+```sh
+rm -rf /tmp/agentv2-g2rr2-clean
+git clone https://github.com/jpecinagithub/agent-personal-v2.git /tmp/agentv2-g2rr2-clean
+cd /tmp/agentv2-g2rr2-clean
+git rev-parse HEAD   # 8ca80efb6be7f6b8264dfeea5dce03c554245e50
+node --version       # v24.22.1
+npm ci               # ok
+npm run typecheck    # exit 0
+npm test             # 95 tests, 95 pass, 0 fail (was 84; +11)
+npm run check        # exit 0
+ls .github           # No such file or directory (no Actions/runners)
+```
+
+Tested commit: `8ca80ef`. This evidence was committed afterwards
+as docs-only; the code it describes is unchanged from `8ca80ef`.
+G2 closure is left to the user's re-review, as ordered: this
+report does not close G2. A full F10 deployment (compose,
+install, backup/restore) is still pending and is not claimed.
+Real xAI calls in this round: 0 (all xAI tests use mock fetches).
