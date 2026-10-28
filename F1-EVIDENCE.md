@@ -370,3 +370,46 @@ qualifications above are partial, not failed, and are stated plainly.
   verified locally (clean clone, own resources), not deployed to
   Oracle — that deployment belongs to F10 (T-V2-075) and is not
   claimed here. Real xAI calls in F1: 0.
+
+## Standing working method (user decision 2026-10-28)
+
+- MUSE prepares the environment, runs the tests, investigates
+  failures, fixes them and repeats until the technical criteria are
+  met. GitHub is only for storage and versioning.
+- Oracle deployment tests are also done by MUSE, with results and
+  evidence delivered. This does not replace F10 (compose, install,
+  backup/restore); it is the deployment smoke test for the code under
+  test.
+
+## Oracle deployment smoke test 2026-10-28 (F1 code, commit e995fbb)
+
+- Environment found on Oracle (host iadelveloper-server, aarch64):
+  system Node v20.20.2, which cannot run this code (the package
+  requires Node >= 24 and `node:sqlite`). Preparation by MUSE, in user
+  space, without touching system Node or existing services: Node
+  v24.22.1 (linux-arm64) installed at
+  `~/opt/node-v24.22.1-linux-arm64` (official tarball, verified
+  `node --version` = v24.22.1, npm 11.19.1).
+- Limitation, stated plainly: a `git clone` of the private repo from
+  Oracle fails (no GitHub credentials on that host), so the deployed
+  copy was transferred as `git archive HEAD` of the tested commit
+  e995fbb (exact tracked content, clean working tree verified
+  locally) into `~/agentv2-deploy-test`. No deploy key was created
+  and no credentials were placed on Oracle.
+- Commands and results on Oracle, with the Node 24 binary on PATH:
+  `npm ci` (ok), `npm run typecheck` (exit 0), `npm test` (24 pass,
+  0 fail, 1.2 s), `npm run check` (exit 0).
+- Server smoke test: started with `HOST=127.0.0.1 PORT=14919`,
+  `AGENTV2_DATA_DIR=~/agentv2-deploy-test/data`. `curl
+  http://127.0.0.1:14919/health` returned `{"ok":true}`; `ss` showed
+  the listener on `127.0.0.1:14919` only; server log reads
+  "listening on http://127.0.0.1:14919 (private only)".
+- Cleanup: the server was stopped afterwards (verified: health no
+  longer responds, no agentv2 server process remains). One process
+  note: the `pkill` used to stop it also killed its own remote shell
+  (the pattern matched the ssh command line), which produced exit
+  255 on that step; the stop itself was then verified separately, as
+  above. The deployed copy stays at `~/agentv2-deploy-test` (server
+  stopped) for reruns; it is not a service, has no systemd unit and
+  does not start on boot. A full F10 deployment (compose, install,
+  backup/restore) is still pending and is not claimed here.
