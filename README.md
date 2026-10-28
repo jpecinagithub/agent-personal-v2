@@ -1,7 +1,10 @@
 # Agente personal de empleo v2 — F1 + F2
 
-Private single-user job application agent. New baseline, separate from
-JobHunter v1 and JOBFORCE. No login, no roles, private deployment only.
+Single-user job application agent. New baseline, separate from
+JobHunter v1 and JOBFORCE. No login, no roles.
+Repository of code: PUBLIC. Deployment and data: PRIVATE ONLY
+(localhost / private network; the database, the secret store and any
+local state are gitignored and never committed).
 
 ## Run (private only)
 
