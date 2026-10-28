@@ -317,3 +317,27 @@ module; the script now uses `tests/*.test.mjs`).
 
 None outstanding in F1. No gate criterion failed outright; the two
 qualifications above are partial, not failed, and are stated plainly.
+
+## Decision 2026-10-28: GitHub only for versioning, tests run locally
+
+- Decision by the user on 2026-10-28: GitHub is used only to store and
+  version the code. Tests run locally, with own resources. No runners
+  and no GitHub Actions are to be configured. The earlier recommendation
+  to install a self-hosted runner no longer applies.
+- Consequence: `.github/workflows/ci.yml` was removed from the repo in
+  the commit below, so pushes no longer trigger GitHub-hosted runs.
+  The GitHub-execution criterion ceases to be a requirement for
+  approving gate G1. What matters is that local tests are reproducible
+  and demonstrate technical compliance.
+- The authoritative verification for G1 is therefore the clean-clone
+  run recorded below: a fresh clone of the tested commit, run with the
+  exact commands, results and commit hash. The four example checks the
+  user named map to these tests: jobs recovered after a restart
+  (queue restart-recovery and periodic-sweep tests), profiles keeping
+  their history (profile snapshot tests, including the transactional
+  crash-recovery test), secrets protected (encrypted store tests:
+  ciphertext on disk, names-only API, 0600 files), and events arriving
+  correctly with validated data (live SSE test, SSE replay test,
+  schema-validation and xAI tool-argument validation tests).
+- Clean-clone run: (results filled in after the run; see commit
+  following this section).
