@@ -181,7 +181,14 @@ test("Form edits: an explicit null clears a scalar, absence preserves it", () =>
   assert.equal(getPerson(db, personId).details.email, undefined, "an absent field in a later patch must stay cleared, not resurrect");
 });
 
-test("Form edits: an id-less stored authorisation merges by country instead of duplicating", () => {
+test("Form edits: an id-less stored authorisation adopts only on full identity, never by country alone", () => {
+  // Contract change (G2 re-review 3): the previous version of this
+  // test merged an id-less entry by country, adding a new valid_until
+  // to the stored entry. That is exactly the ambiguous matching the
+  // user forbade: without an id, a differing entry cannot be told
+  // apart from a new authorisation for the same country. The new
+  // contract adopts only on full field identity; a differing entry
+  // becomes a second entry and the original is left untouched.
   const { db } = tmpDb("agentv2-rereview2-form-");
   const personId = createPersonFull(db, {
     full_name: "Synthetic Original",
@@ -189,8 +196,15 @@ test("Form edits: an id-less stored authorisation merges by country instead of d
     authorisations: [{ country: "ES", status: "authorised" }],
   });
   updatePersonDetails(db, personId, { authorisations: [{ country: "ES", status: "authorised", valid_until: "2031-01" }] });
-  const auths = getPerson(db, personId).details.authorisations;
-  assert.equal(auths.length, 1, "the legacy entry must be updated in place, not duplicated");
-  assert.equal(auths[0].valid_until, "2031-01");
-  assert.ok(auths[0].id, "the merged entry gains a stable id for later saves");
+  let auths = getPerson(db, personId).details.authorisations;
+  assert.equal(auths.length, 2, "a differing id-less entry is a new entry, not a country merge");
+  assert.equal(auths[0].valid_until, undefined, "the original entry is untouched");
+  assert.equal(auths[0].id, undefined, "the original entry still has no id");
+  assert.ok(auths[1].id, "the new entry gains a stable id");
+  // An identical id-less entry, by contrast, adopts the legacy one.
+  updatePersonDetails(db, personId, { authorisations: [{ country: "ES", status: "authorised" }] });
+  auths = getPerson(db, personId).details.authorisations;
+  assert.equal(auths.length, 2, "the identical entry adopts the legacy one instead of duplicating it");
+  assert.ok(auths[0].id, "the adopted legacy entry now has a stable id");
+  assert.equal(auths[0].country, "ES");
 });

@@ -180,10 +180,9 @@ function mergeEntryArray(current, patch, section, keyOf, idRequired) {
         if (v === null) delete kept[k];
         else kept[k] = v;
       }
-      // An entry matched by natural key (a legacy authorisation
-      // stored without an id) gains a stable id now, so later saves
-      // address it by id instead of re-matching by country.
-      if (!isNonEmptyString(kept.id)) kept.id = randomUUID();
+      // Note: authorisations no longer use this generic merge (see
+      // mergeAuthorisations below); employment/education entries
+      // always carry ids, so no id assignment happens here.
     } else {
       const fresh = {};
       for (const [k, v] of Object.entries(entry)) {
@@ -201,6 +200,124 @@ function mergeEntryArray(current, patch, section, keyOf, idRequired) {
   // with the entry: reordering never renames anything.
   const coversAll = order.every((id) => mentioned.includes(id));
   return (coversAll ? mentioned : order).map((id) => byKey.get(id));
+}
+
+function normIdentityValue(v) {
+  if (v === undefined || v === null || v === "") return undefined;
+  return v;
+}
+
+// Full field identity for authorisations (G2 re-review 3): the
+// canonical fields must ALL match — country, status, validity and
+// sponsorship — and any extra stored field must also match. Country
+// alone is NEVER enough: two entries for one country with different
+// status, validity or sponsorship are different authorisations.
+// Empty values normalise to absent, and an absent sponsorship flag
+// reads as false (the form's checkbox semantics: unchecked is false).
+function authIdentityMatches(stored, incoming) {
+  const keys = new Set([...Object.keys(stored), ...Object.keys(incoming)]);
+  for (const k of keys) {
+    if (k === "id" || k === "deleted") continue;
+    let a = normIdentityValue(stored[k]);
+    let b = normIdentityValue(incoming[k]);
+    if (k === "sponsorship_required") { a = a ?? false; b = b ?? false; }
+    if (a !== b) return false;
+  }
+  return true;
+}
+
+// Authorisations merge (G2 re-review 3). Entries with an id match by
+// id. Entries WITHOUT an id match a stored id-less entry ONLY on
+// full field identity (see authIdentityMatches): the stored entry is
+// then adopted and persists a stable id, so later saves address it
+// by id. An id-less entry with no full-identity match is a NEW entry
+// (never a country-only merge). An id-less deletion marker removes
+// only the fully matching stored entry. Stored entries are never
+// silently dropped: unmentioned entries survive in original order,
+// and when the patch names every surviving entry, patch order wins
+// (so an explicit reorder takes effect), exactly as the generic
+// merge does for employment/education.
+function mergeAuthorisations(current, patch) {
+  const byId = new Map();
+  const idLess = [];
+  const order = [];
+  for (const e of current) {
+    if (!e || typeof e !== "object") throw new Error("each authorisations entry must be an object");
+    if (isNonEmptyString(e.id)) {
+      if (!byId.has(e.id)) { byId.set(e.id, e); order.push({ kind: "id", key: e.id }); }
+      else order.push({ kind: "entry", entry: e });
+    } else {
+      idLess.push(e);
+      order.push({ kind: "legacy", entry: e });
+    }
+  }
+  const mentioned = [];
+  const mentionedKeys = new Set();
+  const noteMentioned = (key) => { if (!mentionedKeys.has(key)) { mentionedKeys.add(key); mentioned.push({ kind: "id", key }); } };
+  const applyFields = (kept, entry) => {
+    for (const [k, v] of Object.entries(entry)) {
+      if (k === "deleted" || k === "id") continue;
+      if (v === null) delete kept[k]; else kept[k] = v;
+    }
+  };
+  const freshEntry = (entry, id) => {
+    const fresh = { id };
+    for (const [k, v] of Object.entries(entry)) if (k !== "deleted" && v !== null) fresh[k] = v;
+    return fresh;
+  };
+  for (const entry of patch) {
+    if (!entry || typeof entry !== "object") throw new Error("each authorisations entry must be an object");
+    const id = isNonEmptyString(entry.id) ? entry.id : null;
+    if (entry.deleted === true) {
+      if (id) {
+        byId.delete(id);
+        const at = order.findIndex((s) => s.kind === "id" && s.key === id);
+        if (at >= 0) order.splice(at, 1);
+      } else {
+        const at = idLess.findIndex((s) => authIdentityMatches(s, entry));
+        if (at >= 0) {
+          const victim = idLess.splice(at, 1)[0];
+          const oi = order.findIndex((s) => s.kind === "legacy" && s.entry === victim);
+          if (oi >= 0) order.splice(oi, 1);
+        }
+      }
+      continue;
+    }
+    if (id) {
+      if (byId.has(id)) {
+        applyFields(byId.get(id), entry);
+      } else {
+        const fresh = freshEntry(entry, id);
+        byId.set(id, fresh);
+        order.push({ kind: "id", key: id });
+      }
+      noteMentioned(id);
+      continue;
+    }
+    const at = idLess.findIndex((s) => authIdentityMatches(s, entry));
+    if (at >= 0) {
+      const adopted = idLess.splice(at, 1)[0];
+      adopted.id = randomUUID();
+      applyFields(adopted, entry);
+      byId.set(adopted.id, adopted);
+      const oi = order.findIndex((s) => s.kind === "legacy" && s.entry === adopted);
+      if (oi >= 0) order[oi] = { kind: "id", key: adopted.id };
+      noteMentioned(adopted.id);
+    } else {
+      const fresh = freshEntry(entry, randomUUID());
+      byId.set(fresh.id, fresh);
+      order.push({ kind: "id", key: fresh.id });
+      noteMentioned(fresh.id);
+    }
+  }
+  const coversAll = order.every((s) => (s.kind === "id" ? mentionedKeys.has(s.key) : false));
+  const finalOrder = coversAll ? mentioned : order;
+  const out = [];
+  for (const s of finalOrder) {
+    if (s.kind === "id") { const e = byId.get(s.key); if (e) out.push(e); }
+    else out.push(s.entry);
+  }
+  return out;
 }
 
 export function mergePersonDetails(existing, patch) {
@@ -222,9 +339,8 @@ export function mergePersonDetails(existing, patch) {
     }
     if (key === "authorisations") {
       if (!Array.isArray(value)) throw new Error("authorisations must be an array");
-      merged[key] = mergeEntryArray(
-        Array.isArray(merged[key]) ? merged[key] : [], value, key,
-        (e) => (isNonEmptyString(e?.id) ? e.id : (isNonEmptyString(e?.country) ? `country:${e.country}` : null)), false,
+      merged[key] = mergeAuthorisations(
+        Array.isArray(merged[key]) ? merged[key] : [], value,
       );
       continue;
     }

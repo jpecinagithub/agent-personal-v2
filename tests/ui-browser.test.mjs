@@ -292,3 +292,149 @@ test("browser G2 re-review 2: unchecking current, clearing links and editing aut
     await stopApp(app);
   }
 });
+
+test("browser G2 re-review 3: consecutive saves without reload refresh reference state", async () => {
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    // Seed through the API (setup only); every edit under test is
+    // performed through the screen, with saves between changes and
+    // no reload in between. The bug: reference flags described the
+    // state at load, so the second save omitted empties/false values
+    // based on pre-first-save state and the backend kept them.
+    const seed = {
+      full_name: "Synthetic Original",
+      email: "original@example.test",
+      employment: [
+        { id: "job-1", employer: "Alpha Corp", title: "Analyst", start: "2020-01", current: false },
+      ],
+      authorisations: [
+        { id: "auth-1", country: "ES", status: "authorised", valid_until: "2030-12", sponsorship_required: false },
+      ],
+    };
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(seed) });
+    assert.equal(created.status, 201);
+    const getPerson = async () => (await (await fetch(`${base}/api/person`)).json()).person.details;
+    const savePerson = async () => {
+      const [resp] = await Promise.all([
+        app.page.waitForResponse((r) => r.url().endsWith("/api/person") && r.request().method() === "POST"),
+        app.page.click("#person-save"),
+      ]);
+      assert.equal(resp.status(), 201);
+      await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+    };
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    // First save: add values to fields that were absent/false.
+    await app.page.fill("#person-links", "https://example.test/professional-profile");
+    await app.page.fill("#person-skills", "accounting");
+    await app.page.fill("#person-salary-currency", "EUR");
+    await app.page.fill("#person-salary-min", "40000");
+    await app.page.fill("#person-salary-max", "60000");
+    await app.page.fill("#person-salary-period", "year");
+    const job = app.page.locator("#person-employment-list .entry-card").first();
+    await job.locator(".f-achievements").fill("Shipped X");
+    await job.locator(".f-links").fill("https://example.test/job");
+    await job.locator(".f-current").check();
+    const auth = app.page.locator("#person-authorisations-list .auth-card").first();
+    await auth.locator(".auth-sponsorship").check();
+    await savePerson();
+    let details = await getPerson();
+    assert.deepEqual(details.links, ["https://example.test/professional-profile"]);
+    assert.deepEqual(details.skills, ["accounting"]);
+    assert.deepEqual(details.salary_expectations, { currency: "EUR", min: 40000, max: 60000, period: "year" });
+    assert.deepEqual(details.employment[0].achievements, ["Shipped X"]);
+    assert.deepEqual(details.employment[0].links, ["https://example.test/job"]);
+    assert.equal(details.employment[0].current, true);
+    assert.equal(details.authorisations[0].sponsorship_required, true);
+    // Second save WITHOUT reloading: clear everything just added,
+    // uncheck both boxes, add an end date.
+    await app.page.fill("#person-links", "");
+    await app.page.fill("#person-skills", "");
+    await app.page.fill("#person-salary-currency", "");
+    await app.page.fill("#person-salary-min", "");
+    await app.page.fill("#person-salary-max", "");
+    await app.page.fill("#person-salary-period", "");
+    const job2 = app.page.locator("#person-employment-list .entry-card").first();
+    await job2.locator(".f-achievements").fill("");
+    await job2.locator(".f-links").fill("");
+    await job2.locator(".f-current").uncheck();
+    await job2.locator(".f-end").fill("2024-06");
+    const auth2 = app.page.locator("#person-authorisations-list .auth-card").first();
+    await auth2.locator(".auth-sponsorship").uncheck();
+    await savePerson();
+    // Reload and check the persisted state through the screen first.
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    assert.equal(await app.page.locator("#person-links").inputValue(), "");
+    assert.equal(await app.page.locator("#person-skills").inputValue(), "");
+    assert.equal(await app.page.locator("#person-salary-currency").inputValue(), "");
+    const jobAfter = app.page.locator("#person-employment-list .entry-card").first();
+    assert.equal(await jobAfter.locator(".f-achievements").inputValue(), "");
+    assert.equal(await jobAfter.locator(".f-links").inputValue(), "");
+    assert.equal(await jobAfter.locator(".f-current").isChecked(), false);
+    assert.equal(await jobAfter.locator(".f-end").inputValue(), "2024-06");
+    const authAfter = app.page.locator("#person-authorisations-list .auth-card").first();
+    assert.equal(await authAfter.locator(".auth-sponsorship").isChecked(), false);
+    // And through the API, the persisted record itself.
+    details = await getPerson();
+    assert.deepEqual(details.links, []);
+    assert.deepEqual(details.skills, []);
+    assert.deepEqual(details.salary_expectations, {});
+    assert.deepEqual(details.employment[0].achievements, []);
+    assert.deepEqual(details.employment[0].links, []);
+    assert.equal(details.employment[0].current, false);
+    assert.equal(details.employment[0].end, "2024-06");
+    assert.equal(details.authorisations[0].sponsorship_required, false);
+  } finally {
+    await stopApp(app);
+  }
+});
+
+test("browser G2 re-review 3: legacy authorisation without id gains a stable id and never duplicates", async () => {
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    // Seed a legacy authorisation WITHOUT an id through the API
+    // (setup only); every load/save under test goes through the
+    // screen. The bug: the form invented an id, the backend keyed
+    // the stored entry by country, and each save added a new row
+    // (1 -> 2 -> 3) while the original never gained an id.
+    const seed = {
+      full_name: "Synthetic Original",
+      email: "original@example.test",
+      authorisations: [
+        { country: "ES", status: "authorised", valid_until: "2030-12", sponsorship_required: false },
+      ],
+    };
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(seed) });
+    assert.equal(created.status, 201);
+    const getPerson = async () => (await (await fetch(`${base}/api/person`)).json()).person.details;
+    let stableId = null;
+    for (let round = 0; round < 3; round++) {
+      await app.page.click("#person-load");
+      await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+      assert.equal(await app.page.locator("#person-authorisations-list .auth-card").count(), 1, `round ${round}: exactly one card on screen`);
+      const [resp] = await Promise.all([
+        app.page.waitForResponse((r) => r.url().endsWith("/api/person") && r.request().method() === "POST"),
+        app.page.click("#person-save"),
+      ]);
+      assert.equal(resp.status(), 201);
+      await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+      const details = await getPerson();
+      assert.equal(details.authorisations.length, 1, `round ${round}: exactly one authorisation persisted`);
+      const auth = details.authorisations[0];
+      assert.ok(auth.id, `round ${round}: the entry gained a stable id`);
+      if (stableId === null) stableId = auth.id;
+      else assert.equal(auth.id, stableId, `round ${round}: the id is stable`);
+      assert.equal(auth.country, "ES");
+      assert.equal(auth.status, "authorised");
+      assert.equal(auth.valid_until, "2030-12", "validity intact");
+      assert.equal(auth.sponsorship_required, false, "sponsorship intact");
+    }
+  } finally {
+    await stopApp(app);
+  }
+});
