@@ -57,19 +57,37 @@ tests or logs.
   single static page served by the server (no build step) with sections
   for person, profiles and drafts, declared facts, field mappings and
   screening questions. It never touches secret values.
-- API under `/api/`: person, profiles (archive/unarchive/delete,
-  readiness), profile drafts (create/edit/confirm/discard), facts,
-  resolve (screening), pending questions and answers, field mappings,
-  attempts (pins the snapshot in force). All state-changing routes
-  require the private control origin, as in F1.
-- Rules enforced by the code, not by convention: at most 10 active
-  profiles; profiles hold fact references, never fact copies; profile
-  changes are drafts until confirmed (new version, effective date,
-  snapshot); answers resolve deterministically by concept + scope
-  (declared wins, unscoped-to-scoped is a flagged inference, multiple
-  scopes are an ambiguity with candidates, missing is asked once);
-  LLM/narrative provenance can never create a personal fact; a mapping
-  defined for one source never applies to another.
+- API under `/api/`: person, profiles (duplicate/archive/unarchive/
+  delete, readiness), profile drafts (create/edit/confirm/discard),
+  facts, resolve (screening), pending questions and answers, field
+  mappings, attempts (pins the profile snapshot AND a whole-person
+  snapshot), CV imports (upload preview/confirm/reject), policies,
+  consents, xAI status/key, settings (automatic mode). All
+  state-changing routes require the private control origin, as in F1.
+- Rules enforced by the code, not by convention: at most 10
+  NON-DELETED profiles (archiving does not free a slot; deleting is a
+  soft delete that never deletes snapshots); profiles hold fact
+  references, never fact copies; profile changes are drafts until
+  confirmed (new version, effective date, snapshot); answers resolve
+  deterministically by concept + scope (declared wins, unscoped-to-
+  scoped is a flagged inference, multiple scopes are an ambiguity with
+  candidates, missing is asked once); LLM/narrative provenance can
+  never create a personal fact; a mapping defined for one source never
+  applies to another; readiness (RF-V2-020) requires identity, a
+  validated CV, every required policy accepted, the apply-on-behalf
+  consent, and xAI available; automatic mode is OFF initially and can
+  only be enabled with a ready profile and the auto_apply policy.
+- CV import (T-V2-016): upload a PDF, DOCX or TXT file in the UI, see
+  the extracted text and detected fields in a preview, then confirm
+  (facts become confirmed, CV counts as validated) or reject. Corrupt
+  or empty files are never approved; a scanned PDF without a text
+  layer is flagged and can never be confirmed.
+- Browser tests: `tests/ui-browser.test.mjs` drives the real UI in
+  headless Chromium via playwright-core. It needs a Chromium binary:
+  set `AGENTV2_CHROMIUM_PATH`, or have the Playwright browser cache
+  (this repo was tested against `~/.cache/ms-playwright/chromium-1243`).
+  Without a Chromium binary the browser tests fail loudly instead of
+  silently substituting API assertions.
 - No real personal data is preloaded: the person is entered by the user
   through the UI. All test data is synthetic ("Test Person").
 

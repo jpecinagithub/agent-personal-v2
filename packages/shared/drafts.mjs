@@ -1,4 +1,4 @@
-// T-V2-017: Profile drafts and versioning. A configuration change is a
+// Pliego T-V2-021: Profile drafts and versioning (snapshots). A configuration change is a
 // draft until confirmed: drafts are edited freely and never touch the
 // live profile. Confirming a draft, in ONE transaction, snapshots the
 // current profile version, writes the draft body as the new version,
@@ -11,6 +11,7 @@ import { validateProfileBody, getProfileFull } from "./profiles.mjs";
 export function createDraft(db, profileId) {
   const profile = getProfileFull(db, profileId);
   if (!profile) throw new Error("profile not found");
+  if (profile.deleted) throw new Error("profile is deleted");
   const id = randomUUID();
   db.prepare("INSERT INTO profile_drafts (id, profile_id, base_version, body_json) VALUES (?, ?, ?, ?)").run(
     id, profileId, profile.version, JSON.stringify(profile.body),
@@ -53,6 +54,7 @@ export function confirmDraft(db, draftId) {
   try {
     const profile = getProfileFull(db, draft.profile_id);
     if (!profile) throw new Error("profile not found");
+    if (profile.deleted) throw new Error("profile is deleted");
     if (profile.version !== draft.base_version) {
       throw new Error(`stale draft: profile is at version ${profile.version}, draft was based on ${draft.base_version}`);
     }

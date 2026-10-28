@@ -1,5 +1,6 @@
-// T-V2-016 / T-V2-017: ten-profile limit, fact references (not copies),
-// readiness, and attempt pinning that survives later changes.
+// Pliego T-V2-020 (profiles, ten NON-DELETED limit) and T-V2-021
+// (snapshots): fact references (not copies), readiness, and attempt
+// pinning that survives later changes.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -8,9 +9,19 @@ import path from "node:path";
 import { openDatabase } from "../packages/shared/db.mjs";
 import { createPersonFull } from "../packages/shared/person.mjs";
 import { FIXTURE_PERSON } from "./fixtures.mjs";
-import { createProfileFull, listProfiles, archiveProfile, unarchiveProfile, deleteProfile, profileReadiness, createAttempt, getAttempt } from "../packages/shared/profiles.mjs";
+import { createProfileFull, listProfiles, archiveProfile, unarchiveProfile, deleteProfile, duplicateProfile, profileReadiness, createAttempt, getAttempt } from "../packages/shared/profiles.mjs";
 import { declareFact } from "../packages/shared/facts.mjs";
 import { createDraft, confirmDraft, updateDraft } from "../packages/shared/drafts.mjs";
+import { previewCv, confirmCvImport } from "../packages/shared/cv.mjs";
+import { acceptPolicy, giveConsent } from "../packages/shared/policies.mjs";
+
+async function makeReady(db, personId) {
+  const txt = fs.readFileSync(new URL("./fixtures/sample.txt", import.meta.url).pathname);
+  const preview = await previewCv(db, personId, "sample.txt", txt);
+  confirmCvImport(db, preview.id);
+  acceptPolicy(db, personId, "data_processing");
+  giveConsent(db, personId, "apply_on_behalf");
+}
 
 function setup() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agentv2-prof-"));
@@ -25,16 +36,30 @@ function offer(db) {
   return id;
 }
 
-test("at most 10 active profiles: the 11th is rejected, archiving frees a slot", () => {
+test("at most 10 NON-DELETED profiles: archiving does NOT free a slot, deleting does", () => {
   const { db, personId } = setup();
   const ids = [];
   for (let i = 0; i < 10; i++) ids.push(createProfileFull(db, personId, `Profile ${i}`, { focus: "Finance" }));
-  assert.throws(() => createProfileFull(db, personId, "Profile 11", { focus: "Finance" }), /at most 10 active profiles/);
+  assert.throws(() => createProfileFull(db, personId, "Profile 11", { focus: "Finance" }), /at most 10 non-deleted profiles/);
   archiveProfile(db, ids[0]);
-  const extra = createProfileFull(db, personId, "Profile 11", { focus: "Finance" });
-  assert.ok(extra);
-  assert.throws(() => unarchiveProfile(db, ids[0]), /at most 10 active profiles/);
-  assert.equal(listProfiles(db, personId).filter((p) => !p.archived).length, 10);
+  assert.throws(
+    () => createProfileFull(db, personId, "Profile 11", { focus: "Finance" }),
+    /at most 10 non-deleted profiles/,
+    "an archived profile still occupies its slot",
+  );
+  // Unarchiving is fine: the profile already counted toward the limit.
+  unarchiveProfile(db, ids[0]);
+  assert.equal(listProfiles(db, personId).length, 10);
+  // Only deletion frees a slot.
+  archiveProfile(db, ids[0]);
+  deleteProfile(db, ids[0]);
+  assert.equal(listProfiles(db, personId).length, 9, "deleted profiles are excluded from the list");
+  assert.equal(listProfiles(db, personId, { includeDeleted: true }).length, 10, "deleted profiles are kept, not erased");
+  // Duplicating also counts toward the limit: it fills the freed slot.
+  const dup = duplicateProfile(db, ids[1]);
+  assert.ok(dup);
+  assert.equal(listProfiles(db, personId).length, 10);
+  assert.throws(() => createProfileFull(db, personId, "Profile 11", { focus: "Finance" }), /at most 10 non-deleted profiles/);
 });
 
 test("profiles reference facts, they do not copy them", () => {
@@ -59,11 +84,12 @@ test("readiness explains exactly what is missing, and blocks attempts", () => {
   assert.throws(() => createAttempt(db, personId, profileId, offer(db)), /not ready/);
 });
 
-test("sending pins the snapshot in force; later changes never alter past attempts", () => {
+test("sending pins the snapshot in force; later changes never alter past attempts", async () => {
   const { db, personId } = setup();
+  await makeReady(db, personId);
   declareFact(db, { personId, concept: "work_authorisation", scope: "ES", value: "yes", provenance: "user" });
   const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance v1", factRefs: [{ concept: "work_authorisation", scope: "ES" }] });
-  const attemptId = createAttempt(db, personId, profileId, offer(db));
+  const attemptId = createAttempt(db, personId, profileId, offer(db), { xaiAvailable: true });
   const before = getAttempt(db, attemptId);
   assert.equal(before.evidence.resolvedFacts["work_authorisation@ES"], "yes");
   assert.equal(before.evidence.snapshotVersion, 1);
@@ -78,18 +104,26 @@ test("sending pins the snapshot in force; later changes never alter past attempt
   assert.equal(JSON.parse(String(snapshot.body_json)).focus, "Finance v1", "pinned snapshot body must not change");
 });
 
-test("only archived profiles can be deleted, and never when attempts reference them", () => {
+test("only archived profiles can be deleted, and deletion never deletes snapshots or attempts", async () => {
   const { db, personId } = setup();
+  await makeReady(db, personId);
   const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance" });
   assert.throws(() => deleteProfile(db, profileId), /only an archived profile/);
   archiveProfile(db, profileId);
   deleteProfile(db, profileId);
-  assert.equal(listProfiles(db, personId).length, 0);
+  assert.equal(listProfiles(db, personId).length, 0, "deleted profiles are excluded from the list");
   const usedId = createProfileFull(db, personId, "Used", { focus: "Finance" });
   declareFact(db, { personId, concept: "work_authorisation", scope: "ES", value: "yes", provenance: "user" });
-  // The used profile references no facts, so make it ready via focus only
-  // by using a second profile shape: readiness needs focus only here.
-  createAttempt(db, personId, usedId, offer(db));
+  const attemptId = createAttempt(db, personId, usedId, offer(db), { xaiAvailable: true });
+  const before = getAttempt(db, attemptId);
   archiveProfile(db, usedId);
-  assert.throws(() => deleteProfile(db, usedId), /past attempts reference/);
+  deleteProfile(db, usedId);
+  // Deleting is allowed even with past attempts — and the attempt and
+  // its pinned snapshot must still resolve afterwards.
+  const after = getAttempt(db, attemptId);
+  assert.equal(after.id, before.id);
+  assert.equal(after.profile_snapshot_id, before.profile_snapshot_id);
+  const snapshot = db.prepare("SELECT * FROM profile_snapshots WHERE id = ?").get(after.profile_snapshot_id);
+  assert.ok(snapshot, "the pinned snapshot must survive profile deletion");
+  assert.equal(JSON.parse(String(snapshot.body_json)).focus, "Finance");
 });

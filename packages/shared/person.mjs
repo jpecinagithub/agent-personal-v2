@@ -1,4 +1,6 @@
-// T-V2-015: Person entity. All personal data in this project is
+// Pliego T-V2-015 (identity/contacts), T-V2-017 (employment/education
+// CRUD) and T-V2-018 (language/skill/authorisation editors): Person
+// entity. All personal data in this project is
 // declared by the user through the UI; nothing here invents, infers or
 // preloads a real person's facts. Test data in the suite is synthetic
 // ("Test Person"). Unknown fields are rejected, never silently stored.

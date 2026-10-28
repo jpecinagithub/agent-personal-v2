@@ -1,12 +1,18 @@
-// T-V2-016 / T-V2-017: Profiles. At most 10 active (non-archived)
-// profiles per person; creating an 11th is rejected. Profiles share one
-// declared-facts repository: the profile body holds fact REFERENCES
-// ({concept, scope} pairs), never copies of fact values, so a profile
-// never stores duplicated facts. Sending pins the snapshot in force at
-// that moment; later profile changes never alter a past attempt's
-// resolved content, which is stored on the attempt itself.
+// Pliego T-V2-020 (profiles) and T-V2-021 (snapshots and versions).
+// The limit is TEN NON-DELETED profiles: archived profiles still occupy
+// a slot; only deleted profiles are excluded from the count. Deleting a
+// profile is a soft delete: the row stays, its snapshots are never
+// deleted, and attempts referencing those snapshots keep resolving.
+// Profiles share one declared-facts repository: the profile body holds
+// fact REFERENCES ({concept, scope} pairs), never copies of fact
+// values. Sending pins the snapshot in force at that moment AND a
+// snapshot of the whole person (identity, contacts, employment and
+// education history); later edits never alter a past attempt.
 import { randomUUID } from "node:crypto";
 import { getConfirmedFact } from "./facts.mjs";
+import { getPerson } from "./person.mjs";
+import { hasValidatedCv } from "./cv.mjs";
+import { requiredPoliciesAccepted, hasConsent } from "./policies.mjs";
 
 export const MAX_PROFILES = 10;
 
@@ -31,15 +37,19 @@ export function validateProfileBody(body) {
   return { ...body };
 }
 
-export function countActiveProfiles(db, personId) {
-  return db.prepare("SELECT COUNT(*) AS n FROM profiles WHERE person_id = ? AND archived = 0").get(personId).n;
+/** Non-deleted profiles (active + archived) occupy a slot; deleted ones do not. */
+export function countNonDeletedProfiles(db, personId) {
+  return db.prepare("SELECT COUNT(*) AS n FROM profiles WHERE person_id = ? AND deleted = 0").get(personId).n;
 }
+
+/** Backwards-compatible alias for the old name, with the corrected semantics. */
+export const countActiveProfiles = countNonDeletedProfiles;
 
 export function createProfileFull(db, personId, name, body = {}) {
   if (typeof name !== "string" || name.trim() === "") throw new Error("profile name is required");
   if (!db.prepare("SELECT id FROM persons WHERE id = ?").get(personId)) throw new Error("person not found");
-  if (countActiveProfiles(db, personId) >= MAX_PROFILES) {
-    throw new Error(`profile limit reached: at most ${MAX_PROFILES} active profiles per person`);
+  if (countNonDeletedProfiles(db, personId) >= MAX_PROFILES) {
+    throw new Error(`profile limit reached: at most ${MAX_PROFILES} non-deleted profiles per person`);
   }
   const valid = validateProfileBody(body);
   const id = randomUUID();
@@ -49,41 +59,71 @@ export function createProfileFull(db, personId, name, body = {}) {
   return id;
 }
 
-export function listProfiles(db, personId) {
-  return db.prepare("SELECT * FROM profiles WHERE person_id = ? ORDER BY created_at ASC").all(personId).map((r) => ({
-    ...r, body: JSON.parse(r.body_json), archived: r.archived === 1,
+/**
+ * @param {any} db
+ * @param {string} personId
+ * @param {{includeDeleted?: boolean}} [opts]
+ * @returns {any[]}
+ */
+export function listProfiles(db, personId, opts = {}) {
+  const where = opts.includeDeleted ? "person_id = ?" : "person_id = ? AND deleted = 0";
+  return db.prepare(`SELECT * FROM profiles WHERE ${where} ORDER BY created_at ASC`).all(personId).map((/** @type {any} */ r) => ({
+    ...r, body: JSON.parse(r.body_json), archived: r.archived === 1, deleted: r.deleted === 1,
   }));
 }
 
 export function getProfileFull(db, profileId) {
   const row = db.prepare("SELECT * FROM profiles WHERE id = ?").get(profileId);
   if (!row) return null;
-  return { ...row, body: JSON.parse(row.body_json), archived: row.archived === 1 };
+  return { ...row, body: JSON.parse(row.body_json), archived: row.archived === 1, deleted: row.deleted === 1 };
+}
+
+function requireLiveProfile(db, profileId) {
+  const profile = getProfileFull(db, profileId);
+  if (!profile) throw new Error("profile not found");
+  if (profile.deleted) throw new Error("profile is deleted");
+  return profile;
 }
 
 export function archiveProfile(db, profileId) {
+  requireLiveProfile(db, profileId);
   const r = db.prepare("UPDATE profiles SET archived = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND archived = 0").run(profileId);
   if (r.changes === 0) throw new Error("profile not found or already archived");
 }
 
 export function unarchiveProfile(db, profileId) {
-  const profile = getProfileFull(db, profileId);
-  if (!profile) throw new Error("profile not found");
-  if (countActiveProfiles(db, profile.person_id) >= MAX_PROFILES) {
-    throw new Error(`profile limit reached: at most ${MAX_PROFILES} active profiles per person`);
-  }
+  // No limit check here on purpose: an archived profile already occupies
+  // a non-deleted slot, so unarchiving cannot exceed the limit.
+  requireLiveProfile(db, profileId);
   db.prepare("UPDATE profiles SET archived = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").run(profileId);
 }
 
+/**
+ * Duplicate a profile: a new profile with the same body, focus and
+ * template. It counts toward the ten non-deleted limit like any other.
+ * @param {any} db
+ * @param {string} profileId
+ * @param {string} [name]
+ * @returns {string}
+ */
+export function duplicateProfile(db, profileId, name) {
+  const source = requireLiveProfile(db, profileId);
+  return createProfileFull(db, source.person_id, name ?? `${source.name} (copia)`, source.body);
+}
+
+/**
+ * Soft delete: only an archived profile can be deleted, and deletion
+ * marks it deleted without touching its snapshots or drafts, so past
+ * attempts keep resolving.
+ * @param {any} db
+ * @param {string} profileId
+ */
 export function deleteProfile(db, profileId) {
   const profile = getProfileFull(db, profileId);
   if (!profile) throw new Error("profile not found");
+  if (profile.deleted) throw new Error("profile is already deleted");
   if (!profile.archived) throw new Error("only an archived profile can be deleted");
-  const used = db.prepare("SELECT COUNT(*) AS n FROM attempts WHERE profile_snapshot_id IN (SELECT id FROM profile_snapshots WHERE profile_id = ?)").get(profileId).n;
-  if (used > 0) throw new Error("profile cannot be deleted: past attempts reference its snapshots");
-  db.prepare("DELETE FROM profile_snapshots WHERE profile_id = ?").run(profileId);
-  db.prepare("DELETE FROM profile_drafts WHERE profile_id = ?").run(profileId);
-  db.prepare("DELETE FROM profiles WHERE id = ?").run(profileId);
+  db.prepare("UPDATE profiles SET deleted = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").run(profileId);
 }
 
 /** The snapshot in force: the stored snapshot for the current version, or a new one pinning the current body. */
@@ -98,14 +138,45 @@ export function pinSnapshot(db, profileId) {
 }
 
 /**
- * Readiness: a profile is ready when it has a name and a focus and
- * every referenced fact resolves to a confirmed declared fact. The
- * returned `missing` list is the explained block, never a silent pass.
+ * Snapshot the whole person as of now: identity, contacts and
+ * employment/education history, as one stored copy.
+ * @param {any} db
+ * @param {string} personId
+ * @returns {string}
  */
-export function profileReadiness(db, profileId) {
+export function snapshotPerson(db, personId) {
+  const person = getPerson(db, personId);
+  if (!person) throw new Error("person not found");
+  const id = randomUUID();
+  db.prepare("INSERT INTO person_snapshots (id, person_id, details_json) VALUES (?, ?, ?)").run(
+    id, personId, JSON.stringify(person.details ?? {}),
+  );
+  return id;
+}
+
+/**
+ * Readiness (RF-V2-020): a profile is ready only when ALL of these
+ * hold — identity declared, name, focus, every referenced fact
+ * confirmed, a validated (imported and confirmed) CV, every required
+ * policy accepted, the apply-on-behalf consent recorded, and xAI
+ * available. The returned `missing` list is the explained block, never
+ * a silent pass. Pass { xaiAvailable } from the server, which knows
+ * whether the key is in the secret store or the environment; the
+ * default (false) blocks readiness rather than assuming xAI.
+ * @param {any} db
+ * @param {string} profileId
+ * @param {{xaiAvailable?: boolean}} [opts]
+ * @returns {{ready: boolean, missing: string[]}}
+ */
+export function profileReadiness(db, profileId, opts = {}) {
   const profile = getProfileFull(db, profileId);
   if (!profile) throw new Error("profile not found");
   const missing = [];
+  const person = getPerson(db, profile.person_id);
+  const details = person?.details ?? {};
+  if (!person || !details.full_name || !String(details.full_name).trim() || (!details.email && !details.phone)) {
+    missing.push("identity");
+  }
   if (!profile.name.trim()) missing.push("name");
   if (!profile.body.focus || !String(profile.body.focus).trim()) missing.push("focus");
   for (const ref of profile.body.factRefs ?? []) {
@@ -113,34 +184,59 @@ export function profileReadiness(db, profileId) {
       missing.push(`fact ${ref.concept}${ref.scope ? ` (${ref.scope})` : ""}`);
     }
   }
+  if (!hasValidatedCv(db, profile.person_id)) missing.push("cv_validated");
+  if (!requiredPoliciesAccepted(db, profile.person_id)) missing.push("policy");
+  if (!hasConsent(db, profile.person_id, "apply_on_behalf")) missing.push("consent");
+  if (!opts.xaiAvailable) missing.push("xai");
   return { ready: missing.length === 0, missing };
 }
 
 /**
- * Create a send attempt pinning the snapshot in force and storing the
- * resolved fact content on the attempt. Later profile or fact changes
- * never rewrite this stored content: past attempts keep what was sent.
- * The attempt requires a ready profile (see profileReadiness).
+ * Create a send attempt pinning the profile snapshot in force AND a
+ * snapshot of the whole person, in one transaction, and storing the
+ * resolved fact content on the attempt. Later person, profile or fact
+ * changes never rewrite this stored content.
+ * @param {any} db
+ * @param {string} personId
+ * @param {string} profileId
+ * @param {string} offerId
+ * @param {{xaiAvailable?: boolean}} [opts]
+ * @returns {string}
  */
-export function createAttempt(db, personId, profileId, offerId) {
-  const readiness = profileReadiness(db, profileId);
+export function createAttempt(db, personId, profileId, offerId, opts = {}) {
+  const readiness = profileReadiness(db, profileId, opts);
   if (!readiness.ready) throw new Error(`profile is not ready: missing ${readiness.missing.join(", ")}`);
   const profile = getProfileFull(db, profileId);
-  const snapshotId = pinSnapshot(db, profileId);
-  const resolved = {};
-  for (const ref of profile.body.factRefs ?? []) {
-    const fact = getConfirmedFact(db, personId, ref.concept, ref.scope ?? "");
-    if (fact) resolved[`${ref.concept}@${ref.scope ?? ""}`] = fact.value;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const snapshotId = pinSnapshot(db, profileId);
+    const personSnapshotId = snapshotPerson(db, personId);
+    const resolved = {};
+    for (const ref of profile.body.factRefs ?? []) {
+      const fact = getConfirmedFact(db, personId, ref.concept, ref.scope ?? "");
+      if (fact) resolved[`${ref.concept}@${ref.scope ?? ""}`] = fact.value;
+    }
+    const id = randomUUID();
+    db.prepare(
+      "INSERT INTO attempts (id, person_id, profile_id, profile_snapshot_id, person_snapshot_id, offer_id, status, evidence_json) VALUES (?, ?, ?, ?, ?, ?, 'prepared', ?)",
+    ).run(id, personId, profileId, snapshotId, personSnapshotId, offerId, JSON.stringify({ snapshotVersion: profile.version, resolvedFacts: resolved }));
+    db.exec("COMMIT");
+    return id;
+  } catch (err) {
+    try { db.exec("ROLLBACK"); } catch { /* already rolled back */ }
+    throw err;
   }
-  const id = randomUUID();
-  db.prepare(
-    "INSERT INTO attempts (id, person_id, profile_id, profile_snapshot_id, offer_id, status, evidence_json) VALUES (?, ?, ?, ?, ?, 'prepared', ?)",
-  ).run(id, personId, profileId, snapshotId, offerId, JSON.stringify({ snapshotVersion: profile.version, resolvedFacts: resolved }));
-  return id;
 }
 
 export function getAttempt(db, attemptId) {
   const row = db.prepare("SELECT * FROM attempts WHERE id = ?").get(attemptId);
   if (!row) return null;
-  return { ...row, evidence: JSON.parse(row.evidence_json) };
+  const attempt = { ...row, evidence: JSON.parse(row.evidence_json) };
+  if (row.person_snapshot_id) {
+    const snap = db.prepare("SELECT * FROM person_snapshots WHERE id = ?").get(row.person_snapshot_id);
+    attempt.personSnapshot = snap ? JSON.parse(snap.details_json) : null;
+  } else {
+    attempt.personSnapshot = null;
+  }
+  return attempt;
 }

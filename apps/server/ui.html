@@ -7,62 +7,108 @@
 <style>
 body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
 section { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
-textarea, input, select { width: 100%; box-sizing: border-box; margin: 0.25rem 0 0.75rem; }
-button { padding: 0.4rem 0.9rem; margin-right: 0.5rem; }
+label { display: block; margin-top: 0.5rem; font-weight: 600; }
+input, textarea, select { width: 100%; box-sizing: border-box; margin: 0.25rem 0 0.75rem; }
+button { padding: 0.4rem 0.9rem; margin: 0.25rem 0.5rem 0.25rem 0; }
 pre { white-space: pre-wrap; background: #f4f4f4; padding: 0.75rem; border-radius: 6px; }
 small { color: #555; }
+.profile-card { border: 1px solid #ddd; border-radius: 6px; padding: 0.75rem; margin: 0.75rem 0; }
+.status { font-weight: 600; }
 </style>
 </head>
 <body>
 <h1>Agente personal de empleo v2</h1>
 <p><small>Configuración privada. Sin login por diseño; este servidor solo
-escucha en localhost. Los secretos nunca se muestran aquí: la interfaz
-solo trabaja con personas, perfiles, hechos, mapeos y preguntas.</small></p>
+escucha en localhost. Los secretos nunca se muestran aquí: la clave de
+xAI se guarda en el almacén de secretos y solo se informa si está
+configurada o no. Nada de lo que escribas aquí se inventa: lo que no
+declares queda pendiente y se te pedirá cuando haga falta.</small></p>
 
 <section id="person-section">
 <h2>Persona</h2>
-<p><small>Introduce tus datos declarados. Ningún campo se inventa: lo que
-no declares queda pendiente y se te preguntará una vez cuando haga falta.</small></p>
-<label>Datos de la persona (JSON)</label>
-<textarea id="person-json" rows="10" placeholder='{"full_name": "", "email": "", "languages": [{"language": "", "level": ""}], "authorisations": [{"country": "", "status": ""}]}'></textarea>
+<label for="person-full-name">Nombre completo</label>
+<input id="person-full-name" placeholder="Ej.: Test Person">
+<label for="person-display-name">Nombre a mostrar (opcional)</label>
+<input id="person-display-name" placeholder="Como quieres que aparezca">
+<label for="person-email">Correo electrónico</label>
+<input id="person-email" type="email" placeholder="Ej.: test.person@example.test">
+<label for="person-phone">Teléfono</label>
+<input id="person-phone" placeholder="Ej.: +34 600 000 000">
+<label for="person-availability">Disponibilidad</label>
+<input id="person-availability" placeholder="Ej.: inmediata">
+<label for="person-languages">Idiomas (una línea por idioma: idioma, nivel)</label>
+<textarea id="person-languages" rows="3" placeholder="English, C1"></textarea>
+<label for="person-authorisations">Autorizaciones de trabajo (una línea por país: país, estado)</label>
+<textarea id="person-authorisations" rows="3" placeholder="ES, autorizado"></textarea>
+<label for="person-desired-roles">Puestos deseados (uno por línea)</label>
+<textarea id="person-desired-roles" rows="3" placeholder="Finance Manager"></textarea>
+<label for="person-locations">Ubicaciones (una por línea)</label>
+<textarea id="person-locations" rows="3" placeholder="Madrid"></textarea>
+<label for="person-skills">Habilidades (una por línea)</label>
+<textarea id="person-skills" rows="3" placeholder="accounting"></textarea>
+<label for="person-exclusions">Exclusiones (una por línea)</label>
+<textarea id="person-exclusions" rows="3" placeholder="turnos de noche"></textarea>
+<label for="person-salary-currency">Moneda de la expectativa salarial</label>
+<input id="person-salary-currency" placeholder="EUR">
+<label for="person-salary-min">Salario mínimo esperado</label>
+<input id="person-salary-min" type="number" placeholder="50000">
+<label for="person-salary-max">Salario máximo esperado</label>
+<input id="person-salary-max" type="number" placeholder="70000">
+<label for="person-salary-period">Periodo salarial</label>
+<input id="person-salary-period" placeholder="year">
+<label for="person-employment">Empleo (una línea por puesto: empleador | cargo | inicio YYYY o YYYY-MM | fin o vacío si es actual)</label>
+<textarea id="person-employment" rows="4" placeholder="Fixture Corp | Accountant | 2020-01 | 2024-06"></textarea>
+<label for="person-education">Estudios (una línea por estudio: institución | título | inicio | fin)</label>
+<textarea id="person-education" rows="4" placeholder="Fixture University | BSc Test Studies | 2016 | 2020"></textarea>
 <button id="person-save">Guardar persona</button>
 <button id="person-load">Ver persona actual</button>
+<p class="status" id="person-status"></p>
 <pre id="person-out"></pre>
 </section>
 
 <section id="profiles-section">
-<h2>Perfiles (máximo 10 activos)</h2>
-<label>Nombre del perfil</label>
+<h2>Perfiles (máximo 10 no eliminados)</h2>
+<p><small>Archivar un perfil no libera su plaza: el límite cuenta los
+perfiles activos y los archivados; solo eliminar libera una plaza, y
+eliminar nunca borra las instantáneas de candidaturas anteriores.</small></p>
+<label for="profile-name">Nombre del perfil</label>
 <input id="profile-name" placeholder="Ej.: Finanzas">
-<label>Configuración del perfil (JSON: focus, template, factRefs)</label>
-<textarea id="profile-json" rows="6" placeholder='{"focus": "", "factRefs": [{"concept": "work_authorisation", "scope": "ES"}]}'></textarea>
+<label for="profile-focus">Enfoque</label>
+<input id="profile-focus" placeholder="Ej.: Finance">
+<label for="profile-template">Plantilla</label>
+<input id="profile-template" placeholder="Ej.: finance">
 <button id="profile-create">Crear perfil</button>
 <button id="profiles-refresh">Actualizar lista</button>
+<div id="profiles-list"></div>
 <pre id="profiles-out"></pre>
-<h3>Borradores y versiones</h3>
-<p><small>Los cambios de un perfil son borradores hasta que se confirman.
-Al confirmar se crea una nueva versión con fecha efectiva y una
-instantánea; los intentos anteriores no cambian.</small></p>
-<label>ID del perfil</label>
-<input id="draft-profile-id" placeholder="ID del perfil">
-<button id="draft-create">Crear borrador</button>
-<label>ID del borrador y nuevo contenido (JSON)</label>
-<input id="draft-id" placeholder="ID del borrador">
-<textarea id="draft-json" rows="6"></textarea>
-<button id="draft-save">Guardar borrador</button>
-<button id="draft-confirm">Confirmar borrador</button>
-<button id="draft-discard">Descartar borrador</button>
-<pre id="draft-out"></pre>
+</section>
+
+<section id="cv-section">
+<h2>Currículum (CV)</h2>
+<p><small>Sube tu CV en PDF, DOCX o texto. Primero verás una vista previa
+con el texto extraído y los datos detectados; nada se guarda como hecho
+confirmado hasta que confirmes la importación. Un archivo corrupto o
+vacío no se aprueba, y un PDF escaneado sin texto no se puede confirmar:
+en ese caso introduce los datos manualmente.</small></p>
+<label for="cv-file">Archivo del CV (PDF, DOCX o TXT)</label>
+<input id="cv-file" type="file" accept=".pdf,.docx,.txt">
+<button id="cv-preview">Vista previa del CV</button>
+<pre id="cv-preview-out"></pre>
+<button id="cv-confirm">Confirmar importación</button>
+<button id="cv-reject">Rechazar importación</button>
+<p class="status" id="cv-status"></p>
+<button id="cv-refresh">Ver importaciones de CV</button>
+<pre id="cv-out"></pre>
 </section>
 
 <section id="facts-section">
 <h2>Hechos declarados</h2>
 <p><small>Un hecho tiene concepto, ámbito, valor y procedencia. La
 narrativa de un modelo nunca se guarda como hecho.</small></p>
-<label>Concepto</label><input id="fact-concept" placeholder="work_authorisation">
-<label>Ámbito</label><input id="fact-scope" placeholder="ES (vacío = sin ámbito)">
-<label>Valor (JSON)</label><input id="fact-value" placeholder='"yes"'>
-<label>Procedencia</label>
+<label for="fact-concept">Concepto</label><input id="fact-concept" placeholder="work_authorisation">
+<label for="fact-scope">Ámbito</label><input id="fact-scope" placeholder="ES (vacío = sin ámbito)">
+<label for="fact-value">Valor</label><input id="fact-value" placeholder="yes">
+<label for="fact-provenance">Procedencia</label>
 <select id="fact-provenance"><option value="user">user</option><option value="cv-import">cv-import</option><option value="portal-form">portal-form</option><option value="manual">manual</option></select>
 <button id="fact-save">Guardar hecho</button>
 <button id="facts-refresh">Actualizar lista</button>
@@ -73,10 +119,10 @@ narrativa de un modelo nunca se guarda como hecho.</small></p>
 <h2>Mapeos de campos por fuente</h2>
 <p><small>Un mapeo vale solo para su fuente: uno de Greenhouse nunca se
 aplica a Lever ni a Ashby.</small></p>
-<label>Fuente</label>
+<label for="map-source">Fuente</label>
 <select id="map-source"><option value="greenhouse">greenhouse</option><option value="lever">lever</option><option value="ashby">ashby</option><option value="smartrecruiters">smartrecruiters</option><option value="generic">generic</option></select>
-<label>Clave estable</label><input id="map-key" placeholder="work_authorisation">
-<label>Campo en la fuente</label><input id="map-field" placeholder="work_authorization">
+<label for="map-key">Clave estable</label><input id="map-key" placeholder="work_authorisation">
+<label for="map-field">Campo en la fuente</label><input id="map-field" placeholder="work_authorization">
 <button id="map-save">Guardar mapeo</button>
 <button id="maps-refresh">Actualizar lista</button>
 <pre id="maps-out"></pre>
@@ -89,15 +135,46 @@ declarada gana; una sin ámbito aplicada a un ámbito es una inferencia
 marcada; varias opciones son una ambigüedad que debes resolver tú. Lo
 que falta se pregunta una vez y, al responderlo, queda guardado como
 hecho declarado.</small></p>
-<label>Concepto de la pregunta</label><input id="q-concept" placeholder="work_authorisation">
-<label>Ámbito</label><input id="q-scope" placeholder="ES">
+<label for="q-concept">Concepto de la pregunta</label><input id="q-concept" placeholder="work_authorisation">
+<label for="q-scope">Ámbito</label><input id="q-scope" placeholder="ES">
 <button id="q-resolve">Resolver</button>
 <button id="q-pending">Ver preguntas pendientes</button>
 <pre id="q-out"></pre>
-<label>ID de pregunta pendiente y respuesta (JSON)</label>
-<input id="q-pending-id" placeholder="ID de la pregunta">
-<input id="q-answer" placeholder='"yes"'>
-<button id="q-answer-btn">Responder y guardar como hecho</button>
+<div id="pending-list"></div>
+</section>
+
+<section id="policies-section">
+<h2>Políticas y consentimientos</h2>
+<p><small>Para que un perfil esté preparado debes aceptar las políticas
+obligatorias y dar tu consentimiento para que el agente presente
+candidaturas en tu nombre.</small></p>
+<div id="policies-list"></div>
+<button id="policies-refresh">Actualizar políticas</button>
+<button id="consent-apply">Consiento que el agente presente candidaturas en mi nombre</button>
+<p class="status" id="consent-status"></p>
+</section>
+
+<section id="xai-section">
+<h2>Configuración de xAI</h2>
+<p><small>La clave se guarda en el almacén de secretos cifrado y nunca se
+muestra aquí, ni se devuelve al navegador.</small></p>
+<label for="xai-key">Clave de API de xAI</label>
+<input id="xai-key" type="password" placeholder="Se guarda cifrada; no se muestra">
+<button id="xai-save">Guardar clave xAI</button>
+<button id="xai-refresh">Comprobar estado de xAI</button>
+<p class="status" id="xai-status"></p>
+</section>
+
+<section id="settings-section">
+<h2>Modo automático</h2>
+<p><small>El modo automático está desactivado al inicio. Solo se puede
+activar cuando hay un perfil preparado y la política de aplicación
+automática está aceptada; se puede desactivar inmediatamente en
+cualquier momento.</small></p>
+<p class="status" id="settings-out"></p>
+<button id="auto-enable">Activar modo automático</button>
+<button id="auto-disable">Desactivar modo automático</button>
+<button id="settings-refresh">Actualizar modo automático</button>
 </section>
 
 <script>
@@ -110,21 +187,217 @@ async function call(path, method, body) {
   return data;
 }
 let personId = null;
-$("person-save").onclick = async () => { try { const d = await call("/api/person", "POST", JSON.parse($("person-json").value)); personId = d.id; show($("person-out"), d); } catch (e) { show($("person-out"), "Error: " + e.message); } };
-$("person-load").onclick = async () => { try { const d = await call("/api/person", "GET"); personId = d.person ? d.person.id : null; show($("person-out"), d); } catch (e) { show($("person-out"), "Error: " + e.message); } };
-$("profile-create").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); const d = await call("/api/profiles", "POST", { personId, name: $("profile-name").value, body: JSON.parse($("profile-json").value || "{}") }); show($("profiles-out"), d); } catch (e) { show($("profiles-out"), "Error: " + e.message); } };
-$("profiles-refresh").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("profiles-out"), await call("/api/profiles?personId=" + personId, "GET")); } catch (e) { show($("profiles-out"), "Error: " + e.message); } };
-$("draft-create").onclick = async () => { try { show($("draft-out"), await call("/api/profiles/" + $("draft-profile-id").value + "/drafts", "POST", {})); } catch (e) { show($("draft-out"), "Error: " + e.message); } };
-$("draft-save").onclick = async () => { try { show($("draft-out"), await call("/api/drafts/" + $("draft-id").value, "PUT", { body: JSON.parse($("draft-json").value) })); } catch (e) { show($("draft-out"), "Error: " + e.message); } };
-$("draft-confirm").onclick = async () => { try { show($("draft-out"), await call("/api/drafts/" + $("draft-id").value + "/confirm", "POST", {})); } catch (e) { show($("draft-out"), "Error: " + e.message); } };
-$("draft-discard").onclick = async () => { try { show($("draft-out"), await call("/api/drafts/" + $("draft-id").value + "/discard", "POST", {})); } catch (e) { show($("draft-out"), "Error: " + e.message); } };
-$("fact-save").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("facts-out"), await call("/api/facts", "POST", { personId, concept: $("fact-concept").value, scope: $("fact-scope").value, value: JSON.parse($("fact-value").value), provenance: $("fact-provenance").value })); } catch (e) { show($("facts-out"), "Error: " + e.message); } };
+let currentCvId = null;
+const draftsByCard = new Map();
+const lines = (id) => $(id).value.split("\n").map((l) => l.trim()).filter(Boolean);
+const pairs = (id) => lines(id).map((l) => { const [a, b] = l.split(",").map((s) => s.trim()); return [a, b]; });
+function personDetailsFromForm() {
+  const d = { full_name: $("person-full-name").value.trim() };
+  const display = $("person-display-name").value.trim();
+  if (display) d.display_name = display;
+  const email = $("person-email").value.trim();
+  if (email) d.email = email;
+  const phone = $("person-phone").value.trim();
+  if (phone) d.phone = phone;
+  const availability = $("person-availability").value.trim();
+  if (availability) d.availability = availability;
+  const languages = pairs("person-languages").map(([language, level]) => ({ language, level: level || "" }));
+  if (languages.length) d.languages = languages;
+  const authorisations = pairs("person-authorisations").map(([country, status]) => ({ country, status: status || "" }));
+  if (authorisations.length) d.authorisations = authorisations;
+  const roles = lines("person-desired-roles");
+  if (roles.length) d.desired_roles = roles;
+  const locations = lines("person-locations");
+  if (locations.length) d.locations = locations;
+  const skills = lines("person-skills");
+  if (skills.length) d.skills = skills;
+  const exclusions = lines("person-exclusions");
+  if (exclusions.length) d.exclusions = exclusions;
+  const currency = $("person-salary-currency").value.trim();
+  const min = $("person-salary-min").value.trim();
+  const max = $("person-salary-max").value.trim();
+  const period = $("person-salary-period").value.trim();
+  if (currency || min || max || period) {
+    d.salary_expectations = {};
+    if (currency) d.salary_expectations.currency = currency;
+    if (min) d.salary_expectations.min = Number(min);
+    if (max) d.salary_expectations.max = Number(max);
+    if (period) d.salary_expectations.period = period;
+  }
+  const employment = lines("person-employment").map((l, i) => {
+    const [employer, title, start, end] = l.split("|").map((s) => s.trim());
+    const e = { id: "job-" + (i + 1), employer: employer || "", title: title || "" };
+    if (start) e.start = start;
+    if (end) e.end = end;
+    return e;
+  });
+  if (employment.length) d.employment = employment;
+  const education = lines("person-education").map((l, i) => {
+    const [institution, title, start, end] = l.split("|").map((s) => s.trim());
+    const e = { id: "edu-" + (i + 1), institution: institution || "", title: title || "" };
+    if (start) e.start = start;
+    if (end) e.end = end;
+    return e;
+  });
+  if (education.length) d.education = education;
+  return d;
+}
+function fillPersonForm(details) {
+  $("person-full-name").value = details.full_name || "";
+  $("person-display-name").value = details.display_name || "";
+  $("person-email").value = details.email || "";
+  $("person-phone").value = details.phone || "";
+  $("person-availability").value = details.availability || "";
+  $("person-languages").value = (details.languages || []).map((l) => l.language + ", " + l.level).join("\n");
+  $("person-authorisations").value = (details.authorisations || []).map((a) => a.country + ", " + a.status).join("\n");
+  $("person-desired-roles").value = (details.desired_roles || []).join("\n");
+  $("person-locations").value = (details.locations || []).join("\n");
+  $("person-skills").value = (details.skills || []).join("\n");
+  $("person-exclusions").value = (details.exclusions || []).join("\n");
+  const s = details.salary_expectations || {};
+  $("person-salary-currency").value = s.currency || "";
+  $("person-salary-min").value = s.min ?? "";
+  $("person-salary-max").value = s.max ?? "";
+  $("person-salary-period").value = s.period || "";
+  $("person-employment").value = (details.employment || []).map((e) => [e.employer, e.title, e.start || "", e.end || ""].join(" | ")).join("\n");
+  $("person-education").value = (details.education || []).map((e) => [e.institution, e.title, e.start || "", e.end || ""].join(" | ")).join("\n");
+}
+const MISSING_LABELS = { identity: "identidad", name: "nombre", focus: "enfoque", cv_validated: "CV validado", policy: "política aceptada", consent: "consentimiento", xai: "xAI disponible" };
+function missingLabel(m) { return m.startsWith("fact ") ? "hecho " + m.slice(5) : (MISSING_LABELS[m] || m); }
+async function refreshProfiles() {
+  if (!personId) { show($("profiles-out"), "guarda primero una persona"); return; }
+  const data = await call("/api/profiles?personId=" + personId, "GET");
+  show($("profiles-out"), data);
+  const list = $("profiles-list");
+  list.innerHTML = "";
+  for (const p of data.profiles) {
+    const card = document.createElement("div");
+    card.className = "profile-card";
+    const title = document.createElement("h3");
+    title.textContent = p.name + (p.archived ? " (archivado)" : " (activo)");
+    card.appendChild(title);
+    const focus = document.createElement("p");
+    focus.textContent = "Enfoque: " + (p.body.focus || "(sin enfoque)");
+    card.appendChild(focus);
+    const readinessOut = document.createElement("p");
+    readinessOut.className = "status";
+    card.appendChild(readinessOut);
+    const mk = (text, fn, refreshAfter = true) => { const b = document.createElement("button"); b.textContent = text; b.onclick = async () => { try { await fn(); if (refreshAfter) await refreshProfiles(); } catch (e) { readinessOut.textContent = "Error: " + e.message; } }; card.appendChild(b); return b; };
+    mk("Duplicar", () => call("/api/profiles/" + p.id + "/duplicate", "POST", {}));
+    if (p.archived) mk("Desarchivar", () => call("/api/profiles/" + p.id + "/unarchive", "POST", {}));
+    else mk("Archivar", () => call("/api/profiles/" + p.id + "/archive", "POST", {}));
+    mk("Eliminar", async () => { const r = await fetch("/api/profiles/" + p.id, { method: "DELETE" }); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || ("HTTP " + r.status)); });
+    mk("Comprobar preparación", async () => {
+      const r = await call("/api/profiles/" + p.id + "/readiness", "GET");
+      readinessOut.textContent = r.ready ? "Perfil preparado" : "Falta: " + r.missing.map(missingLabel).join(", ");
+    }, false);
+    const editBtn = document.createElement("button");
+    editBtn.textContent = "Editar";
+    const editArea = document.createElement("div");
+    editArea.style.display = "none";
+    const focusLabel = document.createElement("label");
+    focusLabel.textContent = "Enfoque";
+    const focusInput = document.createElement("input");
+    focusInput.value = p.body.focus || "";
+    const templateLabel = document.createElement("label");
+    templateLabel.textContent = "Plantilla";
+    const templateInput = document.createElement("input");
+    templateInput.value = p.template || "";
+    const draftOut = document.createElement("p");
+    draftOut.className = "status";
+    const saveBtn = document.createElement("button");
+    saveBtn.textContent = "Guardar borrador";
+    saveBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (!draftId) throw new Error("sin borrador"); await call("/api/drafts/" + draftId, "PUT", { body: { focus: focusInput.value, template: templateInput.value, factRefs: p.body.factRefs || [] } }); draftOut.textContent = "Borrador guardado"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
+    const confirmBtn = document.createElement("button");
+    confirmBtn.textContent = "Confirmar borrador";
+    confirmBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (!draftId) throw new Error("sin borrador"); await call("/api/drafts/" + draftId + "/confirm", "POST", {}); draftOut.textContent = "Borrador confirmado"; await refreshProfiles(); } catch (e) { draftOut.textContent = "Error: " + e.message; } };
+    const discardBtn = document.createElement("button");
+    discardBtn.textContent = "Descartar borrador";
+    discardBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (draftId) await call("/api/drafts/" + draftId + "/discard", "POST", {}); draftOut.textContent = "Borrador descartado"; editArea.style.display = "none"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
+    editArea.append(focusLabel, focusInput, templateLabel, templateInput, saveBtn, confirmBtn, discardBtn, draftOut);
+    editBtn.onclick = async () => { try { const d = await call("/api/profiles/" + p.id + "/drafts", "POST", {}); draftsByCard.set(p.id, d.id); editArea.style.display = "block"; } catch (e) { readinessOut.textContent = "Error: " + e.message; } };
+    card.append(editBtn, editArea);
+    list.appendChild(card);
+  }
+}
+$("person-save").onclick = async () => { try { const d = await call("/api/person", "POST", personDetailsFromForm()); personId = d.id; $("person-status").textContent = "Persona guardada: " + (d.person.details.full_name || ""); show($("person-out"), d); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
+$("person-load").onclick = async () => { try { const d = await call("/api/person", "GET"); if (d.person) { personId = d.person.id; fillPersonForm(d.person.details || {}); $("person-status").textContent = "Persona actual: " + (d.person.details.full_name || ""); } else { $("person-status").textContent = "Sin persona guardada"; } show($("person-out"), d); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
+$("profile-create").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); await call("/api/profiles", "POST", { personId, name: $("profile-name").value, body: { focus: $("profile-focus").value, template: $("profile-template").value } }); await refreshProfiles(); } catch (e) { show($("profiles-out"), "Error: " + e.message); } };
+$("profiles-refresh").onclick = refreshProfiles;
+$("cv-preview").onclick = async () => { try {
+  if (!personId) throw new Error("guarda primero una persona");
+  const file = $("cv-file").files[0];
+  if (!file) throw new Error("elige un archivo de CV");
+  const dataUrl = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = () => reject(new Error("no se pudo leer el archivo")); r.readAsDataURL(file); });
+  const base64 = String(dataUrl).split(",")[1];
+  const preview = await call("/api/cv", "POST", { personId, filename: file.name, contentBase64: base64 });
+  currentCvId = preview.id;
+  const cand = preview.candidates || {};
+  show($("cv-preview-out"), "Texto extraído:\n" + preview.extractedText + "\n\nDatos detectados:\nNombre: " + (cand.nameGuess || "") + "\nCorreo: " + (cand.email || "") + "\nTeléfono: " + (cand.phone || "") + (preview.warning ? "\nAviso: " + preview.warning : ""));
+  $("cv-status").textContent = "Vista previa lista";
+} catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
+$("cv-confirm").onclick = async () => { try { if (!currentCvId) throw new Error("primero genera una vista previa"); await call("/api/cv/" + currentCvId + "/confirm", "POST", {}); $("cv-status").textContent = "CV validado"; } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
+$("cv-reject").onclick = async () => { try { if (!currentCvId) throw new Error("primero genera una vista previa"); await call("/api/cv/" + currentCvId + "/reject", "POST", {}); $("cv-status").textContent = "Importación rechazada"; } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
+$("cv-refresh").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("cv-out"), await call("/api/cv?personId=" + personId, "GET")); } catch (e) { show($("cv-out"), "Error: " + e.message); } };
+$("fact-save").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("facts-out"), await call("/api/facts", "POST", { personId, concept: $("fact-concept").value, scope: $("fact-scope").value, value: $("fact-value").value, provenance: $("fact-provenance").value })); } catch (e) { show($("facts-out"), "Error: " + e.message); } };
 $("facts-refresh").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("facts-out"), await call("/api/facts?personId=" + personId, "GET")); } catch (e) { show($("facts-out"), "Error: " + e.message); } };
 $("map-save").onclick = async () => { try { show($("maps-out"), await call("/api/mappings", "POST", { source: $("map-source").value, fieldKey: $("map-key").value, sourceField: $("map-field").value })); } catch (e) { show($("maps-out"), "Error: " + e.message); } };
 $("maps-refresh").onclick = async () => { try { show($("maps-out"), await call("/api/mappings", "GET")); } catch (e) { show($("maps-out"), "Error: " + e.message); } };
 $("q-resolve").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("q-out"), await call("/api/resolve", "POST", { personId, questions: [{ concept: $("q-concept").value, scope: $("q-scope").value }] })); } catch (e) { show($("q-out"), "Error: " + e.message); } };
-$("q-pending").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("q-out"), await call("/api/questions?personId=" + personId, "GET")); } catch (e) { show($("q-out"), "Error: " + e.message); } };
-$("q-answer-btn").onclick = async () => { try { show($("q-out"), await call("/api/questions/" + $("q-pending-id").value + "/answer", "POST", { value: JSON.parse($("q-answer").value) })); } catch (e) { show($("q-out"), "Error: " + e.message); } };
+async function refreshPending() {
+  if (!personId) { show($("q-out"), "guarda primero una persona"); return; }
+  const data = await call("/api/questions?personId=" + personId, "GET");
+  show($("q-out"), data);
+  const list = $("pending-list");
+  list.innerHTML = "";
+  for (const q of data.questions) {
+    const row = document.createElement("div");
+    const label = document.createElement("span");
+    label.textContent = q.question_text + " ";
+    const input = document.createElement("input");
+    input.placeholder = "Tu respuesta";
+    const btn = document.createElement("button");
+    btn.textContent = "Responder";
+    const out = document.createElement("span");
+    btn.onclick = async () => { try { await call("/api/questions/" + q.id + "/answer", "POST", { value: input.value }); out.textContent = " Respondida y guardada como hecho"; await refreshPending(); } catch (e) { out.textContent = " Error: " + e.message; } };
+    row.append(label, input, btn, out);
+    list.appendChild(row);
+  }
+}
+$("q-pending").onclick = refreshPending;
+async function refreshPolicies() {
+  if (!personId) { $("policies-list").textContent = "guarda primero una persona"; return; }
+  const data = await call("/api/policies", "GET");
+  const consents = await call("/api/consents?personId=" + personId, "GET");
+  const accepted = new Set((consents.consents || []).map((c) => c.consent_key));
+  const list = $("policies-list");
+  list.innerHTML = "";
+  for (const p of data.policies) {
+    const row = document.createElement("div");
+    const label = document.createElement("span");
+    label.textContent = p.title + (p.required ? " (obligatoria)" : " (opcional)") + (accepted.has(p.key) ? " — aceptada" : " — pendiente") + " ";
+    const btn = document.createElement("button");
+    btn.textContent = "Aceptar " + p.title;
+    btn.onclick = async () => { try { await call("/api/policies/" + p.key + "/accept", "POST", { personId }); await refreshPolicies(); } catch (e) { label.textContent = "Error: " + e.message; } };
+    row.append(label, btn);
+    list.appendChild(row);
+  }
+}
+$("policies-refresh").onclick = refreshPolicies;
+$("consent-apply").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); await call("/api/consents", "POST", { personId, key: "apply_on_behalf" }); $("consent-status").textContent = "Consentimiento registrado"; } catch (e) { $("consent-status").textContent = "Error: " + e.message; } };
+async function refreshXai() {
+  const data = await call("/api/xai-status", "GET");
+  $("xai-status").textContent = data.configured ? "xAI: configurado" : "xAI: no configurado";
+}
+$("xai-save").onclick = async () => { try { await call("/api/xai-key", "POST", { value: $("xai-key").value }); $("xai-key").value = ""; await refreshXai(); } catch (e) { $("xai-status").textContent = "Error: " + e.message; } };
+$("xai-refresh").onclick = refreshXai;
+async function refreshSettings() {
+  const data = await call("/api/settings", "GET");
+  $("settings-out").textContent = data.auto_mode === "on" ? "Modo automático: activado" : "Modo automático: desactivado";
+}
+$("auto-enable").onclick = async () => { try { await call("/api/settings", "POST", { key: "auto_mode", value: "on" }); await refreshSettings(); } catch (e) { $("settings-out").textContent = "Error: " + e.message; } };
+$("auto-disable").onclick = async () => { try { await call("/api/settings", "POST", { key: "auto_mode", value: "off" }); await refreshSettings(); } catch (e) { $("settings-out").textContent = "Error: " + e.message; } };
+$("settings-refresh").onclick = refreshSettings;
 </script>
 </body>
 </html>

@@ -1,4 +1,5 @@
-// T-V2-018: Declared facts. A fact carries concept, scope, value,
+// Pliego T-V2-019: Declared facts (concept dictionary + scoped editors).
+// A fact carries concept, scope, value,
 // provenance and a confirmation state. Narrative text — including any LLM
 // output — is NEVER stored as a personal fact: declareFact rejects
 // provenance that names an LLM, a narrative or an inference. Only a

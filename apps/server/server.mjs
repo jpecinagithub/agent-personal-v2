@@ -12,11 +12,14 @@ import { isAllowedControlOrigin } from "../../packages/shared/guard.mjs";
 // F2: person, profiles, drafts, facts, resolution, mappings, UI config.
 import fs from "node:fs";
 import { createPersonFull, updatePersonDetails, getPerson, listPersons } from "../../packages/shared/person.mjs";
-import { createProfileFull, listProfiles, getProfileFull, archiveProfile, unarchiveProfile, deleteProfile, profileReadiness, createAttempt, getAttempt } from "../../packages/shared/profiles.mjs";
+import { createProfileFull, listProfiles, getProfileFull, archiveProfile, unarchiveProfile, deleteProfile, duplicateProfile, profileReadiness, createAttempt, getAttempt } from "../../packages/shared/profiles.mjs";
 import { createDraft, getDraft, listDrafts, updateDraft, discardDraft, confirmDraft } from "../../packages/shared/drafts.mjs";
 import { declareFact, listFacts } from "../../packages/shared/facts.mjs";
 import { resolveScreening, answerPendingQuestion, listPendingQuestions } from "../../packages/shared/resolve.mjs";
 import { defineMapping, getMapping, listMappings } from "../../packages/shared/mappings.mjs";
+// F2 corrections: CV importer, policies/consents/settings.
+import { previewCv, listCvImports, getCvImport, confirmCvImport, rejectCvImport } from "../../packages/shared/cv.mjs";
+import { listPolicies, listConsents, giveConsent, acceptPolicy, hasConsent, getSetting, setSetting } from "../../packages/shared/policies.mjs";
 
 export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000 }) {
   const db = openDatabase(path.join(dataDir, "agentv2.db"));
@@ -33,6 +36,10 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000 }) {
   }, recoverIntervalMs);
   if (typeof recoveryTimer.unref === "function") recoveryTimer.unref();
   const secrets = new SecretStore(path.join(dataDir, "secrets.json"));
+  // xAI availability for readiness (RF-V2-020): key in the secret store
+  // or the environment. The value is never returned to the UI, only the
+  // boolean (see /api/xai-status).
+  const xaiAvailable = () => secrets.has("xai_api_key") || Boolean(process.env.XAI_API_KEY);
 
   const readJson = (req) => new Promise((resolve, reject) => {
     let body = "";
@@ -173,7 +180,13 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000 }) {
       }
       if (req.method === "GET" && url.pathname.startsWith("/api/profiles/") && url.pathname.endsWith("/readiness")) {
         const profileId = url.pathname.split("/")[3];
-        return send(res, 200, profileReadiness(db, profileId));
+        return send(res, 200, profileReadiness(db, profileId, { xaiAvailable: xaiAvailable() }));
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/profiles/") && url.pathname.endsWith("/duplicate")) {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const id = duplicateProfile(db, url.pathname.split("/")[3], body.name);
+        return send(res, 201, { id, profile: getProfileFull(db, id) });
       }
       if (req.method === "POST" && url.pathname.startsWith("/api/profiles/") && url.pathname.endsWith("/archive")) {
         if (!requireControlOrigin(req, res)) return;
@@ -252,8 +265,92 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000 }) {
       if (req.method === "POST" && url.pathname === "/api/attempts") {
         if (!requireControlOrigin(req, res)) return;
         const body = await readJson(req);
-        const id = createAttempt(db, body.personId, body.profileId, body.offerId);
+        const id = createAttempt(db, body.personId, body.profileId, body.offerId, { xaiAvailable: xaiAvailable() });
         return send(res, 201, { id, attempt: getAttempt(db, id) });
+      }
+      if (req.method === "GET" && url.pathname.startsWith("/api/attempts/")) {
+        const attempt = getAttempt(db, url.pathname.split("/")[3]);
+        if (!attempt) return send(res, 404, { error: "attempt not found" });
+        return send(res, 200, { attempt });
+      }
+      // F2 corrections: CV importer (T-V2-016). The upload is JSON with a
+      // base64 file body so the UI file input needs no multipart parser;
+      // the browser test uses the same route through the file input.
+      if (req.method === "POST" && url.pathname === "/api/cv") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        if (typeof body.contentBase64 !== "string") throw new Error("contentBase64 is required");
+        const buffer = Buffer.from(body.contentBase64, "base64");
+        const preview = await previewCv(db, body.personId, body.filename ?? "cv", buffer);
+        return send(res, 201, preview);
+      }
+      if (req.method === "GET" && url.pathname === "/api/cv") {
+        return send(res, 200, { imports: listCvImports(db, url.searchParams.get("personId") ?? "") });
+      }
+      if (req.method === "GET" && url.pathname.startsWith("/api/cv/")) {
+        const cv = getCvImport(db, url.pathname.split("/")[3]);
+        if (!cv) return send(res, 404, { error: "CV import not found" });
+        return send(res, 200, { cv });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/cv/") && url.pathname.endsWith("/confirm")) {
+        if (!requireControlOrigin(req, res)) return;
+        return send(res, 200, confirmCvImport(db, url.pathname.split("/")[3]));
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/cv/") && url.pathname.endsWith("/reject")) {
+        if (!requireControlOrigin(req, res)) return;
+        return send(res, 200, rejectCvImport(db, url.pathname.split("/")[3]));
+      }
+      // F2 corrections: policies, consents, xAI status/key, settings
+      // (T-V2-022, RF-V2-007, RF-V2-008, RF-V2-020).
+      if (req.method === "GET" && url.pathname === "/api/policies") {
+        return send(res, 200, { policies: listPolicies(db) });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/policies/") && url.pathname.endsWith("/accept")) {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const id = acceptPolicy(db, body.personId, url.pathname.split("/")[3]);
+        return send(res, 200, { id });
+      }
+      if (req.method === "GET" && url.pathname === "/api/consents") {
+        return send(res, 200, { consents: listConsents(db, url.searchParams.get("personId") ?? "") });
+      }
+      if (req.method === "POST" && url.pathname === "/api/consents") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const id = giveConsent(db, body.personId, body.key);
+        return send(res, 200, { id });
+      }
+      if (req.method === "GET" && url.pathname === "/api/xai-status") {
+        return send(res, 200, { configured: xaiAvailable() });
+      }
+      if (req.method === "POST" && url.pathname === "/api/xai-key") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        if (typeof body.value !== "string" || !body.value) throw new Error("xAI key value is required");
+        secrets.set("xai_api_key", body.value);
+        return send(res, 200, { configured: true });
+      }
+      if (req.method === "GET" && url.pathname === "/api/settings") {
+        return send(res, 200, { auto_mode: getSetting(db, "auto_mode") ?? "off" });
+      }
+      if (req.method === "POST" && url.pathname === "/api/settings") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        if (body.key === "auto_mode" && body.value === "on") {
+          // Enabling automatic mode requires a ready profile whose
+          // person accepted the auto_apply policy (RF-V2-008). It can
+          // always be disabled immediately.
+          let allowed = false;
+          for (const person of listPersons(db)) {
+            if (!hasConsent(db, person.id, "auto_apply")) continue;
+            for (const profile of listProfiles(db, person.id)) {
+              if (profileReadiness(db, profile.id, { xaiAvailable: xaiAvailable() }).ready) allowed = true;
+            }
+          }
+          if (!allowed) throw new Error("cannot enable automatic mode: no ready profile with the auto_apply policy accepted");
+        }
+        setSetting(db, body.key, body.value);
+        return send(res, 200, { ok: true });
       }
       if (req.method === "GET" && url.pathname.startsWith("/queue/")) {
         const job = getJob(db, url.pathname.split("/")[2]);

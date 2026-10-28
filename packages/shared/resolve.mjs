@@ -1,4 +1,4 @@
-// T-V2-019 / T-V2-020: Deterministic answer resolution by concept +
+// Pliego T-V2-019: Deterministic answer resolution by concept +
 // scope. No LLM is involved and nothing is guessed silently:
 //  - an exact confirmed declared fact (concept + scope) wins first;
 //  - a fact declared without a scope, applied to a scoped question, is
