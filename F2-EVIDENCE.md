@@ -478,3 +478,40 @@ afterwards as docs-only; the code it describes is unchanged from
   that is stored in the test server's secret store only and never
   displayed. Secret scan: no real key patterns in code, tests or
   docs (test values are obviously fake).
+
+## Parent verification of the corrections (2026-10-28)
+
+- Local, by the parent: `npm run typecheck` exit 0, `npm test`
+  56/56, `npm run check` exit 0, repo PRIVATE, remote HEAD matching.
+- Oracle, by the parent, deployed copy `git archive HEAD` of the
+  final commit into `~/agentv2-deploy-test` (direct clone still
+  fails: no GitHub credentials on Oracle; no deploy key created),
+  run detached via a log file so an SSH drop cannot kill it:
+  `npm ci` ok, `npm run typecheck` exit 0, `npm test` 56 pass /
+  0 fail (5.4 s, browser tests included), `npm run check` exit 0.
+- Oracle server smoke test: started on `127.0.0.1:14919`,
+  `/health` returned `{"ok":true}`, `/` served the Spanish
+  configuration UI, `ss` showed the listener on `127.0.0.1:14919`
+  only; stopped afterwards by the pid reported by `ss` for that
+  port and verified stopped (no listener, health no longer
+  responds). The deployed copy stays with the server stopped; it
+  is not a service and does not start on boot.
+- Two honest process notes from this verification. (1) The first
+  Oracle full-suite run hung on the browser tests and its SSH
+  session dropped: the test then hardcoded a Chromium 1243 /
+  linux64 path that does not exist on Oracle ARM (the cache there
+  holds chromium-1248 / chrome-linux-arm64), and a leaked test
+  server kept the test process alive. The fix, in commit `fcd5cc8`,
+  scans the Playwright cache recursively for any Chromium binary
+  (any revision, any architecture) and closes the test server if
+  the browser launch fails. An intermediate commit `c97beb6`
+  contained a shallow one-level scan that still missed the binary;
+  it was immediately superseded by `fcd5cc8` and is not the tested
+  version. With the fix, the browser tests pass on Oracle in
+  ~2.8 s standalone and inside the full 56-test suite. (2) The
+  earlier `git archive` full-suite run on Oracle was killed after
+  its SSH session broke; the detached log-file run above is the
+  authoritative Oracle result.
+- G2 closure is left to the user's re-review, as the user ordered:
+  this report does not close G2. A full F10 deployment (compose,
+  install, backup/restore) is still pending and is not claimed.
