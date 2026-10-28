@@ -199,7 +199,10 @@ test("Form edits: an id-less stored authorisation adopts only on full identity, 
   let auths = getPerson(db, personId).details.authorisations;
   assert.equal(auths.length, 2, "a differing id-less entry is a new entry, not a country merge");
   assert.equal(auths[0].valid_until, undefined, "the original entry is untouched");
-  assert.equal(auths[0].id, undefined, "the original entry still has no id");
+  // Contract change (G2 re-review 4): legacy entries gain a persisted
+  // id on load/creation; what must stay untouched is the original's
+  // fields, not its id-lessness.
+  assert.ok(auths[0].id, "the original entry gains a persisted id on load");
   assert.ok(auths[1].id, "the new entry gains a stable id");
   // An identical id-less entry, by contrast, adopts the legacy one.
   updatePersonDetails(db, personId, { authorisations: [{ country: "ES", status: "authorised" }] });

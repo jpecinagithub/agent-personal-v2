@@ -438,3 +438,151 @@ test("browser G2 re-review 3: legacy authorisation without id gains a stable id 
     await stopApp(app);
   }
 });
+
+test("browser G2 re-review 4: legacy authorisation with extra fields keeps one entry, stable id and all fields across saves", async () => {
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    // The user's exact fixture, without an id (setup only). The screen
+    // never shows valid_from/source_note, but they must survive.
+    const seed = {
+      full_name: "Synthetic Original",
+      email: "original@example.test",
+      authorisations: [
+        { country: "ES", status: "authorised", valid_until: "2030-12", sponsorship_required: false, valid_from: "2025-01", source_note: "Synthetic user declaration" },
+      ],
+    };
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(seed) });
+    assert.equal(created.status, 201);
+    const getPerson = async () => (await (await fetch(`${base}/api/person`)).json()).person.details;
+    let stableId = null;
+    for (let round = 0; round < 3; round++) {
+      await app.page.click("#person-load");
+      await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+      assert.equal(await app.page.locator("#person-authorisations-list .auth-card").count(), 1, `round ${round}: exactly one card on screen`);
+      await app.page.click("#person-save");
+      await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+      const details = await getPerson();
+      assert.equal(details.authorisations.length, 1, `round ${round}: exactly one authorisation persisted, no 1 -> 2 -> 3 duplication`);
+      const auth = details.authorisations[0];
+      assert.ok(auth.id, `round ${round}: the entry has a persisted id`);
+      if (stableId === null) stableId = auth.id;
+      else assert.equal(auth.id, stableId, `round ${round}: the id is stable`);
+      assert.equal(auth.valid_from, "2025-01", `round ${round}: extra field valid_from preserved`);
+      assert.equal(auth.source_note, "Synthetic user declaration", `round ${round}: extra field source_note preserved`);
+      assert.equal(auth.valid_until, "2030-12");
+      assert.equal(auth.sponsorship_required, false);
+    }
+  } finally {
+    await stopApp(app);
+  }
+});
+
+test("browser G2 re-review 4: deleting a legacy authorisation with extra fields from the screen really deletes it", async () => {
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    const seed = {
+      full_name: "Synthetic Original",
+      email: "original@example.test",
+      authorisations: [
+        { country: "ES", status: "authorised", valid_until: "2030-12", sponsorship_required: false, valid_from: "2025-01", source_note: "Synthetic user declaration" },
+        { country: "FR", status: "authorised", valid_until: "2029-06", sponsorship_required: true },
+      ],
+    };
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(seed) });
+    assert.equal(created.status, 201);
+    const getPerson = async () => (await (await fetch(`${base}/api/person`)).json()).person.details;
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    assert.equal(await app.page.locator("#person-authorisations-list .auth-card").count(), 2);
+    await app.page.locator("#person-authorisations-list .auth-card").first().getByRole("button", { name: "Eliminar" }).click();
+    await app.page.click("#person-save");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+    const details = await getPerson();
+    assert.equal(details.authorisations.length, 1, "the deleted entry is really gone");
+    assert.equal(details.authorisations[0].country, "FR", "the other entry is preserved");
+  } finally {
+    await stopApp(app);
+  }
+});
+
+test("browser G2 re-review 4: editing a legacy authorisation with extra fields on first interaction updates it in place", async () => {
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    const seed = {
+      full_name: "Synthetic Original",
+      email: "original@example.test",
+      authorisations: [
+        { country: "ES", status: "authorised", valid_until: "2030-12", sponsorship_required: false, valid_from: "2025-01", source_note: "Synthetic user declaration" },
+      ],
+    };
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(seed) });
+    assert.equal(created.status, 201);
+    const getPerson = async () => (await (await fetch(`${base}/api/person`)).json()).person.details;
+    const beforeId = (await getPerson()).authorisations[0].id;
+    assert.ok(beforeId, "the entry has an id before any edit");
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    const card = app.page.locator("#person-authorisations-list .auth-card").first();
+    await card.locator(".auth-valid-until").fill("2031-06");
+    await app.page.click("#person-save");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+    const details = await getPerson();
+    assert.equal(details.authorisations.length, 1, "edit in place, no second entry, no prior adoption save needed");
+    assert.equal(details.authorisations[0].id, beforeId, "same entry");
+    assert.equal(details.authorisations[0].valid_until, "2031-06", "the edit applied");
+    assert.equal(details.authorisations[0].valid_from, "2025-01", "extra field preserved");
+    assert.equal(details.authorisations[0].source_note, "Synthetic user declaration", "extra field preserved");
+  } finally {
+    await stopApp(app);
+  }
+});
+
+test("browser G2 re-review 4: two same-country authorisations stay distinct and individually editable/deletable", async () => {
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    const seed = {
+      full_name: "Synthetic Original",
+      email: "original@example.test",
+      authorisations: [
+        { country: "ES", status: "authorised", valid_until: "2030-12", sponsorship_required: false, valid_from: "2025-01", source_note: "Synthetic user declaration" },
+        { country: "ES", status: "authorised", valid_until: "2028-03", sponsorship_required: true, source_note: "Second synthetic entry" },
+      ],
+    };
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(seed) });
+    assert.equal(created.status, 201);
+    const getPerson = async () => (await (await fetch(`${base}/api/person`)).json()).person.details;
+    let ids = (await getPerson()).authorisations.map((a) => a.id);
+    assert.equal(ids.length, 2);
+    assert.notEqual(ids[0], ids[1], "distinct persisted ids");
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    assert.equal(await app.page.locator("#person-authorisations-list .auth-card").count(), 2);
+    // Edit the first card's validity only.
+    await app.page.locator("#person-authorisations-list .auth-card").first().locator(".auth-valid-until").fill("2032-01");
+    await app.page.click("#person-save");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+    let details = await getPerson();
+    assert.equal(details.authorisations.length, 2);
+    assert.equal(details.authorisations.find((a) => a.id === ids[0]).valid_until, "2032-01");
+    assert.equal(details.authorisations.find((a) => a.id === ids[1]).valid_until, "2028-03", "the other entry is untouched");
+    // Delete the second card only (reload first so cards carry fresh ids).
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    await app.page.locator("#person-authorisations-list .auth-card").nth(1).getByRole("button", { name: "Eliminar" }).click();
+    await app.page.click("#person-save");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+    details = await getPerson();
+    assert.equal(details.authorisations.length, 1);
+    assert.equal(details.authorisations[0].id, ids[0], "the edited entry survives the other's deletion");
+  } finally {
+    await stopApp(app);
+  }
+});

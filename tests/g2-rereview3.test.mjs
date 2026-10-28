@@ -55,7 +55,10 @@ test("authorisations: same country with a different validity or sponsorship neve
   let auths = getPerson(db, personId).details.authorisations;
   assert.equal(auths.length, 2, "different validity is a different entry, not a country merge");
   assert.equal(auths[0].valid_until, "2030-12", "the original is untouched");
-  assert.equal(auths[0].id, undefined, "the original still has no id");
+  // Contract change (G2 re-review 4): legacy entries gain a persisted
+  // id on load/creation, so the original now HAS an id — its fields
+  // are what must stay untouched, not its id-lessness.
+  assert.ok(auths[0].id, "the original gains a persisted id on load");
   updatePersonDetails(db, personId, { authorisations: [{ country: "ES", status: "authorised", valid_until: "2030-12", sponsorship_required: true }] });
   auths = getPerson(db, personId).details.authorisations;
   assert.equal(auths.length, 3, "different sponsorship is a different entry, not a country merge");

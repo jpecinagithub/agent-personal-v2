@@ -98,14 +98,40 @@ export function validatePersonDetails(details) {
   return { ...details };
 }
 
+/**
+ * Normalise authorisation identity (G2 re-review 4, class fix): every
+ * authorisation entry without a non-empty id is assigned a stable
+ * UUID, with ALL of its fields preserved (including extra fields such
+ * as valid_from or source_note) and its position kept. Two distinct
+ * entries never collapse: each id-less entry gets its own UUID.
+ * Pure: the input details are never mutated.
+ * @param {Record<string, any>} details
+ * @returns {{ details: Record<string, any>, changed: boolean }}
+ */
+export function normaliseAuthorisationIds(details) {
+  if (!details || !Array.isArray(details.authorisations)) return { details, changed: false };
+  let changed = false;
+  const authorisations = details.authorisations.map((e) => {
+    if (e && typeof e === "object" && !isNonEmptyString(e.id)) {
+      changed = true;
+      return { ...e, id: randomUUID() };
+    }
+    return e;
+  });
+  return { details: changed ? { ...details, authorisations } : details, changed };
+}
+
 export function createPersonFull(db, details) {
   const valid = validatePersonDetails(details);
+  // New persons never store id-less authorisations: identity is
+  // persisted from creation, so later edits/deletes resolve by id.
+  const stored = normaliseAuthorisationIds(valid).details;
   const id = randomUUID();
-  const displayName = valid.display_name ?? valid.full_name;
+  const displayName = stored.display_name ?? stored.full_name;
   db.prepare("INSERT INTO persons (id, display_name, contact_json, details_json) VALUES (?, ?, ?, ?)").run(
     id, displayName,
-    JSON.stringify({ email: valid.email ?? null, phone: valid.phone ?? null }),
-    JSON.stringify(valid),
+    JSON.stringify({ email: stored.email ?? null, phone: stored.phone ?? null }),
+    JSON.stringify(stored),
   );
   return id;
 }
@@ -265,20 +291,39 @@ function mergeAuthorisations(current, patch) {
     for (const [k, v] of Object.entries(entry)) if (k !== "deleted" && v !== null) fresh[k] = v;
     return fresh;
   };
+  // Full-identity lookup over entries that already carry an id.
+  // Kept deliberately narrow: it only ever matches when EVERY field
+  // (including extra fields) is identical, so it can never merge two
+  // distinct authorisations for one country. It exists so an
+  // identical id-less entry (or deletion marker) still adopts the
+  // entry it describes after load-time normalisation gave that entry
+  // an id; partial entries never match here, they are new entries.
+  const findIddByIdentity = (entry) => {
+    for (const [key, stored] of byId) {
+      if (authIdentityMatches(stored, entry)) return key;
+    }
+    return null;
+  };
+  const deleteIdd = (key) => {
+    byId.delete(key);
+    const at = order.findIndex((s) => s.kind === "id" && s.key === key);
+    if (at >= 0) order.splice(at, 1);
+  };
   for (const entry of patch) {
     if (!entry || typeof entry !== "object") throw new Error("each authorisations entry must be an object");
     const id = isNonEmptyString(entry.id) ? entry.id : null;
     if (entry.deleted === true) {
       if (id) {
-        byId.delete(id);
-        const at = order.findIndex((s) => s.kind === "id" && s.key === id);
-        if (at >= 0) order.splice(at, 1);
+        deleteIdd(id);
       } else {
         const at = idLess.findIndex((s) => authIdentityMatches(s, entry));
         if (at >= 0) {
           const victim = idLess.splice(at, 1)[0];
           const oi = order.findIndex((s) => s.kind === "legacy" && s.entry === victim);
           if (oi >= 0) order.splice(oi, 1);
+        } else {
+          const key = findIddByIdentity(entry);
+          if (key !== null) deleteIdd(key);
         }
       }
       continue;
@@ -303,6 +348,15 @@ function mergeAuthorisations(current, patch) {
       const oi = order.findIndex((s) => s.kind === "legacy" && s.entry === adopted);
       if (oi >= 0) order[oi] = { kind: "id", key: adopted.id };
       noteMentioned(adopted.id);
+    } else if (findIddByIdentity(entry) !== null) {
+      // Identical to an entry that already carries an id (for
+      // example after load-time normalisation): adopt that entry
+      // instead of duplicating it. Partial entries never reach
+      // here — a stored entry with extra fields the patch omits
+      // does not fully match, so it is correctly left alone.
+      const key = /** @type {string} */ (findIddByIdentity(entry));
+      applyFields(byId.get(key), entry);
+      noteMentioned(key);
     } else {
       const fresh = freshEntry(entry, randomUUID());
       byId.set(fresh.id, fresh);
@@ -366,14 +420,30 @@ export function updatePersonDetails(db, personId, details) {
   if (r.changes === 0) throw new Error("person not found");
 }
 
+/**
+ * Read a person row, normalising authorisation identity on load
+ * (G2 re-review 4): any legacy entry without an id is assigned one
+ * and that assignment is PERSISTED immediately, with all fields
+ * intact, so what the form receives is always addressable by id.
+ * Idempotent: a second read changes nothing. This is what makes
+ * edit/delete resolve by id instead of by deducing identity from
+ * mutable values — including extra fields the form never displays.
+ */
+function readPersonRow(db, row) {
+  const details = JSON.parse(row.details_json);
+  const { details: norm, changed } = normaliseAuthorisationIds(details);
+  if (changed) {
+    db.prepare("UPDATE persons SET details_json = ? WHERE id = ?").run(JSON.stringify(norm), row.id);
+  }
+  return { ...row, contact: JSON.parse(row.contact_json), details: norm };
+}
+
 export function getPerson(db, personId) {
   const row = db.prepare("SELECT * FROM persons WHERE id = ?").get(personId);
   if (!row) return null;
-  return { ...row, contact: JSON.parse(row.contact_json), details: JSON.parse(row.details_json) };
+  return readPersonRow(db, row);
 }
 
 export function listPersons(db) {
-  return db.prepare("SELECT * FROM persons ORDER BY created_at ASC").all().map((row) => ({
-    ...row, contact: JSON.parse(row.contact_json), details: JSON.parse(row.details_json),
-  }));
+  return db.prepare("SELECT * FROM persons ORDER BY created_at ASC").all().map((row) => readPersonRow(db, row));
 }
