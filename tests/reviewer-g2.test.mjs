@@ -49,8 +49,8 @@ function chromiumExecutable() {
 async function startApp() {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentv2-reviewer-g2-"));
   const { server } = createServer({ dataDir });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const port = server.address().port;
+  await new Promise((r) => server.listen(0, "127.0.0.1", () => r(undefined)));
+  const port = /** @type {import("node:net").AddressInfo} */ (server.address()).port;
   const base = `http://127.0.0.1:${port}`;
   let browser;
   try {
@@ -127,11 +127,11 @@ test("reviewer: a user correction records user provenance instead of retaining c
     const personId = (await created.json()).id;
     await post(app.base, "/api/facts", { personId, concept: "english_level", value: "C1", provenance: "cv-import" });
     await app.page.click("#person-load");
-    await app.page.waitForFunction(() => document.querySelector("#person-facts-list .fact-value")?.value === "C1");
+    await app.page.waitForFunction(() => (/** @type {HTMLInputElement | null} */ (document.querySelector("#person-facts-list .fact-value")))?.value === "C1");
     const card = app.page.locator("#person-facts-list .profile-card").first();
     await card.locator(".fact-value").fill("C2");
     await card.getByRole("button", { name: "Corregir valor" }).click();
-    await app.page.waitForFunction(() => document.querySelector("#person-facts-list .fact-value")?.value === "C2");
+    await app.page.waitForFunction(() => (/** @type {HTMLInputElement | null} */ (document.querySelector("#person-facts-list .fact-value")))?.value === "C2");
     const facts = (await (await fetch(app.base + `/api/facts?personId=${personId}`)).json()).facts;
     assert.equal(facts[0].value, "C2");
     assert.equal(facts[0].provenance, "user");
