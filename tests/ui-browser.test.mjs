@@ -17,11 +17,22 @@ import { createServer } from "../apps/server/server.mjs";
 
 function chromiumExecutable() {
   if (process.env.AGENTV2_CHROMIUM_PATH) return process.env.AGENTV2_CHROMIUM_PATH;
-  const candidates = [
-    path.join(os.homedir(), ".cache/ms-playwright/chromium-1243/chrome-linux64/chrome"),
-    path.join(os.homedir(), ".cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell"),
-  ];
-  const found = candidates.find((p) => fs.existsSync(p));
+  // Scan the Playwright cache instead of hardcoding one revision and one
+  // architecture: the local machine has chromium-1243/chrome-linux64,
+  // Oracle (aarch64) has chromium-1248/chrome-linux-arm64, and a
+  // hardcoded path fails (or hangs the suite) on the other host.
+  const cache = path.join(os.homedir(), ".cache/ms-playwright");
+  const candidates = [];
+  if (fs.existsSync(cache)) {
+    for (const dir of fs.readdirSync(cache).sort()) {
+      for (const sub of fs.readdirSync(path.join(cache, dir))) {
+        const p = path.join(cache, dir, sub);
+        const base = path.basename(p);
+        if (base === "chrome" || base === "chrome-headless-shell") candidates.push(p);
+      }
+    }
+  }
+  const found = candidates.find((p) => fs.existsSync(p) && fs.statSync(p).isFile());
   if (!found) {
     throw new Error(
       "browser automation unavailable: no Chromium executable found in the Playwright cache " +
