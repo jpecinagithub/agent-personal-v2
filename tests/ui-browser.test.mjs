@@ -23,15 +23,24 @@ function chromiumExecutable() {
   // hardcoded path fails (or hangs the suite) on the other host.
   const cache = path.join(os.homedir(), ".cache/ms-playwright");
   const candidates = [];
-  if (fs.existsSync(cache)) {
-    for (const dir of fs.readdirSync(cache).sort()) {
-      for (const sub of fs.readdirSync(path.join(cache, dir))) {
-        const p = path.join(cache, dir, sub);
-        const base = path.basename(p);
-        if (base === "chrome" || base === "chrome-headless-shell") candidates.push(p);
-      }
+  // Walk the cache recursively: binaries live three levels deep
+  // (cache/chromium-1243/chrome-linux64/chrome on x64,
+  // cache/chromium-1248/chrome-linux-arm64/chrome on Oracle ARM).
+  const walk = (dir, depth) => {
+    if (depth > 4 || !fs.existsSync(dir)) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
     }
-  }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const p = path.join(dir, entry.name);
+      if (entry.isFile() && (entry.name === "chrome" || entry.name === "chrome-headless-shell")) candidates.push(p);
+      else if (entry.isDirectory()) walk(p, depth + 1);
+    }
+  };
+  walk(cache, 0);
   const found = candidates.find((p) => fs.existsSync(p) && fs.statSync(p).isFile());
   if (!found) {
     throw new Error(
@@ -47,7 +56,15 @@ async function startApp() {
   const { server } = createServer({ dataDir: dir });
   await new Promise((r) => server.listen(0, "127.0.0.1", () => r(undefined)));
   const port = /** @type {import("node:net").AddressInfo} */ (server.address()).port;
-  const browser = await chromium.launch({ executablePath: chromiumExecutable(), args: ["--no-sandbox"] });
+  let browser;
+  try {
+    browser = await chromium.launch({ executablePath: chromiumExecutable(), args: ["--no-sandbox"] });
+  } catch (err) {
+    // Never leave the test server listening on a failed launch, or the
+    // test file process hangs forever waiting for the event loop.
+    server.close();
+    throw err;
+  }
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${port}/`);
   return { server, browser, page };
