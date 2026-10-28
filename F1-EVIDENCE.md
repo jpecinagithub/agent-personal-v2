@@ -339,5 +339,34 @@ qualifications above are partial, not failed, and are stated plainly.
   ciphertext on disk, names-only API, 0600 files), and events arriving
   correctly with validated data (live SSE test, SSE replay test,
   schema-validation and xAI tool-argument validation tests).
-- Clean-clone run: (results filled in after the run; see commit
-  following this section).
+- Clean-clone run (2026-10-28, executed from a fresh clone, not from
+  the working copy):
+  ```sh
+  git clone https://github.com/jpecinagithub/agent-personal-v2.git /tmp/agentv2-clean
+  cd /tmp/agentv2-clean
+  git rev-parse HEAD   # 804ba16cdf549ec6b7a8011db14fe4aa16946494
+  node --version       # v24.22.1
+  npm ci               # added 4 packages in 1s
+  npm run typecheck    # tsc --noEmit, exit 0
+  npm test             # 24 tests, 24 pass, 0 fail (1.8 s)
+  npm run check        # node --check on all sources, exit 0
+  ```
+  Tested commit: `804ba16` (includes the workflow removal and this
+  decision section). Test names covering the user's four example
+  checks: "restart recovery: a killed worker's work is not
+  duplicated" and "periodic recovery sweep returns an expired lease
+  to pending without a restart" (jobs after restart); "profile update
+  snapshots first and never rewrites history" and "crash between
+  snapshot and update leaves no orphan: retry succeeds" (profile
+  history); "secret store encrypts at rest" and "server /secrets
+  endpoint never returns a value" (secrets protected); "SSE pushes
+  events appended AFTER the client connects, live", "SSE replay
+  after disconnect returns only unseen events, no duplicates",
+  "structured output is validated against the schema" and "request
+  carries tool definitions and response_format; invalid tool args
+  are rejected" (events arrive correctly, data validated).
+- Gate G1 under this decision: CLOSED. The GitHub-execution criterion
+  no longer applies. Remaining qualifications, stated plainly: F1 was
+  verified locally (clean clone, own resources), not deployed to
+  Oracle — that deployment belongs to F10 (T-V2-075) and is not
+  claimed here. Real xAI calls in F1: 0.
