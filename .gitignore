@@ -1,0 +1,9 @@
+# Runtime data: the database, the secret store and any local state.
+# These are NEVER committed. The secret store file is additionally
+# written with mode 0600 by the server.
+data/
+*.db
+*.db-wal
+*.db-shm
+secrets.json
+node_modules/
