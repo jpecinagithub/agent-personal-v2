@@ -717,13 +717,26 @@ function authCard(entry, stored) {
     card.append(lab, input);
   };
   mk("País (código de 2 letras)", "auth-country", entry.country, "ES");
-  const authLab = document.createElement("label");
-  const auth = document.createElement("input");
-  auth.type = "checkbox";
-  auth.className = "auth-authorised";
-  auth.checked = entry.status !== "not_authorised";
-  authLab.append(auth, document.createTextNode(" Autorizado/a para trabajar"));
-  card.appendChild(authLab);
+  // RF-V2-016 (defect fix 2026-10-28): authorisation status is never
+  // inferred. A checkbox ("checked unless not_authorised") displayed
+  // any unknown stored status (e.g. "pending") as authorised, and an
+  // unchanged save normalised it to "authorised". The status is now
+  // an explicit select: authorised / not authorised, plus — only when
+  // the stored status is neither — a third option showing that status
+  // literally, which saves it back unchanged if left untouched.
+  const statusLab = document.createElement("label");
+  statusLab.textContent = "Estado de la autorización";
+  const statusSel = document.createElement("select");
+  statusSel.className = "auth-status";
+  const mkOpt = (value, label) => { const o = document.createElement("option"); o.value = value; o.textContent = label; statusSel.appendChild(o); return o; };
+  mkOpt("authorised", "Autorizado/a");
+  mkOpt("not_authorised", "No autorizado/a");
+  if (entry.status && entry.status !== "authorised" && entry.status !== "not_authorised") {
+    mkOpt(entry.status, "Desconocido (" + entry.status + ")");
+  }
+  statusSel.value = entry.status || "authorised";
+  statusLab.appendChild(statusSel);
+  card.appendChild(statusLab);
   const spLab = document.createElement("label");
   const sp = document.createElement("input");
   sp.type = "checkbox";
@@ -756,7 +769,9 @@ function collectAuthorisations() {
     const field = (cls) => { const el = card.querySelector("." + cls); return el ? el.value.trim() : ""; };
     const entry = { ...base };
     entry.country = field("auth-country").toUpperCase();
-    entry.status = card.querySelector(".auth-authorised")?.checked ? "authorised" : "not_authorised";
+    // The select value is the status verbatim: an unknown stored
+    // status round-trips unchanged (see authCard), never normalised.
+    entry.status = card.querySelector(".auth-status")?.value || "authorised";
     entry.sponsorship_required = card.querySelector(".auth-sponsorship")?.checked ?? false;
     entry.valid_until = field("auth-valid-until") || null;
     if (id) entry.id = id;
@@ -867,7 +882,14 @@ async function refreshFacts() {
         save.type = "button";
         save.textContent = "Corregir valor";
         save.onclick = async () => { try {
-          await call("/api/facts", "POST", { personId, concept: f.concept, scope: f.scope || "", value: input.value, provenance: f.provenance });
+          // RF-V2-017 (defect fix 2026-10-28): a correction made by
+          // the human through this UI is the human's own declaration,
+          // so it is saved with provenance "user" — never with the
+          // fact's previous provenance. Sending the old provenance
+          // kept a corrected imported fact labelled "Importado de tu
+          // CV". The previous origin is preserved in fact_history
+          // by declareFact (see packages/shared/facts.mjs).
+          await call("/api/facts", "POST", { personId, concept: f.concept, scope: f.scope || "", value: input.value, provenance: "user" });
           $("facts-status").textContent = "Declaración corregida";
           await refreshFacts();
         } catch (e) { $("facts-status").textContent = "Error: " + e.message; } };
@@ -1179,15 +1201,13 @@ async function refreshProfiles() {
       // History mode (G2 regression): dynamic deletes the stored
       // selection keys, so the profile presents all entries again,
       // including future master additions. Fixed stores exactly the
-      // ticked ids (possibly none). With no history to tick, a fixed
-      // save keeps whatever the body already had, preserving the
-      // absent-means-all rule instead of storing an empty list.
+      // ticked ids (possibly none) — and ALWAYS stores both arrays,
+      // even when a block has no entries to tick: an omitted key
+      // would silently mean "dynamic" for that block.
       if (histDynamic.checked) { delete body.employment_ids; delete body.education_ids; }
       else {
-        if (hasSelectionCheckboxes(empSel)) body.employment_ids = checkedIdsIn(empSel);
-        else if (body.employment_ids === undefined) delete body.employment_ids;
-        if (hasSelectionCheckboxes(eduSel)) body.education_ids = checkedIdsIn(eduSel);
-        else if (body.education_ids === undefined) delete body.education_ids;
+        body.employment_ids = hasSelectionCheckboxes(empSel) ? checkedIdsIn(empSel) : [];
+        body.education_ids = hasSelectionCheckboxes(eduSel) ? checkedIdsIn(eduSel) : [];
       }
       await call("/api/drafts/" + draftId, "PUT", { body }); draftOut.textContent = "Borrador guardado"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
     const confirmBtn = document.createElement("button");
@@ -1242,8 +1262,12 @@ $("profile-create").onclick = async () => { try {
   else if (seed && stored.salary_expectations && Object.keys(stored.salary_expectations).length) body.salary_expectations = stored.salary_expectations;
   if ($("profile-cv").value) body.cv_import_id = $("profile-cv").value;
   if (createHistoryMode() === "fixed") {
-    if (hasSelectionCheckboxes($("profile-employment-select"))) body.employment_ids = checkedIdsIn($("profile-employment-select"));
-    if (hasSelectionCheckboxes($("profile-education-select"))) body.education_ids = checkedIdsIn($("profile-education-select"));
+    // Fixed means fixed: BOTH arrays are always stored, even when a
+    // block has no entries to tick (no checkboxes rendered) — an
+    // omitted key would mean "dynamic" and later master additions
+    // would appear automatically. An empty block stores [].
+    body.employment_ids = hasSelectionCheckboxes($("profile-employment-select")) ? checkedIdsIn($("profile-employment-select")) : [];
+    body.education_ids = hasSelectionCheckboxes($("profile-education-select")) ? checkedIdsIn($("profile-education-select")) : [];
   }
   await call("/api/profiles", "POST", { personId, name: $("profile-name").value, body });
   await refreshProfiles();

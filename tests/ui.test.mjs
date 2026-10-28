@@ -2,6 +2,7 @@
 // existing server with no build step; changes take effect through the
 // API without redeploy or restart; secret values are never exposed.
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -90,7 +91,7 @@ test("configuration changes through the API take effect without restart, and for
     // apply-on-behalf consent, and a VERIFIED xAI key (R3: a merely
     // configured key must not suffice).
     const fs = await import("node:fs");
-    const txt = fs.readFileSync(new URL("./fixtures/sample.txt", import.meta.url).pathname).toString("base64");
+    const txt = fs.readFileSync(fileURLToPath(new URL("./fixtures/sample.txt", import.meta.url))).toString("base64");
     const cvRes = await post(base, "/api/cv", { personId, filename: "sample.txt", contentBase64: txt });
     assert.equal(cvRes.status, 201);
     const cvId = (await cvRes.json()).id;

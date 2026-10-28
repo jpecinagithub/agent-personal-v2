@@ -26,13 +26,40 @@ export function declareFact(db, { personId, concept, scope = "", value, provenan
   if (!["pending", "confirmed", "disputed"].includes(confirmationState)) {
     throw new Error(`unknown confirmation state: ${confirmationState}`);
   }
+  // RF-V2-017 (defect fix 2026-10-28): the previous value + provenance
+  // are kept in fact_history before an update overwrites them, so a
+  // human correction of an imported fact never silently erases where
+  // the fact came from. A row is written only when the update actually
+  // changes the value or the provenance; creations and no-op saves
+  // write nothing.
+  const previous = db.prepare(
+    "SELECT id, value_json, provenance FROM declared_facts WHERE person_id = ? AND concept = ? AND scope = ?",
+  ).get(personId, concept.trim(), scope);
   const id = randomUUID();
   db.prepare(
     "INSERT INTO declared_facts (id, person_id, concept, scope, value_json, provenance, confirmation_state) VALUES (?, ?, ?, ?, ?, ?, ?) " +
     "ON CONFLICT(person_id, concept, scope) DO UPDATE SET value_json = excluded.value_json, provenance = excluded.provenance, confirmation_state = excluded.confirmation_state",
   ).run(id, personId, concept.trim(), scope, JSON.stringify(value), provenance, confirmationState);
   const row = db.prepare("SELECT id FROM declared_facts WHERE person_id = ? AND concept = ? AND scope = ?").get(personId, concept.trim(), scope);
+  if (previous && (previous.value_json !== JSON.stringify(value) || previous.provenance !== provenance)) {
+    db.prepare(
+      "INSERT INTO fact_history (id, fact_id, concept, scope, previous_value_json, previous_provenance) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(randomUUID(), row.id, concept.trim(), scope, previous.value_json, previous.provenance);
+  }
   return row.id;
+}
+
+/**
+ * Append-only change history of one fact, oldest first. Read-only by
+ * design: nothing in the codebase updates or deletes these rows.
+ * @param {any} db
+ * @param {string} factId
+ * @returns {any[]}
+ */
+export function listFactHistory(db, factId) {
+  return db.prepare("SELECT * FROM fact_history WHERE fact_id = ? ORDER BY changed_at ASC, rowid ASC").all(factId).map((r) => ({
+    ...r, previous_value: JSON.parse(r.previous_value_json),
+  }));
 }
 
 export function listFacts(db, personId) {

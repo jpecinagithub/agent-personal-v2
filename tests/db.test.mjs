@@ -1,5 +1,6 @@
 // T-V2-010: migrations run, snapshots preserve history.
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -43,7 +44,7 @@ test("crash between snapshot and update leaves no orphan: retry succeeds", () =>
   db.close();
   // Child inserts the snapshot inside a transaction and dies uncommitted.
   try {
-    execFileSync(process.execPath, ["tests/helpers/snapshot-crash-child.mjs", dbPath, profile], { cwd: new URL("..", import.meta.url).pathname });
+    execFileSync(process.execPath, ["tests/helpers/snapshot-crash-child.mjs", dbPath, profile], { cwd: fileURLToPath(new URL("..", import.meta.url)) });
   } catch {
     // Expected: the child exits 1 without committing.
   }

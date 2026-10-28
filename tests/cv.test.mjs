@@ -1,4 +1,5 @@
 // Pliego T-V2-016: CV importer (PDF/DOCX/text) with preview, extraction
+import { fileURLToPath } from "node:url";
 // with provenance, and confirmation. Synthetic fixtures only.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -20,7 +21,7 @@ function setup() {
 }
 
 function fixture(name) {
-  return fs.readFileSync(new URL(`./fixtures/${name}`, import.meta.url).pathname);
+  return fs.readFileSync(fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)));
 }
 
 for (const [name, file] of [["PDF", "sample.pdf"], ["DOCX", "sample.docx"], ["texto", "sample.txt"]]) {

@@ -3,6 +3,7 @@
 // validates profile state in both readiness and attempt creation, and
 // creates no snapshot or attempt row. Historical attempts stay readable.
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -29,7 +30,7 @@ function offer(db, id) {
 }
 
 async function readyProfile(db, personId) {
-  const txt = fs.readFileSync(new URL("./fixtures/sample.txt", import.meta.url).pathname);
+  const txt = fs.readFileSync(fileURLToPath(new URL("./fixtures/sample.txt", import.meta.url)));
   const preview = await previewCv(db, personId, "sample.txt", txt);
   confirmCvImport(db, preview.id);
   acceptPolicy(db, personId, "data_processing");
@@ -69,7 +70,7 @@ test("R6: server rejects POST /api/attempts for a deleted profile with 400 and k
   try {
     const personRes = await post("/api/person", { ...FIXTURE_PERSON });
     const personId = personRes.json.id;
-    const txt = fs.readFileSync(new URL("./fixtures/sample.txt", import.meta.url).pathname).toString("base64");
+    const txt = fs.readFileSync(fileURLToPath(new URL("./fixtures/sample.txt", import.meta.url))).toString("base64");
     const cvRes = await post("/api/cv", { personId, filename: "sample.txt", contentBase64: txt });
     const cvId = cvRes.json.id;
     await post(`/api/cv/${cvId}/confirm`, {});

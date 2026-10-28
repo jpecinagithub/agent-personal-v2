@@ -2,6 +2,7 @@
 // (snapshots): fact references (not copies), readiness, and attempt
 // pinning that survives later changes.
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -16,7 +17,7 @@ import { previewCv, confirmCvImport } from "../packages/shared/cv.mjs";
 import { acceptPolicy, giveConsent } from "../packages/shared/policies.mjs";
 
 async function makeReady(db, personId) {
-  const txt = fs.readFileSync(new URL("./fixtures/sample.txt", import.meta.url).pathname);
+  const txt = fs.readFileSync(fileURLToPath(new URL("./fixtures/sample.txt", import.meta.url)));
   const preview = await previewCv(db, personId, "sample.txt", txt);
   confirmCvImport(db, preview.id);
   acceptPolicy(db, personId, "data_processing");

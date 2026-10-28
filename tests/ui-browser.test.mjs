@@ -8,6 +8,7 @@
 // Chromium resolution: AGENTV2_CHROMIUM_PATH wins; otherwise the
 // Playwright browser cache used by this environment.
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -147,7 +148,7 @@ test("browser: CV import preview and confirm, CV assignment, policies, consent, 
     await app.page.click("#profile-create");
     await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
     // CV: file input -> preview shows the known fixture text -> confirm.
-    const fixture = new URL("./fixtures/sample.txt", import.meta.url).pathname;
+    const fixture = fileURLToPath(new URL("./fixtures/sample.txt", import.meta.url));
     await app.page.setInputFiles("#cv-file", fixture);
     await app.page.click("#cv-preview");
     await app.page.waitForFunction(() => (document.querySelector("#cv-preview-out")?.textContent ?? "").includes("Test Person"));
@@ -442,9 +443,10 @@ test("browser G2 regression: authorisations domain UI edits by country and prese
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
     assert.deepEqual((await getPerson()).authorisations, before, "form save preserves stored authorisations byte-identical");
     // Edit through the domain UI: turn sponsorship ON for Spain.
-    // Card checkboxes in order: authorised, sponsorship.
+    // The status is a select now (RF-V2-016 fix); sponsorship is the
+    // only checkbox left on the card.
     const esCard = app.page.locator("#person-authorisations-list .auth-card").filter({ hasText: "España" });
-    await esCard.locator("input[type=checkbox]").nth(1).check();
+    await esCard.locator("input[type=checkbox]").nth(0).check();
     await app.page.click("#authorisations-save");
     await app.page.waitForFunction(() => (document.querySelector("#authorisations-status")?.textContent ?? "").includes("Autorizaciones guardadas"));
     const edited = (await getPerson()).authorisations;
@@ -702,3 +704,159 @@ test("browser G2 regression: defaults editable and deletable, explicit create mo
   }
 });
 
+
+test("browser defect fix: unknown authorisation status is never normalised to authorised", async () => {
+  // WHY (defect fix 2026-10-28, RF-V2-016): the old authorised
+  // checkbox displayed any unknown status (e.g. "pending") as
+  // authorised, and an unchanged save converted it to "authorised".
+  // A legal authorisation must never be inferred towards "yes".
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    const seed = {
+      full_name: "Test Person", email: "test.person@example.test",
+      authorisations: [{ country: "DE", status: "pending", sponsorship_required: false }],
+    };
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(seed) });
+    assert.equal(created.status, 201);
+    const getPerson = async () => (await (await fetch(`${base}/api/person`)).json()).person.details;
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    const card = app.page.locator("#person-authorisations-list .auth-card").first();
+    // Displays as unknown, literally — not as authorised.
+    assert.equal(await card.locator(".auth-status").inputValue(), "pending");
+    assert.ok((await card.locator(".auth-status").textContent()).includes("Desconocido (pending)"));
+    // An unchanged save preserves "pending" byte for byte.
+    await app.page.click("#authorisations-save");
+    await app.page.waitForFunction(() => (document.querySelector("#authorisations-status")?.textContent ?? "").includes("Autorizaciones guardadas"));
+    assert.equal((await getPerson()).authorisations[0].status, "pending", "unchanged save keeps the unknown status");
+    // Explicit changes in both directions work.
+    await card.locator(".auth-status").selectOption("authorised");
+    await app.page.click("#authorisations-save");
+    await app.page.waitForFunction(() => (document.querySelector("#authorisations-status")?.textContent ?? "").includes("Autorizaciones guardadas"));
+    assert.equal((await getPerson()).authorisations[0].status, "authorised");
+    await app.page.locator("#person-authorisations-list .auth-card").first().locator(".auth-status").selectOption("not_authorised");
+    await app.page.click("#authorisations-save");
+    await app.page.waitForFunction(() => (document.querySelector("#authorisations-status")?.textContent ?? "").includes("Autorizaciones guardadas"));
+    assert.equal((await getPerson()).authorisations[0].status, "not_authorised");
+  } finally {
+    await stopApp(app);
+  }
+});
+
+test("browser defect fix: fixed history mode stores both arrays even with empty blocks", async () => {
+  // WHY (defect fix 2026-10-28): a fixed-mode profile created while
+  // the master history was empty stored the selection keys as ABSENT,
+  // so later-added entries appeared automatically as if dynamic.
+  // Fixed must always store both arrays; each block is tested
+  // separately (empty employment + existing education, and mirror).
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ full_name: "Test Person", email: "test.person@example.test" }) });
+    assert.equal(created.status, 201);
+    const personId = (await (await fetch(`${base}/api/person`)).json()).person.id;
+    const getProfiles = async () => (await (await fetch(`${base}/api/profiles?personId=${personId}`)).json()).profiles;
+    const setHistory = async (employment, education) => {
+      const r = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ employment, education }) });
+      assert.ok(r.status === 200 || r.status === 201, `person patch returns 2xx, got ${r.status}`);
+    };
+    const createFixed = async (name) => {
+      await app.page.click("#tab-profiles");
+      await app.page.check('input[name="profile-history-mode"][value="fixed"]');
+      await app.page.fill("#profile-name", name);
+      await app.page.fill("#profile-focus", "Finance");
+      await app.page.click("#profile-create");
+      await app.page.waitForFunction((n) => (document.querySelector("#profiles-list")?.textContent ?? "").includes(n), name);
+      return (await getProfiles()).find((p) => p.name === name);
+    };
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    // (c) Both blocks empty, create in fixed mode: both arrays stored.
+    let p = await createFixed("FijoVacio");
+    assert.deepEqual(p.body.employment_ids, [], "fixed with no employment stores []");
+    assert.deepEqual(p.body.education_ids, [], "fixed with no education stores []");
+    // Draft edit: switch a dynamic profile to fixed with no history.
+    await app.page.check('input[name="profile-history-mode"][value="dynamic"]');
+    await app.page.fill("#profile-name", "Dinamico");
+    await app.page.fill("#profile-focus", "Finance");
+    await app.page.click("#profile-create");
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Dinamico"));
+    const dynCard = app.page.locator("#profiles-list .profile-card").filter({ hasText: "Dinamico" }).first();
+    await dynCard.getByRole("button", { name: "Editar" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Guardar borrador"));
+    await dynCard.locator('input[type="radio"][value="fixed"]').check();
+    await dynCard.getByRole("button", { name: "Guardar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Borrador guardado"));
+    await dynCard.getByRole("button", { name: "Confirmar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-status")?.textContent ?? "").includes("Borrador confirmado"));
+    p = (await getProfiles()).find((x) => x.name === "Dinamico");
+    assert.deepEqual(p.body.employment_ids, [], "draft switch to fixed with no employment stores []");
+    assert.deepEqual(p.body.education_ids, [], "draft switch to fixed with no education stores []");
+    // (a) Empty employment + existing education.
+    await setHistory([], [{ id: "edu-1", institution: "Fixture University", title: "BSc Test Studies", start: "2016", end: "2020" }]);
+    await app.page.click("#tab-person");
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    p = await createFixed("FijoEdu");
+    assert.deepEqual(p.body.employment_ids, [], "empty employment block stores [] in fixed mode");
+    assert.deepEqual(p.body.education_ids, ["edu-1"], "existing education block stores exactly the ticked ids");
+    // (b) Mirror: existing employment + empty education. Merge is by
+    // id, so an empty array never clears a block: edu-1 is removed
+    // with an explicit deletion marker.
+    await setHistory([{ id: "job-1", employer: "Alpha Corp", title: "Analyst", start: "2020-01" }], [{ id: "edu-1", deleted: true }]);
+    await app.page.click("#tab-person");
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    p = await createFixed("FijoEmp");
+    assert.deepEqual(p.body.employment_ids, ["job-1"], "existing employment block stores exactly the ticked ids");
+    assert.deepEqual(p.body.education_ids, [], "empty education block stores [] in fixed mode");
+    // And dynamic still stores neither key.
+    await app.page.check('input[name="profile-history-mode"][value="dynamic"]');
+    await app.page.fill("#profile-name", "Dinamico2");
+    await app.page.fill("#profile-focus", "Finance");
+    await app.page.click("#profile-create");
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Dinamico2"));
+    p = (await getProfiles()).find((x) => x.name === "Dinamico2");
+    assert.equal(p.body.employment_ids, undefined, "dynamic still stores no employment key");
+    assert.equal(p.body.education_ids, undefined, "dynamic still stores no education key");
+  } finally {
+    await stopApp(app);
+  }
+});
+
+test("browser defect fix: correcting an imported declaration sets provenance to user", async () => {
+  // WHY (defect fix 2026-10-28, RF-V2-017): correcting a fact
+  // imported from the CV kept displaying "Importado de tu CV" — a
+  // false provenance after a human correction. The fact history row
+  // (previous value + origin) is asserted at module level.
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ full_name: "Test Person", email: "test.person@example.test" }) });
+    assert.equal(created.status, 201);
+    const personId = (await (await fetch(`${base}/api/person`)).json()).person.id;
+    const fr = await fetch(`${base}/api/facts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personId, concept: "english_level", value: "C1", provenance: "cv-import" }) });
+    assert.equal(fr.status, 201);
+    const getFacts = async () => (await (await fetch(`${base}/api/facts?personId=${personId}`)).json()).facts;
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    await Promise.all([
+      app.page.waitForResponse((r) => r.url().includes("/api/facts") && r.request().method() === "GET"),
+      app.page.click("#facts-refresh"),
+    ]);
+    await app.page.waitForFunction(() => (/** @type {HTMLInputElement | null} */ (document.querySelector("#person-facts-list .fact-value")))?.value === "C1");
+    const factCard = app.page.locator("#person-facts-list .profile-card").first();
+    await factCard.locator(".fact-value").fill("C2");
+    await factCard.getByRole("button", { name: "Corregir valor" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#facts-status")?.textContent ?? "").includes("Declaración corregida"));
+    const facts = await getFacts();
+    assert.equal(facts[0].value, "C2", "value corrected through the UI");
+    assert.equal(facts[0].provenance, "user", "a human correction is provenance user, not the old import origin");
+  } finally {
+    await stopApp(app);
+  }
+});

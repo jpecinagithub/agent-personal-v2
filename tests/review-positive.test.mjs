@@ -2,6 +2,7 @@
 // as CORRECT (review-results.json, passed: true). These behaviours must
 // stay green while R1..R6 are fixed; they are not to be reopened.
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -35,7 +36,7 @@ test("positive: archiving one of ten profiles does not free a slot", () => {
 
 test("positive: the person snapshot stays unchanged after identity and history edits", async () => {
   const { db, personId } = setup();
-  const txt = fs.readFileSync(new URL("./fixtures/sample.txt", import.meta.url).pathname);
+  const txt = fs.readFileSync(fileURLToPath(new URL("./fixtures/sample.txt", import.meta.url)));
   const preview = await previewCv(db, personId, "sample.txt", txt);
   confirmCvImport(db, preview.id);
   acceptPolicy(db, personId, "data_processing");
@@ -52,7 +53,7 @@ test("positive: the person snapshot stays unchanged after identity and history e
 
 test("positive: soft deletion retains the previous attempt and frees exactly one slot", async () => {
   const { db, personId } = setup();
-  const txt = fs.readFileSync(new URL("./fixtures/sample.txt", import.meta.url).pathname);
+  const txt = fs.readFileSync(fileURLToPath(new URL("./fixtures/sample.txt", import.meta.url)));
   const preview = await previewCv(db, personId, "sample.txt", txt);
   confirmCvImport(db, preview.id);
   acceptPolicy(db, personId, "data_processing");

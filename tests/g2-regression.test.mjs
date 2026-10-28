@@ -3,13 +3,14 @@
 // Backend contract only — the screen-level behaviour lives in the
 // browser tests appended to tests/ui-browser.test.mjs.
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { openDatabase } from "../packages/shared/db.mjs";
 import { createPersonFull, updatePersonDetails, getPerson, validatePersonDetails } from "../packages/shared/person.mjs";
-import { declareFact, listFacts, deleteFact } from "../packages/shared/facts.mjs";
+import { declareFact, listFacts, deleteFact, listFactHistory } from "../packages/shared/facts.mjs";
 import { createProfileFull, getProfileFull, presentedHistory, archiveProfile, deleteProfile, createAttempt, getAttempt } from "../packages/shared/profiles.mjs";
 import { createDraft, updateDraft, confirmDraft } from "../packages/shared/drafts.mjs";
 import { previewCv, confirmCvImport } from "../packages/shared/cv.mjs";
@@ -110,7 +111,7 @@ test("regression: a draft can switch a profile from fixed to dynamic by clearing
 test("regression: snapshots are immutable — later person/profile edits and profile deletion do not rewrite an attempt", async () => {
   const db = setup();
   const personId = createPersonFull(db, FIXTURE_PERSON);
-  const txt = fs.readFileSync(new URL("./fixtures/sample.txt", import.meta.url).pathname);
+  const txt = fs.readFileSync(fileURLToPath(new URL("./fixtures/sample.txt", import.meta.url)));
   const preview = await previewCv(db, personId, "sample.txt", txt);
   confirmCvImport(db, preview.id);
   acceptPolicy(db, personId, "data_processing");
@@ -149,4 +150,25 @@ test("regression: snapshots are immutable — later person/profile edits and pro
   );
   assert.deepEqual(JSON.parse(profileSnapshotBefore).skills, ["accounting"], "snapshot keeps the original profile fields");
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM profile_snapshots WHERE profile_id = ?").get(profileId).n, 2, "deleting a profile does not touch its snapshots");
+});
+
+test("regression: a fact update keeps its previous origin in fact_history, creations and no-ops do not", () => {
+  // WHY (defect fix 2026-10-28, RF-V2-017): declareFact upserted in
+  // place, so correcting an imported fact erased where it came from.
+  const db = setup();
+  const personId = createPersonFull(db, { full_name: "Test Person", email: "test.person@example.test" });
+  const id = declareFact(db, { personId, concept: "english_level", value: "C1", provenance: "cv-import" });
+  assert.deepEqual(listFactHistory(db, id), [], "creation writes no history row");
+  declareFact(db, { personId, concept: "english_level", value: "C1", provenance: "cv-import" });
+  assert.deepEqual(listFactHistory(db, id), [], "a no-op re-declare writes no history row");
+  declareFact(db, { personId, concept: "english_level", value: "C2", provenance: "user" });
+  const history = listFactHistory(db, id);
+  assert.equal(history.length, 1, "one history row for the correcting update");
+  assert.equal(history[0].previous_value, "C1", "history keeps the previous value");
+  assert.equal(history[0].previous_provenance, "cv-import", "history keeps the previous origin");
+  assert.equal(listFacts(db, personId)[0].provenance, "user", "the fact itself now says user");
+  // A provenance-only change is also a change worth keeping.
+  declareFact(db, { personId, concept: "english_level", value: "C2", provenance: "manual" });
+  assert.equal(listFactHistory(db, id).length, 2, "a provenance-only change writes a second row");
+  assert.equal(listFactHistory(db, id)[1].previous_provenance, "user");
 });

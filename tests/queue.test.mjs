@@ -1,5 +1,6 @@
 // T-V2-011: claim-once, fencing, pause/resume/cancel, restart recovery.
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -76,7 +77,7 @@ test("concurrent complete race across processes: exactly one winner", async () =
   const { execFile } = await import("node:child_process");
   const { promisify } = await import("node:util");
   const run = promisify(execFile);
-  const root = new URL("..", import.meta.url).pathname;
+  const root = fileURLToPath(new URL("..", import.meta.url));
   // Both children hold the same valid token; the atomic UPDATE lets one win.
   const db1 = openDatabase(dbPath);
   const claimed = claim(db1, "worker-a");
@@ -118,7 +119,7 @@ test("restart recovery: a killed worker's work is not duplicated", () => {
   const id = enqueue(db0, "search", { board: "synthetic-fixture" });
   db0.close();
   // Separate process claims and dies without completing (lease 60 s).
-  const childOut = execFileSync(process.execPath, ["tests/helpers/claim-child.mjs", dbPath], { cwd: new URL("..", import.meta.url).pathname }).toString().trim();
+  const childOut = execFileSync(process.execPath, ["tests/helpers/claim-child.mjs", dbPath], { cwd: fileURLToPath(new URL("..", import.meta.url)) }).toString().trim();
   const child = JSON.parse(childOut);
   assert.equal(child.id, id);
   // Reopening while the lease is live must NOT hand the job to anyone else.

@@ -3,6 +3,7 @@
 // Generic consent text never substitutes for it. Deactivation is
 // always immediately available. Synthetic fixtures only.
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -64,7 +65,7 @@ test("R5: server activation without a policy is rejected with the missing fields
     const personRes = await post(base, "/api/person", { ...FIXTURE_PERSON });
     assert.equal(personRes.status, 201);
     const personId = personRes.json.id;
-    const txt = fs.readFileSync(new URL("./fixtures/sample.txt", import.meta.url).pathname).toString("base64");
+    const txt = fs.readFileSync(fileURLToPath(new URL("./fixtures/sample.txt", import.meta.url))).toString("base64");
     const cvRes = await post(base, "/api/cv", { personId, filename: "sample.txt", contentBase64: txt });
     const cvId = cvRes.json.id;
     await post(base, `/api/cv/${cvId}/confirm`, {});
