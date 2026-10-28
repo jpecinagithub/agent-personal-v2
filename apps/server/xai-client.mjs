@@ -3,6 +3,11 @@
 // from code. Remote model output is DATA, never a command: it is returned
 // as text, it cannot change budgets, tools or permissions, and tool calls
 // are only honoured when their name is on the caller's whitelist.
+// The tool contract is complete in both directions: declared tools are
+// sent as definitions in the request body, structured output is requested
+// via response_format, and received tool-call arguments are parsed as JSON
+// and validated against the declared parameters schema before being
+// returned (as a parsed object, never as unvalidated text).
 // Usage (tokens + cost ticks when present) is persisted per call, and a
 // persisted budget limit refuses new calls once reached.
 import { randomUUID } from "node:crypto";
@@ -43,7 +48,22 @@ export function validateSchema(value, schema) {
   throw new XaiError("validation", "unsupported schema type for structured output");
 }
 
+/**
+ * Minimal fetch shape the client actually uses. Mock fetches in tests
+ * return exactly this shape; the real global fetch is structurally
+ * compatible with it (Response carries ok, status, text and json).
+ * @typedef {(url: string, init?: object) => Promise<{ ok: boolean, status: number, text: () => Promise<string>, json: () => Promise<any> }>} FetchFn
+ */
+
 export class XaiClient {
+  /**
+   * @param {object} opts
+   * @param {any} opts.db SQLite database (usage + budgets tables)
+   * @param {string} [opts.model]
+   * @param {FetchFn} [opts.fetchFn]
+   * @param {any} [opts.secretStore]
+   * @param {string | null} [opts.apiKey]
+   */
   constructor({ db, model = "grok-4.20-non-reasoning", fetchFn = globalThis.fetch, secretStore = null, apiKey = null }) {
     this.db = db;
     this.model = model;
@@ -76,18 +96,53 @@ export class XaiClient {
     );
   }
 
-  // options: { prompt, schema?, allowedTools? (array of names), maxTokens? }
+  // options: { prompt, schema?, allowedTools?, maxTokens? }
+  // allowedTools is an array of tool definitions
+  //   { name, description?, parameters? (JSON schema) }
+  // or, for callers that only whitelist names, plain name strings.
   // Returns { text, parsed, toolCalls } where toolCalls contains ONLY
-  // whitelisted tool names. A model reply that contains instructions
-  // ("ignore limits...") is returned as plain text and changes nothing.
+  // whitelisted tool names, with args as a PARSED object validated against
+  // the declared parameters schema. A model reply that contains
+  // instructions ("ignore limits...") is returned as plain text and
+  // changes nothing.
   async complete({ prompt, schema = null, allowedTools = [], maxTokens = 200 }) {
     this.#checkBudget();
+    // Normalise tool definitions once; the same definitions are sent in
+    // the request and used to validate the reply, so the two sides of
+    // the contract cannot drift apart.
+    const toolDefs = allowedTools.map((t) => (typeof t === "string" ? { name: t } : t));
+    for (const def of toolDefs) {
+      if (!def || typeof def.name !== "string" || def.name.length === 0) {
+        throw new XaiError("validation", "allowed tool definition must have a non-empty name");
+      }
+    }
+    const requestBody = {
+      model: this.model,
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+    };
+    if (schema) {
+      requestBody.response_format = {
+        type: "json_schema",
+        json_schema: { name: "structured_output", schema, strict: true },
+      };
+    }
+    if (toolDefs.length > 0) {
+      requestBody.tools = toolDefs.map((def) => ({
+        type: "function",
+        function: {
+          name: def.name,
+          description: def.description ?? "",
+          parameters: def.parameters ?? { type: "object", properties: {} },
+        },
+      }));
+    }
     let res;
     try {
       res = await this.fetchFn(`${this.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.apiKey}` },
-        body: JSON.stringify({ model: this.model, messages: [{ role: "user", content: prompt }], max_tokens: maxTokens }),
+        body: JSON.stringify(requestBody),
       });
     } catch (err) {
       throw new XaiError("network", `xAI request failed: ${err.message}`);
@@ -102,14 +157,28 @@ export class XaiClient {
     const text = message.content ?? "";
     this.#recordUsage(body.usage);
     const rawToolCalls = message.tool_calls ?? [];
-    const allowed = new Set(allowedTools);
+    const allowed = new Map(toolDefs.map((def) => [def.name, def]));
     const toolCalls = [];
     for (const call of rawToolCalls) {
       const name = call.function?.name;
-      if (!allowed.has(name)) {
+      const def = allowed.get(name);
+      if (!def) {
         throw new XaiError("validation", `model requested non-whitelisted tool: ${name}`);
       }
-      toolCalls.push({ name, args: call.function?.arguments ?? "{}" });
+      let args;
+      try {
+        args = JSON.parse(call.function?.arguments ?? "{}");
+      } catch {
+        throw new XaiError("validation", `tool call arguments for ${name} are not valid JSON`);
+      }
+      if (def.parameters && def.parameters.type === "object") {
+        try {
+          validateSchema(args, def.parameters);
+        } catch (err) {
+          throw new XaiError("validation", `tool call arguments for ${name} failed schema validation: ${err.message}`);
+        }
+      }
+      toolCalls.push({ name, args });
     }
     let parsed = null;
     if (schema) {

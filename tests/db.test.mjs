@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { openDatabase, createPerson, createProfile, updateProfile, getProfile, getSnapshot } from "../packages/shared/db.mjs";
 
 function tmpDb() {
@@ -32,4 +33,29 @@ test("profile update snapshots first and never rewrites history", () => {
   updateProfile(db, profile, { title: "Finance Manager v3" });
   assert.equal(JSON.parse(getSnapshot(db, snapshotId).body_json).title, "Finance Manager v1");
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM profile_snapshots WHERE profile_id = ?").get(profile).n, 2);
+});
+
+test("crash between snapshot and update leaves no orphan: retry succeeds", () => {
+  const { dir, db } = tmpDb();
+  const person = createPerson(db, "Test Person");
+  const profile = createProfile(db, person, "Finance", { title: "Finance Manager v1" });
+  const dbPath = path.join(dir, "agentv2.db");
+  db.close();
+  // Child inserts the snapshot inside a transaction and dies uncommitted.
+  try {
+    execFileSync(process.execPath, ["tests/helpers/snapshot-crash-child.mjs", dbPath, profile], { cwd: new URL("..", import.meta.url).pathname });
+  } catch {
+    // Expected: the child exits 1 without committing.
+  }
+  const db2 = openDatabase(dbPath);
+  assert.equal(
+    db2.prepare("SELECT COUNT(*) AS n FROM profile_snapshots WHERE profile_id = ?").get(profile).n,
+    0,
+    "the uncommitted snapshot must be rolled back, not left behind",
+  );
+  // Retrying the same update must NOT hit UNIQUE (profile_id, version).
+  const snapshotId = updateProfile(db2, profile, { title: "Finance Manager v2" });
+  assert.equal(JSON.parse(getSnapshot(db2, snapshotId).body_json).title, "Finance Manager v1");
+  assert.equal(getProfile(db2, profile).version, 2);
+  assert.equal(db2.prepare("SELECT COUNT(*) AS n FROM profile_snapshots WHERE profile_id = ?").get(profile).n, 1);
 });

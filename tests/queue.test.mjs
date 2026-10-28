@@ -31,12 +31,85 @@ test("claim is once, fencing rejects stale tokens, pause/resume/cancel work", ()
   resumeJob(db, p);
   const claimed = claim(db, "worker-a");
   assert.equal(claimed.id, p);
-  assert.throws(() => cancelJob(db, p), /only a pending or paused job can be cancelled/);
   fail(db, p, claimed.lease_token, { reason: "synthetic failure" });
   assert.equal(getJob(db, p).status, "failed");
   const c = enqueue(db, "search", {});
   cancelJob(db, c);
   assert.equal(getJob(db, c).status, "cancelled");
+});
+
+test("pause and cancel work on claimed jobs; the old token can never complete afterwards", () => {
+  const { db } = tmpDb();
+  const id = enqueue(db, "search", {});
+  const claimed = claim(db, "worker-a");
+  pauseJob(db, id);
+  assert.equal(getJob(db, id).status, "paused");
+  assert.equal(getJob(db, id).lease_token, null, "pausing clears the lease");
+  assert.throws(() => complete(db, id, claimed.lease_token), /not claimed/);
+  resumeJob(db, id);
+  const reclaimed = claim(db, "worker-b");
+  cancelJob(db, id);
+  assert.equal(getJob(db, id).status, "cancelled");
+  assert.throws(() => complete(db, id, reclaimed.lease_token), /not claimed/);
+  assert.throws(() => cancelJob(db, id), /only a pending, paused or claimed job can be cancelled/);
+});
+
+test("stale token cannot complete a job reclaimed after lease expiry", () => {
+  const { db } = tmpDb();
+  const id = enqueue(db, "search", {});
+  const first = claim(db, "worker-a");
+  db.prepare("UPDATE jobs SET lease_expires_at = '2000-01-01T00:00:00Z' WHERE id = ?").run(id);
+  assert.equal(recover(db), 1);
+  const second = claim(db, "worker-b");
+  assert.notEqual(second.lease_token, first.lease_token);
+  assert.throws(() => complete(db, id, first.lease_token), /fencing token mismatch/);
+  assert.equal(getJob(db, id).status, "claimed", "a stale complete must not change the reclaimed job");
+  complete(db, id, second.lease_token, { ok: true });
+  assert.equal(getJob(db, id).status, "done");
+});
+
+test("concurrent complete race across processes: exactly one winner", async () => {
+  const { dbPath } = tmpDb();
+  const db0 = openDatabase(dbPath);
+  const id = enqueue(db0, "search", {});
+  db0.close();
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const run = promisify(execFile);
+  const root = new URL("..", import.meta.url).pathname;
+  // Both children hold the same valid token; the atomic UPDATE lets one win.
+  const db1 = openDatabase(dbPath);
+  const claimed = claim(db1, "worker-a");
+  db1.close();
+  const results = await Promise.all([
+    run(process.execPath, ["tests/helpers/complete-child.mjs", dbPath, id, claimed.lease_token], { cwd: root }),
+    run(process.execPath, ["tests/helpers/complete-child.mjs", dbPath, id, claimed.lease_token], { cwd: root }),
+  ]);
+  const outcomes = results.map((r) => JSON.parse(r.stdout.trim()));
+  assert.equal(outcomes.filter((o) => o.ok).length, 1, "exactly one process may complete the job");
+  assert.equal(outcomes.filter((o) => !o.ok).length, 1);
+  const db2 = openDatabase(dbPath);
+  assert.equal(getJob(db2, id).status, "done");
+});
+
+test("periodic recovery sweep returns an expired lease to pending without a restart", async () => {
+  const { createServer } = await import("../apps/server/server.mjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agentv2-q-sweep-"));
+  const { db, stopRecovery } = createServer({ dataDir: dir, recoverIntervalMs: 50 });
+  try {
+    const id = enqueue(db, "search", {});
+    const claimed = claim(db, "worker-a", 100);
+    assert.equal(claimed.id, id);
+    assert.equal(getJob(db, id).status, "claimed");
+    // No recover() call here and no restart: the sweep must do it.
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(getJob(db, id).status, "pending");
+    assert.equal(getJob(db, id).lease_token, null);
+    const reclaimed = claim(db, "worker-b");
+    assert.equal(reclaimed.id, id);
+  } finally {
+    stopRecovery();
+  }
 });
 
 test("restart recovery: a killed worker's work is not duplicated", () => {

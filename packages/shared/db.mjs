@@ -15,7 +15,7 @@ const MIGRATIONS_DIR = path.join(
 export function openDatabase(dbPath) {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
-  db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+  db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
   db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')));");
   const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
   for (const file of files) {
@@ -49,11 +49,27 @@ export function snapshotProfile(db, profileId) {
 }
 
 // Update a profile without erasing history: snapshot the current version
-// first, then bump the version. Existing snapshots are never modified.
+// first, then bump the version, in ONE transaction (BEGIN IMMEDIATE ...
+// COMMIT, rollback on any failure). A crash between the snapshot insert
+// and the profile update therefore leaves nothing behind: the uncommitted
+// snapshot is rolled back, and retrying the same update cannot hit the
+// UNIQUE (profile_id, version) constraint on a half-written snapshot.
+// Existing snapshots are never modified.
 export function updateProfile(db, profileId, body) {
-  const snapshotId = snapshotProfile(db, profileId);
-  db.prepare("UPDATE profiles SET body_json = ?, version = version + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").run(JSON.stringify(body), profileId);
-  return snapshotId;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const snapshotId = snapshotProfile(db, profileId);
+    db.prepare("UPDATE profiles SET body_json = ?, version = version + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").run(JSON.stringify(body), profileId);
+    db.exec("COMMIT");
+    return snapshotId;
+  } catch (err) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // Already rolled back (e.g. crash recovery); keep the original error.
+    }
+    throw err;
+  }
 }
 
 export function getProfile(db, profileId) {
