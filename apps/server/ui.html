@@ -5,15 +5,138 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agente personal de empleo v2 — Configuración</title>
 <style>
-body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
-section { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
-label { display: block; margin-top: 0.5rem; font-weight: 600; }
-input, textarea, select { width: 100%; box-sizing: border-box; margin: 0.25rem 0 0.75rem; }
-button { padding: 0.4rem 0.9rem; margin: 0.25rem 0.5rem 0.25rem 0; }
-pre { white-space: pre-wrap; background: #f4f4f4; padding: 0.75rem; border-radius: 6px; }
-small { color: #555; }
-.profile-card { border: 1px solid #ddd; border-radius: 6px; padding: 0.75rem; margin: 0.75rem 0; }
-.status { font-weight: 600; }
+/* LumaCut visual language (dark-only): near-black app background with a
+   subtle radial lightening toward the centre, #14161A panels, lime
+   #CDFF3C accent. Presentation only: no ids, labels or behaviour
+   change here. Hex values are visual estimates from the reference
+   site, not computed CSS. */
+* { box-sizing: border-box; }
+html { color-scheme: dark; }
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #F2F4F1;
+  background-color: #0A0B0D;
+  background-image: radial-gradient(ellipse 80% 50% at 50% 0%, #17191E 0%, #0A0B0D 60%);
+  background-attachment: fixed;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+}
+h1 { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 8px; }
+h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 12px; }
+h3 { font-size: 16px; font-weight: 700; margin: 24px 0 8px; }
+p { margin: 0 0 12px; }
+small { color: #9AA1A6; font-size: 13px; line-height: 1.5; }
+a { color: #CDFF3C; font-weight: 700; text-decoration: none; }
+a:hover { text-decoration: underline; }
+section {
+  background: #14161A;
+  border: 1px solid #262A31;
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+label {
+  display: block;
+  margin-top: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #7C838A;
+}
+label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 14px;
+  font-weight: 500;
+  color: #E8EBE8;
+}
+input, textarea, select {
+  width: 100%;
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  background: #0E1013;
+  border: 1px solid #2B2F36;
+  border-radius: 10px;
+  color: #F2F4F1;
+  font: inherit;
+  font-size: 14px;
+}
+input[type="checkbox"], input[type="radio"] { width: auto; margin: 0; accent-color: #CDFF3C; }
+input[type="file"] { padding: 8px 12px; }
+textarea { resize: vertical; }
+input::placeholder, textarea::placeholder { color: #7C838A; }
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: #CDFF3C;
+  box-shadow: 0 0 0 2px rgba(205, 255, 60, 0.25);
+}
+input[type="range"] { padding: 0; background: transparent; border: none; -webkit-appearance: none; appearance: none; height: 4px; }
+input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: #3A3E45; }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 15px; height: 15px; margin-top: -5.5px; border-radius: 50%; background: #CDFF3C; border: none; }
+input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: #3A3E45; }
+input[type="range"]::-moz-range-thumb { width: 15px; height: 15px; border-radius: 50%; background: #CDFF3C; border: none; }
+button {
+  padding: 10px 16px;
+  margin: 4px 8px 4px 0;
+  background: #1D2026;
+  border: 1px solid #2A2E35;
+  border-radius: 10px;
+  color: #E8EBE8;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+button:hover { border-color: #3A3E45; background: #22252C; }
+button:focus-visible { outline: 2px solid #CDFF3C; outline-offset: 2px; }
+button:disabled { opacity: 0.55; cursor: default; background: #23261C; color: #9AA1A6; }
+/* Primary actions: lime, near-black text, no visible border. */
+#person-save, #profile-create, #cv-confirm, #fact-save, #map-save,
+#consent-apply, #xai-save, #xai-model-save, #auto-policy-save,
+#auto-enable, #q-resolve {
+  background: #CDFF3C;
+  border-color: transparent;
+  color: #101203;
+  font-weight: 700;
+  padding: 12px 18px;
+  border-radius: 12px;
+}
+#person-save:hover, #profile-create:hover, #cv-confirm:hover, #fact-save:hover,
+#map-save:hover, #consent-apply:hover, #xai-save:hover, #xai-model-save:hover,
+#auto-policy-save:hover, #auto-enable:hover, #q-resolve:hover { background: #D8FF66; border-color: transparent; }
+#person-save:disabled, #profile-create:disabled, #cv-confirm:disabled, #fact-save:disabled,
+#map-save:disabled, #consent-apply:disabled, #xai-save:disabled, #xai-model-save:disabled,
+#auto-policy-save:disabled, #auto-enable:disabled, #q-resolve:disabled { background: #3A3F22; color: #7C838A; }
+/* Delete stays muted grey like the reference: no red is invented. */
+.profile-card button:last-child { background: #1D2026; border-color: #2A2E35; color: #9AA1A6; }
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0E1013;
+  border: 1px solid #262A31;
+  padding: 16px;
+  border-radius: 12px;
+  color: #E8EBE8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+.profile-card {
+  background: #0E1013;
+  border: 1px solid #262A31;
+  border-radius: 12px;
+  padding: 16px;
+  margin: 12px 0;
+}
+.status { font-weight: 600; color: #F2F4F1; }
 </style>
 </head>
 <body>
