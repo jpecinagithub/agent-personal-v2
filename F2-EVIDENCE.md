@@ -1161,3 +1161,9 @@ Verification:
   its first adoption save) is closed by load-time normalisation,
   since the entry already carries its persisted id when the form
   first presents it.
+
+### Verificación del padre en Oracle (2026-10-28, re-revisión 4)
+- Contenido de `acf91c1` desplegado en Oracle vía `git archive HEAD | ssh tar -x` en `~/agentv2-deploy-test` (Node 24.22.1 en `~/opt/node-v24.22.1-linux-arm64`; el Node del sistema, 20.20.2, no sirve), ejecutado en modo detached.
+- Resultados: typecheck exit 0, `npm test` 111/111 (0 fail), check exit 0, `npm ci` 0 vulnerabilities.
+- Prueba de servidor: `HOST=127.0.0.1 PORT=14919` — `/health` devuelve `{"ok":true}`, `/` sirve la UI «Agente personal de empleo v2 — Configuración», `ss` muestra el listener solo en 127.0.0.1:14919. Servidor parado y verificado parado tras la prueba (sin systemd, sin arranque al inicio). Despliegue completo F10 sigue pendiente y no se afirma.
+- Cierre de G2: pendiente de la re-revisión del usuario, como ordenó; el asistente no la cierra.
