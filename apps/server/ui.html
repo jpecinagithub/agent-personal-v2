@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agente personal de empleo v2 — Configuración</title>
+<style>
+body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+section { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+textarea, input, select { width: 100%; box-sizing: border-box; margin: 0.25rem 0 0.75rem; }
+button { padding: 0.4rem 0.9rem; margin-right: 0.5rem; }
+pre { white-space: pre-wrap; background: #f4f4f4; padding: 0.75rem; border-radius: 6px; }
+small { color: #555; }
+</style>
+</head>
+<body>
+<h1>Agente personal de empleo v2</h1>
+<p><small>Configuración privada. Sin login por diseño; este servidor solo
+escucha en localhost. Los secretos nunca se muestran aquí: la interfaz
+solo trabaja con personas, perfiles, hechos, mapeos y preguntas.</small></p>
+
+<section id="person-section">
+<h2>Persona</h2>
+<p><small>Introduce tus datos declarados. Ningún campo se inventa: lo que
+no declares queda pendiente y se te preguntará una vez cuando haga falta.</small></p>
+<label>Datos de la persona (JSON)</label>
+<textarea id="person-json" rows="10" placeholder='{"full_name": "", "email": "", "languages": [{"language": "", "level": ""}], "authorisations": [{"country": "", "status": ""}]}'></textarea>
+<button id="person-save">Guardar persona</button>
+<button id="person-load">Ver persona actual</button>
+<pre id="person-out"></pre>
+</section>
+
+<section id="profiles-section">
+<h2>Perfiles (máximo 10 activos)</h2>
+<label>Nombre del perfil</label>
+<input id="profile-name" placeholder="Ej.: Finanzas">
+<label>Configuración del perfil (JSON: focus, template, factRefs)</label>
+<textarea id="profile-json" rows="6" placeholder='{"focus": "", "factRefs": [{"concept": "work_authorisation", "scope": "ES"}]}'></textarea>
+<button id="profile-create">Crear perfil</button>
+<button id="profiles-refresh">Actualizar lista</button>
+<pre id="profiles-out"></pre>
+<h3>Borradores y versiones</h3>
+<p><small>Los cambios de un perfil son borradores hasta que se confirman.
+Al confirmar se crea una nueva versión con fecha efectiva y una
+instantánea; los intentos anteriores no cambian.</small></p>
+<label>ID del perfil</label>
+<input id="draft-profile-id" placeholder="ID del perfil">
+<button id="draft-create">Crear borrador</button>
+<label>ID del borrador y nuevo contenido (JSON)</label>
+<input id="draft-id" placeholder="ID del borrador">
+<textarea id="draft-json" rows="6"></textarea>
+<button id="draft-save">Guardar borrador</button>
+<button id="draft-confirm">Confirmar borrador</button>
+<button id="draft-discard">Descartar borrador</button>
+<pre id="draft-out"></pre>
+</section>
+
+<section id="facts-section">
+<h2>Hechos declarados</h2>
+<p><small>Un hecho tiene concepto, ámbito, valor y procedencia. La
+narrativa de un modelo nunca se guarda como hecho.</small></p>
+<label>Concepto</label><input id="fact-concept" placeholder="work_authorisation">
+<label>Ámbito</label><input id="fact-scope" placeholder="ES (vacío = sin ámbito)">
+<label>Valor (JSON)</label><input id="fact-value" placeholder='"yes"'>
+<label>Procedencia</label>
+<select id="fact-provenance"><option value="user">user</option><option value="cv-import">cv-import</option><option value="portal-form">portal-form</option><option value="manual">manual</option></select>
+<button id="fact-save">Guardar hecho</button>
+<button id="facts-refresh">Actualizar lista</button>
+<pre id="facts-out"></pre>
+</section>
+
+<section id="mappings-section">
+<h2>Mapeos de campos por fuente</h2>
+<p><small>Un mapeo vale solo para su fuente: uno de Greenhouse nunca se
+aplica a Lever ni a Ashby.</small></p>
+<label>Fuente</label>
+<select id="map-source"><option value="greenhouse">greenhouse</option><option value="lever">lever</option><option value="ashby">ashby</option><option value="smartrecruiters">smartrecruiters</option><option value="generic">generic</option></select>
+<label>Clave estable</label><input id="map-key" placeholder="work_authorisation">
+<label>Campo en la fuente</label><input id="map-field" placeholder="work_authorization">
+<button id="map-save">Guardar mapeo</button>
+<button id="maps-refresh">Actualizar lista</button>
+<pre id="maps-out"></pre>
+</section>
+
+<section id="questions-section">
+<h2>Preguntas y respuestas</h2>
+<p><small>Resuelve preguntas por concepto y ámbito. Una respuesta
+declarada gana; una sin ámbito aplicada a un ámbito es una inferencia
+marcada; varias opciones son una ambigüedad que debes resolver tú. Lo
+que falta se pregunta una vez y, al responderlo, queda guardado como
+hecho declarado.</small></p>
+<label>Concepto de la pregunta</label><input id="q-concept" placeholder="work_authorisation">
+<label>Ámbito</label><input id="q-scope" placeholder="ES">
+<button id="q-resolve">Resolver</button>
+<button id="q-pending">Ver preguntas pendientes</button>
+<pre id="q-out"></pre>
+<label>ID de pregunta pendiente y respuesta (JSON)</label>
+<input id="q-pending-id" placeholder="ID de la pregunta">
+<input id="q-answer" placeholder='"yes"'>
+<button id="q-answer-btn">Responder y guardar como hecho</button>
+</section>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const show = (el, obj) => { el.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2); };
+async function call(path, method, body) {
+  const r = await fetch(path, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+  return data;
+}
+let personId = null;
+$("person-save").onclick = async () => { try { const d = await call("/api/person", "POST", JSON.parse($("person-json").value)); personId = d.id; show($("person-out"), d); } catch (e) { show($("person-out"), "Error: " + e.message); } };
+$("person-load").onclick = async () => { try { const d = await call("/api/person", "GET"); personId = d.person ? d.person.id : null; show($("person-out"), d); } catch (e) { show($("person-out"), "Error: " + e.message); } };
+$("profile-create").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); const d = await call("/api/profiles", "POST", { personId, name: $("profile-name").value, body: JSON.parse($("profile-json").value || "{}") }); show($("profiles-out"), d); } catch (e) { show($("profiles-out"), "Error: " + e.message); } };
+$("profiles-refresh").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("profiles-out"), await call("/api/profiles?personId=" + personId, "GET")); } catch (e) { show($("profiles-out"), "Error: " + e.message); } };
+$("draft-create").onclick = async () => { try { show($("draft-out"), await call("/api/profiles/" + $("draft-profile-id").value + "/drafts", "POST", {})); } catch (e) { show($("draft-out"), "Error: " + e.message); } };
+$("draft-save").onclick = async () => { try { show($("draft-out"), await call("/api/drafts/" + $("draft-id").value, "PUT", { body: JSON.parse($("draft-json").value) })); } catch (e) { show($("draft-out"), "Error: " + e.message); } };
+$("draft-confirm").onclick = async () => { try { show($("draft-out"), await call("/api/drafts/" + $("draft-id").value + "/confirm", "POST", {})); } catch (e) { show($("draft-out"), "Error: " + e.message); } };
+$("draft-discard").onclick = async () => { try { show($("draft-out"), await call("/api/drafts/" + $("draft-id").value + "/discard", "POST", {})); } catch (e) { show($("draft-out"), "Error: " + e.message); } };
+$("fact-save").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("facts-out"), await call("/api/facts", "POST", { personId, concept: $("fact-concept").value, scope: $("fact-scope").value, value: JSON.parse($("fact-value").value), provenance: $("fact-provenance").value })); } catch (e) { show($("facts-out"), "Error: " + e.message); } };
+$("facts-refresh").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("facts-out"), await call("/api/facts?personId=" + personId, "GET")); } catch (e) { show($("facts-out"), "Error: " + e.message); } };
+$("map-save").onclick = async () => { try { show($("maps-out"), await call("/api/mappings", "POST", { source: $("map-source").value, fieldKey: $("map-key").value, sourceField: $("map-field").value })); } catch (e) { show($("maps-out"), "Error: " + e.message); } };
+$("maps-refresh").onclick = async () => { try { show($("maps-out"), await call("/api/mappings", "GET")); } catch (e) { show($("maps-out"), "Error: " + e.message); } };
+$("q-resolve").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("q-out"), await call("/api/resolve", "POST", { personId, questions: [{ concept: $("q-concept").value, scope: $("q-scope").value }] })); } catch (e) { show($("q-out"), "Error: " + e.message); } };
+$("q-pending").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("q-out"), await call("/api/questions?personId=" + personId, "GET")); } catch (e) { show($("q-out"), "Error: " + e.message); } };
+$("q-answer-btn").onclick = async () => { try { show($("q-out"), await call("/api/questions/" + $("q-pending-id").value + "/answer", "POST", { value: JSON.parse($("q-answer").value) })); } catch (e) { show($("q-out"), "Error: " + e.message); } };
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-# Agente personal de empleo v2 — F1
+# Agente personal de empleo v2 — F1 + F2
 
 Private single-user job application agent. New baseline, separate from
 JobHunter v1 and JOBFORCE. No login, no roles, private deployment only.
@@ -50,6 +50,28 @@ unrecoverable by design: back the key up separately from the data file,
 never in the repo. The API only ever lists secret names. Test values
 are obviously fake (`FAKE-TEST-KEY-ONLY`); no real key appears in code,
 tests or logs.
+
+## F2: person, profiles, facts, resolution, mappings, UI (see F2-EVIDENCE.md)
+
+- Open the UI at `http://127.0.0.1:4101/` after `npm start`. It is a
+  single static page served by the server (no build step) with sections
+  for person, profiles and drafts, declared facts, field mappings and
+  screening questions. It never touches secret values.
+- API under `/api/`: person, profiles (archive/unarchive/delete,
+  readiness), profile drafts (create/edit/confirm/discard), facts,
+  resolve (screening), pending questions and answers, field mappings,
+  attempts (pins the snapshot in force). All state-changing routes
+  require the private control origin, as in F1.
+- Rules enforced by the code, not by convention: at most 10 active
+  profiles; profiles hold fact references, never fact copies; profile
+  changes are drafts until confirmed (new version, effective date,
+  snapshot); answers resolve deterministically by concept + scope
+  (declared wins, unscoped-to-scoped is a flagged inference, multiple
+  scopes are an ambiguity with candidates, missing is asked once);
+  LLM/narrative provenance can never create a personal fact; a mapping
+  defined for one source never applies to another.
+- No real personal data is preloaded: the person is entered by the user
+  through the UI. All test data is synthetic ("Test Person").
 
 ## Gate G1 criteria (see F1-EVIDENCE.md)
 

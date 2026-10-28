@@ -9,6 +9,14 @@ import { enqueue, claim, complete, fail, pauseJob, resumeJob, cancelJob, recover
 import { appendEvent, listEvents, subscribe } from "../../packages/shared/events.mjs";
 import { SecretStore } from "../../packages/shared/secrets.mjs";
 import { isAllowedControlOrigin } from "../../packages/shared/guard.mjs";
+// F2: person, profiles, drafts, facts, resolution, mappings, UI config.
+import fs from "node:fs";
+import { createPersonFull, updatePersonDetails, getPerson, listPersons } from "../../packages/shared/person.mjs";
+import { createProfileFull, listProfiles, getProfileFull, archiveProfile, unarchiveProfile, deleteProfile, profileReadiness, createAttempt, getAttempt } from "../../packages/shared/profiles.mjs";
+import { createDraft, getDraft, listDrafts, updateDraft, discardDraft, confirmDraft } from "../../packages/shared/drafts.mjs";
+import { declareFact, listFacts } from "../../packages/shared/facts.mjs";
+import { resolveScreening, answerPendingQuestion, listPendingQuestions } from "../../packages/shared/resolve.mjs";
+import { defineMapping, getMapping, listMappings } from "../../packages/shared/mappings.mjs";
 
 export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000 }) {
   const db = openDatabase(path.join(dataDir, "agentv2.db"));
@@ -131,6 +139,121 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000 }) {
         const body = await readJson(req);
         cancelJob(db, body.jobId);
         return send(res, 200, { ok: true });
+      }
+      // F2 UI: a single static page, no build step, served by this
+      // server. It never touches /secrets: secret values are never
+      // part of the configuration UI (names only exist in F1's API).
+      if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/ui")) {
+        const html = fs.readFileSync(new URL("./ui.html", import.meta.url), "utf8");
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        return res.end(html);
+      }
+      // F2 API. Reads are plain GETs (as in F1); every state-changing
+      // route requires the control origin, so a foreign web page cannot
+      // issue commands to this private portal.
+      if (req.method === "POST" && url.pathname === "/api/person") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const existing = listPersons(db);
+        const id = existing.length > 0 ? (updatePersonDetails(db, existing[0].id, body), existing[0].id) : createPersonFull(db, body);
+        return send(res, 201, { id, person: getPerson(db, id) });
+      }
+      if (req.method === "GET" && url.pathname === "/api/person") {
+        const persons = listPersons(db);
+        return send(res, 200, { person: persons[0] ?? null });
+      }
+      if (req.method === "POST" && url.pathname === "/api/profiles") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const id = createProfileFull(db, body.personId, body.name, body.body ?? {});
+        return send(res, 201, { id, profile: getProfileFull(db, id) });
+      }
+      if (req.method === "GET" && url.pathname === "/api/profiles") {
+        return send(res, 200, { profiles: listProfiles(db, url.searchParams.get("personId") ?? "") });
+      }
+      if (req.method === "GET" && url.pathname.startsWith("/api/profiles/") && url.pathname.endsWith("/readiness")) {
+        const profileId = url.pathname.split("/")[3];
+        return send(res, 200, profileReadiness(db, profileId));
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/profiles/") && url.pathname.endsWith("/archive")) {
+        if (!requireControlOrigin(req, res)) return;
+        archiveProfile(db, url.pathname.split("/")[3]);
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/profiles/") && url.pathname.endsWith("/unarchive")) {
+        if (!requireControlOrigin(req, res)) return;
+        unarchiveProfile(db, url.pathname.split("/")[3]);
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === "DELETE" && url.pathname.startsWith("/api/profiles/")) {
+        if (!requireControlOrigin(req, res)) return;
+        deleteProfile(db, url.pathname.split("/")[3]);
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/profiles/") && url.pathname.endsWith("/drafts")) {
+        if (!requireControlOrigin(req, res)) return;
+        const id = createDraft(db, url.pathname.split("/")[3]);
+        return send(res, 201, { id, draft: getDraft(db, id) });
+      }
+      if (req.method === "GET" && url.pathname.startsWith("/api/profiles/") && url.pathname.endsWith("/drafts")) {
+        return send(res, 200, { drafts: listDrafts(db, url.pathname.split("/")[3]) });
+      }
+      if (req.method === "PUT" && url.pathname.startsWith("/api/drafts/")) {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        updateDraft(db, url.pathname.split("/")[3], body.body ?? {});
+        return send(res, 200, { draft: getDraft(db, url.pathname.split("/")[3]) });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/drafts/") && url.pathname.endsWith("/confirm")) {
+        if (!requireControlOrigin(req, res)) return;
+        const result = confirmDraft(db, url.pathname.split("/")[3]);
+        return send(res, 200, result);
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/drafts/") && url.pathname.endsWith("/discard")) {
+        if (!requireControlOrigin(req, res)) return;
+        discardDraft(db, url.pathname.split("/")[3]);
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && url.pathname === "/api/facts") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const id = declareFact(db, { personId: body.personId, concept: body.concept, scope: body.scope ?? "", value: body.value, provenance: body.provenance ?? "user", confirmationState: body.confirmationState ?? "confirmed" });
+        return send(res, 201, { id });
+      }
+      if (req.method === "GET" && url.pathname === "/api/facts") {
+        return send(res, 200, { facts: listFacts(db, url.searchParams.get("personId") ?? "") });
+      }
+      if (req.method === "POST" && url.pathname === "/api/resolve") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        return send(res, 200, { answers: resolveScreening(db, body.personId, body.questions ?? []) });
+      }
+      if (req.method === "GET" && url.pathname === "/api/questions") {
+        return send(res, 200, { questions: listPendingQuestions(db, url.searchParams.get("personId") ?? "") });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/questions/") && url.pathname.endsWith("/answer")) {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const factId = answerPendingQuestion(db, url.pathname.split("/")[3], body.value, body.provenance ?? "user");
+        return send(res, 200, { factId });
+      }
+      if (req.method === "POST" && url.pathname === "/api/mappings") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const id = defineMapping(db, { source: body.source, fieldKey: body.fieldKey, sourceField: body.sourceField });
+        return send(res, 201, { id });
+      }
+      if (req.method === "GET" && url.pathname === "/api/mappings") {
+        const source = url.searchParams.get("source");
+        const fieldKey = url.searchParams.get("fieldKey");
+        if (source && fieldKey) return send(res, 200, { sourceField: getMapping(db, source, fieldKey) });
+        return send(res, 200, { mappings: listMappings(db, source ?? undefined) });
+      }
+      if (req.method === "POST" && url.pathname === "/api/attempts") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const id = createAttempt(db, body.personId, body.profileId, body.offerId);
+        return send(res, 201, { id, attempt: getAttempt(db, id) });
       }
       if (req.method === "GET" && url.pathname.startsWith("/queue/")) {
         const job = getJob(db, url.pathname.split("/")[2]);
