@@ -11,15 +11,40 @@
 import { randomUUID } from "node:crypto";
 import { getConfirmedFact } from "./facts.mjs";
 import { getPerson } from "./person.mjs";
-import { hasValidatedCv } from "./cv.mjs";
+import { getValidatedCvImport } from "./cv.mjs";
 import { requiredPoliciesAccepted, hasConsent } from "./policies.mjs";
 
 export const MAX_PROFILES = 10;
 
 const ALLOWED_BODY_KEYS = new Set([
   "focus", "template", "factRefs", "desired_roles", "locations",
-  "salary_expectations", "notes",
+  "salary_expectations", "notes", "cv_import_id",
 ]);
+
+/**
+ * R4: a profile's CV must be explicitly selected for THAT profile and
+ * confirmed. A confirmed CV of the person that no profile selected does
+ * not count, and the same confirmed CV may be reused across profiles.
+ * @param {any} db
+ * @param {string} personId
+ * @param {string | undefined} cvImportId
+ */
+export function assertValidProfileCv(db, personId, cvImportId) {
+  if (cvImportId === undefined || cvImportId === null || cvImportId === "") return;
+  if (typeof cvImportId !== "string") throw new Error("cv_import_id must be a string");
+  const cv = getValidatedCvImport(db, cvImportId);
+  if (!cv) throw new Error("the profile CV must be a confirmed CV import");
+  if (cv.person_id !== personId) throw new Error("the profile CV must belong to the same person");
+}
+
+/** The profile's selected CV, only when it is confirmed (R4). */
+export function profileCv(db, profile) {
+  const cvImportId = profile.body?.cv_import_id;
+  if (!cvImportId) return null;
+  const cv = getValidatedCvImport(db, cvImportId);
+  if (!cv || cv.person_id !== profile.person_id) return null;
+  return cv;
+}
 
 /** Validate a profile body: unknown keys are rejected, factRefs must be concept/scope pairs. */
 export function validateProfileBody(body) {
@@ -52,6 +77,7 @@ export function createProfileFull(db, personId, name, body = {}) {
     throw new Error(`profile limit reached: at most ${MAX_PROFILES} non-deleted profiles per person`);
   }
   const valid = validateProfileBody(body);
+  assertValidProfileCv(db, personId, valid.cv_import_id);
   const id = randomUUID();
   db.prepare("INSERT INTO profiles (id, person_id, name, focus, template, body_json) VALUES (?, ?, ?, ?, ?, ?)").run(
     id, personId, name.trim(), valid.focus ?? "", valid.template ?? "", JSON.stringify(valid),
@@ -157,20 +183,24 @@ export function snapshotPerson(db, personId) {
 /**
  * Readiness (RF-V2-020): a profile is ready only when ALL of these
  * hold — identity declared, name, focus, every referenced fact
- * confirmed, a validated (imported and confirmed) CV, every required
- * policy accepted, the apply-on-behalf consent recorded, and xAI
- * available. The returned `missing` list is the explained block, never
- * a silent pass. Pass { xaiAvailable } from the server, which knows
- * whether the key is in the secret store or the environment; the
- * default (false) blocks readiness rather than assuming xAI.
+ * confirmed, a validated CV EXPLICITLY SELECTED FOR THIS PROFILE (R4:
+ * another profile's CV does not count), every required policy
+ * accepted, the apply-on-behalf consent recorded, and xAI VERIFIED
+ * (R3: a configured key is not enough — pass { xaiVerified } from the
+ * server, which knows whether the current key + model pair has a
+ * successful verification record; the default, false, blocks rather
+ * than assuming xAI). A deleted profile is never ready (R6). The
+ * returned `missing` list is the explained block, never a silent pass.
  * @param {any} db
  * @param {string} profileId
- * @param {{xaiAvailable?: boolean}} [opts]
+ * @param {{xaiVerified?: boolean}} [opts]
  * @returns {{ready: boolean, missing: string[]}}
  */
 export function profileReadiness(db, profileId, opts = {}) {
   const profile = getProfileFull(db, profileId);
   if (!profile) throw new Error("profile not found");
+  // R6: a deleted profile can never be ready, whatever else holds.
+  if (profile.deleted) return { ready: false, missing: ["profile_deleted"] };
   const missing = [];
   const person = getPerson(db, profile.person_id);
   const details = person?.details ?? {};
@@ -184,33 +214,39 @@ export function profileReadiness(db, profileId, opts = {}) {
       missing.push(`fact ${ref.concept}${ref.scope ? ` (${ref.scope})` : ""}`);
     }
   }
-  if (!hasValidatedCv(db, profile.person_id)) missing.push("cv_validated");
+  if (!profileCv(db, profile)) missing.push("cv_validated");
   if (!requiredPoliciesAccepted(db, profile.person_id)) missing.push("policy");
   if (!hasConsent(db, profile.person_id, "apply_on_behalf")) missing.push("consent");
-  if (!opts.xaiAvailable) missing.push("xai");
+  if (!opts.xaiVerified) missing.push("xai");
   return { ready: missing.length === 0, missing };
 }
 
 /**
- * Create a send attempt pinning the profile snapshot in force AND a
- * snapshot of the whole person, in one transaction, and storing the
- * resolved fact content on the attempt. Later person, profile or fact
- * changes never rewrite this stored content.
+ * Create a send attempt pinning the profile snapshot in force, a
+ * snapshot of the whole person, AND the CV version chosen for this
+ * profile (R4), in one transaction, and storing the resolved fact
+ * content on the attempt. Later person, profile, fact or CV changes
+ * never rewrite this stored content. R6: a deleted profile is
+ * rejected here, before any snapshot or attempt row is created, so a
+ * stale tab or a direct API call cannot create an attempt from it.
  * @param {any} db
  * @param {string} personId
  * @param {string} profileId
  * @param {string} offerId
- * @param {{xaiAvailable?: boolean}} [opts]
+ * @param {{xaiVerified?: boolean}} [opts]
  * @returns {string}
  */
 export function createAttempt(db, personId, profileId, offerId, opts = {}) {
+  const profile = getProfileFull(db, profileId);
+  if (!profile) throw new Error("profile not found");
+  if (profile.deleted) throw new Error("profile is deleted: a deleted profile cannot create a new attempt");
   const readiness = profileReadiness(db, profileId, opts);
   if (!readiness.ready) throw new Error(`profile is not ready: missing ${readiness.missing.join(", ")}`);
-  const profile = getProfileFull(db, profileId);
   db.exec("BEGIN IMMEDIATE");
   try {
     const snapshotId = pinSnapshot(db, profileId);
     const personSnapshotId = snapshotPerson(db, personId);
+    const cv = profileCv(db, profile);
     const resolved = {};
     for (const ref of profile.body.factRefs ?? []) {
       const fact = getConfirmedFact(db, personId, ref.concept, ref.scope ?? "");
@@ -218,8 +254,10 @@ export function createAttempt(db, personId, profileId, offerId, opts = {}) {
     }
     const id = randomUUID();
     db.prepare(
-      "INSERT INTO attempts (id, person_id, profile_id, profile_snapshot_id, person_snapshot_id, offer_id, status, evidence_json) VALUES (?, ?, ?, ?, ?, ?, 'prepared', ?)",
-    ).run(id, personId, profileId, snapshotId, personSnapshotId, offerId, JSON.stringify({ snapshotVersion: profile.version, resolvedFacts: resolved }));
+      "INSERT INTO attempts (id, person_id, profile_id, profile_snapshot_id, person_snapshot_id, cv_import_id, cv_snapshot_json, offer_id, status, evidence_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?)",
+    ).run(id, personId, profileId, snapshotId, personSnapshotId, cv ? cv.id : null,
+      JSON.stringify(cv ? { id: cv.id, filename: cv.filename, format: cv.format, extracted_text: cv.extracted_text, status: cv.status, confirmed_at: cv.confirmed_at, proposals: cv.proposals } : {}),
+      offerId, JSON.stringify({ snapshotVersion: profile.version, resolvedFacts: resolved, cvImportId: cv ? cv.id : null }));
     db.exec("COMMIT");
     return id;
   } catch (err) {
@@ -237,6 +275,11 @@ export function getAttempt(db, attemptId) {
     attempt.personSnapshot = snap ? JSON.parse(snap.details_json) : null;
   } else {
     attempt.personSnapshot = null;
+  }
+  try {
+    attempt.cvSnapshot = row.cv_snapshot_json ? JSON.parse(row.cv_snapshot_json) : null;
+  } catch {
+    attempt.cvSnapshot = null;
   }
   return attempt;
 }

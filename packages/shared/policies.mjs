@@ -82,6 +82,58 @@ export function requiredPoliciesAccepted(db, personId) {
 }
 
 /**
+ * R5 (G2 re-review, RF-V2-008): the bounded auto-apply policy.
+ * Automatic mode may only be enabled when a PERSISTED policy exists
+ * with all of: a daily limit, the profiles it applies to, the sources
+ * it applies to, and the conditions. Accepting a generic consent text
+ * does not substitute for any of these. Each missing or invalid field
+ * is reported by name, so activation rejections are explained, never
+ * silent. Deactivation is always immediately available (see server).
+ * @param {any} db
+ * @param {any} policy
+ * @returns {string[]} missing/invalid field names (empty = valid)
+ */
+export function validateAutoPolicy(db, policy) {
+  const missing = [];
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) {
+    return ["daily_limit", "profile_ids", "sources", "conditions"];
+  }
+  if (!Number.isInteger(policy.daily_limit) || policy.daily_limit <= 0) missing.push("daily_limit");
+  if (!Array.isArray(policy.profile_ids) || policy.profile_ids.length === 0) {
+    missing.push("profile_ids");
+  } else {
+    for (const id of policy.profile_ids) {
+      const row = typeof id === "string" ? db.prepare("SELECT deleted FROM profiles WHERE id = ?").get(id) : null;
+      if (!row || row.deleted === 1) { missing.push("profile_ids"); break; }
+    }
+  }
+  if (!Array.isArray(policy.sources) || policy.sources.length === 0 || !policy.sources.every((s) => typeof s === "string" && s.trim())) {
+    missing.push("sources");
+  }
+  if (typeof policy.conditions !== "string" || !policy.conditions.trim()) missing.push("conditions");
+  return [...new Set(missing)];
+}
+
+/** The stored auto-apply policy, or null when none was ever saved. */
+export function getAutoPolicy(db) {
+  const row = db.prepare("SELECT value_json FROM settings WHERE key = 'auto_policy'").get();
+  if (!row) return null;
+  try {
+    return JSON.parse(row.value_json);
+  } catch {
+    return null;
+  }
+}
+
+/** Store a validated auto-apply policy (throws with the missing fields otherwise). */
+export function setAutoPolicy(db, policy) {
+  const missing = validateAutoPolicy(db, policy);
+  if (missing.length > 0) throw new Error(`auto-apply policy is incomplete: missing ${missing.join(", ")}`);
+  setSetting(db, "auto_policy", policy);
+  return policy;
+}
+
+/**
  * @param {any} db
  * @param {string} key
  * @returns {any}

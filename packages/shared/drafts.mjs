@@ -6,7 +6,7 @@
 // Discarded drafts change nothing. A draft created from an older version
 // cannot be confirmed after the profile moved on (stale base version).
 import { randomUUID } from "node:crypto";
-import { validateProfileBody, getProfileFull } from "./profiles.mjs";
+import { validateProfileBody, getProfileFull, assertValidProfileCv } from "./profiles.mjs";
 
 export function createDraft(db, profileId) {
   const profile = getProfileFull(db, profileId);
@@ -58,6 +58,8 @@ export function confirmDraft(db, draftId) {
     if (profile.version !== draft.base_version) {
       throw new Error(`stale draft: profile is at version ${profile.version}, draft was based on ${draft.base_version}`);
     }
+    // R4: a draft may only assign a confirmed CV of the same person.
+    assertValidProfileCv(db, profile.person_id, draft.body.cv_import_id);
     // Preserve the replaced version's snapshot if it is not already
     // pinned (a pinned snapshot for this version must not be duplicated:
     // UNIQUE (profile_id, version)). Then write the new version and

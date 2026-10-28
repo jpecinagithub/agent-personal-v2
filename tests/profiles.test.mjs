@@ -21,6 +21,7 @@ async function makeReady(db, personId) {
   confirmCvImport(db, preview.id);
   acceptPolicy(db, personId, "data_processing");
   giveConsent(db, personId, "apply_on_behalf");
+  return preview.id;
 }
 
 function setup() {
@@ -86,10 +87,10 @@ test("readiness explains exactly what is missing, and blocks attempts", () => {
 
 test("sending pins the snapshot in force; later changes never alter past attempts", async () => {
   const { db, personId } = setup();
-  await makeReady(db, personId);
+  const cvId = await makeReady(db, personId);
   declareFact(db, { personId, concept: "work_authorisation", scope: "ES", value: "yes", provenance: "user" });
-  const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance v1", factRefs: [{ concept: "work_authorisation", scope: "ES" }] });
-  const attemptId = createAttempt(db, personId, profileId, offer(db), { xaiAvailable: true });
+  const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance v1", factRefs: [{ concept: "work_authorisation", scope: "ES" }], cv_import_id: cvId });
+  const attemptId = createAttempt(db, personId, profileId, offer(db), { xaiVerified: true });
   const before = getAttempt(db, attemptId);
   assert.equal(before.evidence.resolvedFacts["work_authorisation@ES"], "yes");
   assert.equal(before.evidence.snapshotVersion, 1);
@@ -106,15 +107,15 @@ test("sending pins the snapshot in force; later changes never alter past attempt
 
 test("only archived profiles can be deleted, and deletion never deletes snapshots or attempts", async () => {
   const { db, personId } = setup();
-  await makeReady(db, personId);
+  const cvId = await makeReady(db, personId);
   const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance" });
   assert.throws(() => deleteProfile(db, profileId), /only an archived profile/);
   archiveProfile(db, profileId);
   deleteProfile(db, profileId);
   assert.equal(listProfiles(db, personId).length, 0, "deleted profiles are excluded from the list");
-  const usedId = createProfileFull(db, personId, "Used", { focus: "Finance" });
+  const usedId = createProfileFull(db, personId, "Used", { focus: "Finance", cv_import_id: cvId });
   declareFact(db, { personId, concept: "work_authorisation", scope: "ES", value: "yes", provenance: "user" });
-  const attemptId = createAttempt(db, personId, usedId, offer(db), { xaiAvailable: true });
+  const attemptId = createAttempt(db, personId, usedId, offer(db), { xaiVerified: true });
   const before = getAttempt(db, attemptId);
   archiveProfile(db, usedId);
   deleteProfile(db, usedId);

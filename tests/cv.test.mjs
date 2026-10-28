@@ -34,17 +34,21 @@ for (const [name, file] of [["PDF", "sample.pdf"], ["DOCX", "sample.docx"], ["te
     assert.equal(preview.warning, null);
     const stored = getCvImport(db, preview.id);
     assert.equal(stored.status, "preview");
-    // Pending facts never resolve answers.
+    // R1: a preview creates NO shared fact rows at all — only its own
+    // proposal rows, which never resolve answers until confirmed.
     const facts = listFacts(db, personId).filter((f) => f.provenance === "cv-import");
-    assert.ok(facts.length >= 1);
-    assert.ok(facts.every((f) => f.confirmation_state === "pending"), "imported facts must stay pending until confirmed");
+    assert.equal(facts.length, 0, "a preview must not write declared facts");
+    assert.ok(stored.proposals.length >= 1, "preview must own its proposals");
+    assert.ok(stored.proposals.every((p) => p.status === "proposed"), "proposals start proposed");
+    assert.ok(stored.proposals.every((p) => p.source_document && p.confidence > 0), "proposals carry provenance and confidence");
     const answers = resolveScreening(db, personId, [{ concept: "email", scope: "" }]);
-    assert.equal(answers[0].kind, "missing", "a pending fact must not answer screening");
+    assert.equal(answers[0].kind, "missing", "a proposal must not answer screening");
     assert.equal(hasValidatedCv(db, personId), false);
     const confirmed = confirmCvImport(db, preview.id);
     assert.equal(confirmed.status, "confirmed");
     assert.equal(hasValidatedCv(db, personId), true);
     const factsAfter = listFacts(db, personId).filter((f) => f.provenance === "cv-import");
+    assert.ok(factsAfter.length >= 1);
     assert.ok(factsAfter.every((f) => f.confirmation_state === "confirmed"));
     const answersAfter = resolveScreening(db, personId, [{ concept: "email", scope: "" }]);
     assert.equal(answersAfter[0].kind, "declared");

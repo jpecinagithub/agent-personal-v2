@@ -10,7 +10,15 @@ import { createServer } from "../apps/server/server.mjs";
 
 async function startServer() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agentv2-ui-"));
-  const { server, secrets } = createServer({ dataDir: dir });
+  // Mocked xAI provider for the verify route: a valid models list
+  // containing the default model. No real key, no real call, no spend.
+  const verifyFetchFn = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ data: [{ id: "grok-4.20-non-reasoning" }] }),
+    text: async () => "{}",
+  });
+  const { server, secrets } = createServer({ dataDir: dir, verifyFetchFn });
   await new Promise((r) => server.listen(0, "127.0.0.1", () => r(undefined)));
   const port = /** @type {import("node:net").AddressInfo} */ (server.address()).port;
   return { server, secrets, base: `http://127.0.0.1:${port}` };
@@ -69,8 +77,10 @@ test("configuration changes through the API take effect without restart, and for
     for (const key of ["cv_validated", "policy", "consent", "xai"]) {
       assert.ok(notReady.missing.includes(key), `readiness must name ${key}`);
     }
-    // Complete the RF-V2-020 requirements through the API: confirmed CV,
-    // accepted required policy, apply-on-behalf consent, xAI key.
+    // Complete the RF-V2-020 requirements through the API: confirmed CV
+    // ASSIGNED TO THIS PROFILE (R4), accepted required policy,
+    // apply-on-behalf consent, and a VERIFIED xAI key (R3: a merely
+    // configured key must not suffice).
     const fs = await import("node:fs");
     const txt = fs.readFileSync(new URL("./fixtures/sample.txt", import.meta.url).pathname).toString("base64");
     const cvRes = await post(base, "/api/cv", { personId, filename: "sample.txt", contentBase64: txt });
@@ -78,11 +88,24 @@ test("configuration changes through the API take effect without restart, and for
     const cvId = (await cvRes.json()).id;
     const confirmRes = await post(base, `/api/cv/${cvId}/confirm`, {});
     assert.equal(confirmRes.status, 200);
+    const draftRes = await post(base, `/api/profiles/${profileId}/drafts`, {});
+    assert.equal(draftRes.status, 201);
+    const draftId = (await draftRes.json()).id;
+    const draftPut = await fetch(`${base}/api/drafts/${draftId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: { focus: "Finance", factRefs: [{ concept: "work_authorisation", scope: "ES" }], cv_import_id: cvId } }) });
+    assert.equal(draftPut.status, 200);
+    const draftConfirm = await post(base, `/api/drafts/${draftId}/confirm`, {});
+    assert.equal(draftConfirm.status, 200);
     const policyRes = await post(base, "/api/policies/data_processing/accept", { personId });
     assert.equal(policyRes.status, 200);
     const consentRes = await post(base, "/api/consents", { personId, key: "apply_on_behalf" });
     assert.equal(consentRes.status, 200);
     secrets.set("xai_api_key", "FAKE-UI-XAI-KEY-ONLY");
+    const unverified = await (await fetch(`${base}/api/profiles/${profileId}/readiness`)).json();
+    assert.equal(unverified.ready, false, "a merely configured (unverified) key must not yield readiness");
+    assert.deepEqual(unverified.missing, ["xai"]);
+    const verifyRes = await post(base, "/api/xai-verify", {});
+    assert.equal(verifyRes.status, 200);
+    assert.equal((await verifyRes.json()).ok, true);
     const readiness = await (await fetch(`${base}/api/profiles/${profileId}/readiness`)).json();
     assert.equal(readiness.ready, true, `readiness must pass once all requirements are met, missing: ${readiness.missing.join(", ")}`);
     // Automatic mode is off initially and can only be enabled now.

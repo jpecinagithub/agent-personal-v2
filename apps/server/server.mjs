@@ -18,10 +18,17 @@ import { declareFact, listFacts } from "../../packages/shared/facts.mjs";
 import { resolveScreening, answerPendingQuestion, listPendingQuestions } from "../../packages/shared/resolve.mjs";
 import { defineMapping, getMapping, listMappings } from "../../packages/shared/mappings.mjs";
 // F2 corrections: CV importer, policies/consents/settings.
-import { previewCv, listCvImports, getCvImport, confirmCvImport, rejectCvImport } from "../../packages/shared/cv.mjs";
-import { listPolicies, listConsents, giveConsent, acceptPolicy, hasConsent, getSetting, setSetting } from "../../packages/shared/policies.mjs";
+import { previewCv, listCvImports, getCvImport, confirmCvImport, rejectCvImport, correctProposal } from "../../packages/shared/cv.mjs";
+import { listPolicies, listConsents, giveConsent, acceptPolicy, hasConsent, getSetting, setSetting, getAutoPolicy, setAutoPolicy, validateAutoPolicy } from "../../packages/shared/policies.mjs";
+// G2 re-review: xAI verification (R3) — configured is not verified.
+import { verifyXaiConnection, recordXaiVerification, clearXaiVerifications, isXaiVerified, latestVerification, lastVerifiedModels, keyFingerprint, DEFAULT_XAI_MODEL } from "../../packages/shared/xai-verify.mjs";
 
-export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000 }) {
+/**
+ * @param {{dataDir: string, port?: number, recoverIntervalMs?: number, verifyFetchFn?: any}} opts
+ * verifyFetchFn is injected only for the xAI verify route so tests can
+ * prove verification against a mocked provider (never a real call).
+ */
+export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, verifyFetchFn = globalThis.fetch }) {
   const db = openDatabase(path.join(dataDir, "agentv2.db"));
   recover(db);
   // Periodic recovery sweep: a lease that expires AFTER a restart is
@@ -36,10 +43,28 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000 }) {
   }, recoverIntervalMs);
   if (typeof recoveryTimer.unref === "function") recoveryTimer.unref();
   const secrets = new SecretStore(path.join(dataDir, "secrets.json"));
-  // xAI availability for readiness (RF-V2-020): key in the secret store
-  // or the environment. The value is never returned to the UI, only the
-  // boolean (see /api/xai-status).
-  const xaiAvailable = () => secrets.has("xai_api_key") || Boolean(process.env.XAI_API_KEY);
+  // xAI for readiness (RF-V2-020, R3): "configured" (a key exists) is
+  // NOT "verified" (a successful connection + model check for this exact
+  // key + model). Readiness requires verified. The key value is never
+  // returned to the UI, only booleans and the model list (see
+  // /api/xai-status).
+  const xaiKey = () => secrets.get("xai_api_key") ?? process.env.XAI_API_KEY ?? null;
+  const xaiConfigured = () => Boolean(xaiKey());
+  const xaiModel = () => getSetting(db, "xai_model") ?? DEFAULT_XAI_MODEL;
+  const xaiVerified = () => isXaiVerified(db, { apiKey: xaiKey(), model: xaiModel() });
+  const xaiStatus = () => {
+    const key = xaiKey();
+    const model = xaiModel();
+    const latest = latestVerification(db, { apiKey: key, model });
+    return {
+      configured: Boolean(key),
+      verified: xaiVerified(),
+      model,
+      models: lastVerifiedModels(db, { apiKey: key, model }),
+      verified_at: latest && latest.status === "ok" ? latest.created_at : null,
+      error: latest && latest.status !== "ok" ? latest.error : null,
+    };
+  };
 
   const readJson = (req) => new Promise((resolve, reject) => {
     let body = "";
@@ -180,7 +205,7 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000 }) {
       }
       if (req.method === "GET" && url.pathname.startsWith("/api/profiles/") && url.pathname.endsWith("/readiness")) {
         const profileId = url.pathname.split("/")[3];
-        return send(res, 200, profileReadiness(db, profileId, { xaiAvailable: xaiAvailable() }));
+        return send(res, 200, profileReadiness(db, profileId, { xaiVerified: xaiVerified() }));
       }
       if (req.method === "POST" && url.pathname.startsWith("/api/profiles/") && url.pathname.endsWith("/duplicate")) {
         if (!requireControlOrigin(req, res)) return;
@@ -265,7 +290,7 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000 }) {
       if (req.method === "POST" && url.pathname === "/api/attempts") {
         if (!requireControlOrigin(req, res)) return;
         const body = await readJson(req);
-        const id = createAttempt(db, body.personId, body.profileId, body.offerId, { xaiAvailable: xaiAvailable() });
+        const id = createAttempt(db, body.personId, body.profileId, body.offerId, { xaiVerified: xaiVerified() });
         return send(res, 201, { id, attempt: getAttempt(db, id) });
       }
       if (req.method === "GET" && url.pathname.startsWith("/api/attempts/")) {
@@ -294,7 +319,16 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000 }) {
       }
       if (req.method === "POST" && url.pathname.startsWith("/api/cv/") && url.pathname.endsWith("/confirm")) {
         if (!requireControlOrigin(req, res)) return;
-        return send(res, 200, confirmCvImport(db, url.pathname.split("/")[3]));
+        const body = await readJson(req);
+        return send(res, 200, confirmCvImport(db, url.pathname.split("/")[3], { resolutions: body.resolutions ?? {} }));
+      }
+      if (req.method === "PUT" && url.pathname.includes("/proposals/")) {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const parts = url.pathname.split("/");
+        const corrected = correctProposal(db, parts[5], body.value);
+        if (corrected.cv_import_id !== parts[3]) throw new Error("proposal does not belong to this CV import");
+        return send(res, 200, { proposal: corrected });
       }
       if (req.method === "POST" && url.pathname.startsWith("/api/cv/") && url.pathname.endsWith("/reject")) {
         if (!requireControlOrigin(req, res)) return;
@@ -321,33 +355,75 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000 }) {
         return send(res, 200, { id });
       }
       if (req.method === "GET" && url.pathname === "/api/xai-status") {
-        return send(res, 200, { configured: xaiAvailable() });
+        return send(res, 200, xaiStatus());
       }
       if (req.method === "POST" && url.pathname === "/api/xai-key") {
         if (!requireControlOrigin(req, res)) return;
         const body = await readJson(req);
         if (typeof body.value !== "string" || !body.value) throw new Error("xAI key value is required");
         secrets.set("xai_api_key", body.value);
-        return send(res, 200, { configured: true });
+        // A new key invalidates any previous verification (R3).
+        clearXaiVerifications(db);
+        return send(res, 200, xaiStatus());
+      }
+      if (req.method === "POST" && url.pathname === "/api/xai-model") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        if (typeof body.model !== "string" || !body.model.trim()) throw new Error("xAI model is required");
+        setSetting(db, "xai_model", body.model.trim());
+        // A new model invalidates any previous verification (R3).
+        clearXaiVerifications(db);
+        return send(res, 200, xaiStatus());
+      }
+      if (req.method === "POST" && url.pathname === "/api/xai-verify") {
+        if (!requireControlOrigin(req, res)) return;
+        const key = xaiKey();
+        if (!key) throw new Error("xAI key is not configured: save a key before verifying");
+        const model = xaiModel();
+        const result = await verifyXaiConnection({ fetchFn: verifyFetchFn, apiKey: key, model });
+        recordXaiVerification(db, { keyFingerprint: keyFingerprint(key), model, ok: result.ok, models: result.models, reason: result.reason });
+        return send(res, 200, { ...result, status: xaiStatus() });
+      }
+      if (req.method === "GET" && url.pathname === "/api/auto-policy") {
+        const policy = getAutoPolicy(db);
+        return send(res, 200, { policy, missing: policy ? validateAutoPolicy(db, policy) : ["daily_limit", "profile_ids", "sources", "conditions"] });
+      }
+      if (req.method === "POST" && url.pathname === "/api/auto-policy") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const policy = setAutoPolicy(db, body.policy ?? body);
+        return send(res, 200, { policy });
       }
       if (req.method === "GET" && url.pathname === "/api/settings") {
-        return send(res, 200, { auto_mode: getSetting(db, "auto_mode") ?? "off" });
+        const policy = getAutoPolicy(db);
+        return send(res, 200, {
+          auto_mode: getSetting(db, "auto_mode") ?? "off",
+          auto_policy: policy,
+          auto_policy_missing: policy ? validateAutoPolicy(db, policy) : ["daily_limit", "profile_ids", "sources", "conditions"],
+        });
       }
       if (req.method === "POST" && url.pathname === "/api/settings") {
         if (!requireControlOrigin(req, res)) return;
         const body = await readJson(req);
         if (body.key === "auto_mode" && body.value === "on") {
-          // Enabling automatic mode requires a ready profile whose
-          // person accepted the auto_apply policy (RF-V2-008). It can
-          // always be disabled immediately.
-          let allowed = false;
-          for (const person of listPersons(db)) {
-            if (!hasConsent(db, person.id, "auto_apply")) continue;
-            for (const profile of listProfiles(db, person.id)) {
-              if (profileReadiness(db, profile.id, { xaiAvailable: xaiAvailable() }).ready) allowed = true;
-            }
+          // R5 (RF-V2-008): enabling automatic mode requires a
+          // persisted, complete auto-apply policy AND at least one of
+          // the policy's profiles ready. Accepting a generic consent
+          // text does not substitute for the policy. It can always be
+          // disabled immediately.
+          const policy = getAutoPolicy(db);
+          const missing = policy ? validateAutoPolicy(db, policy) : ["daily_limit", "profile_ids", "sources", "conditions"];
+          if (missing.length > 0) {
+            throw new Error(`cannot enable automatic mode: the auto-apply policy is incomplete, missing ${missing.join(", ")}`);
           }
-          if (!allowed) throw new Error("cannot enable automatic mode: no ready profile with the auto_apply policy accepted");
+          const anyReady = policy.profile_ids.some((id) => {
+            try {
+              return profileReadiness(db, id, { xaiVerified: xaiVerified() }).ready;
+            } catch {
+              return false;
+            }
+          });
+          if (!anyReady) throw new Error("cannot enable automatic mode: none of the policy profiles is ready");
         }
         setSetting(db, body.key, body.value);
         return send(res, 200, { ok: true });

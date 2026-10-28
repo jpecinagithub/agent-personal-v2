@@ -104,8 +104,87 @@ export function createPersonFull(db, details) {
   return id;
 }
 
+/**
+ * Merge a partial patch into stored person details — this is the R2
+ * (G2 re-review) fix for the old replace-the-whole-object behaviour.
+ * Rules, all of which exist so that saving can never silently delete
+ * data the caller did not represent:
+ * - A top-level field absent from the patch is PRESERVED, not cleared.
+ *   A field present in the patch replaces the stored value (including
+ *   an empty array, which explicitly clears a list).
+ * - Employment/education entries match by STABLE ID, never by position:
+ *   an entry with a known id merges field-by-field (present fields
+ *   overwrite, absent fields are preserved); an entry with a new id is
+ *   added; an entry with deleted: true is removed. Entries absent from
+ *   the patch array are PRESERVED — omission is never a deletion.
+ * - The merged result is fully validated (required identity/contact,
+ *   date precision YYYY or YYYY-MM, stable ids), so a patch cannot
+ *   produce an invalid person either.
+ * @param {Record<string, any>} existing stored details
+ * @param {Record<string, any>} patch partial update
+ * @returns {Record<string, any>} merged, validated details
+ */
+export function mergePersonDetails(existing, patch) {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    throw new Error("person patch must be an object");
+  }
+  for (const key of Object.keys(patch)) {
+    if (!ALLOWED_KEYS.has(key)) throw new Error(`unknown person field: ${key}`);
+  }
+  const merged = JSON.parse(JSON.stringify(existing ?? {}));
+  for (const [key, value] of Object.entries(patch)) {
+    if (key === "employment" || key === "education") {
+      if (!Array.isArray(value)) throw new Error(`${key} must be an array`);
+      const current = Array.isArray(merged[key]) ? merged[key] : [];
+      const byId = new Map(current.map((e) => [e.id, e]));
+      const order = current.map((e) => e.id);
+      for (const entry of value) {
+        if (!entry || !isNonEmptyString(entry.id)) throw new Error(`each ${key} entry needs an id`);
+        if (entry.deleted === true) {
+          byId.delete(entry.id);
+          const at = order.indexOf(entry.id);
+          if (at >= 0) order.splice(at, 1);
+          continue;
+        }
+        if (byId.has(entry.id)) {
+          const kept = byId.get(entry.id);
+          for (const [k, v] of Object.entries(entry)) {
+            if (k !== "deleted") kept[k] = v;
+          }
+        } else {
+          byId.set(entry.id, { ...entry });
+          order.push(entry.id);
+        }
+      }
+      // Order: when the patch names every surviving entry (the UI
+      // sending its full list), the patch order wins, so an explicit
+      // reorder takes effect. When it names only a subset (a partial
+      // patch), the original relative order is kept and new entries
+      // append — a partial edit must never silently reorder history.
+      // Either way the id travels with the entry: reordering never
+      // renames anything.
+      const mentioned = value.filter((e) => e && !e.deleted).map((e) => e.id);
+      // `order` was already updated by the loop: deletions spliced out,
+      // new ids appended. It therefore holds the surviving entries in
+      // original order. coversAll is true exactly when the patch named
+      // every surviving entry (the UI sending its full list).
+      const coversAll = order.every((id) => mentioned.includes(id));
+      if (coversAll) {
+        merged[key] = mentioned.map((id) => byId.get(id));
+      } else {
+        merged[key] = order.map((id) => byId.get(id));
+      }
+      continue;
+    }
+    merged[key] = value;
+  }
+  return validatePersonDetails(merged);
+}
+
 export function updatePersonDetails(db, personId, details) {
-  const valid = validatePersonDetails(details);
+  const existing = getPerson(db, personId);
+  if (!existing) throw new Error("person not found");
+  const valid = mergePersonDetails(existing.details ?? {}, details);
   const r = db.prepare("UPDATE persons SET display_name = ?, contact_json = ?, details_json = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").run(
     valid.display_name ?? valid.full_name,
     JSON.stringify({ email: valid.email ?? null, phone: valid.phone ?? null }),

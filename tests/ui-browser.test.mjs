@@ -126,7 +126,7 @@ test("browser: duplicate, archive and delete a profile through the screen", asyn
   }
 });
 
-test("browser: CV import preview and confirm, policies, consent, xAI key and readiness through the screen", async () => {
+test("browser: CV import preview and confirm, CV assignment, policies, consent, xAI key and readiness through the screen", async () => {
   const app = await startApp();
   try {
     await app.page.fill("#person-full-name", "Test Person");
@@ -145,21 +145,85 @@ test("browser: CV import preview and confirm, policies, consent, xAI key and rea
     assert.match((await app.page.textContent("#cv-preview-out")) ?? "", /test\.person@example\.test/);
     await app.page.click("#cv-confirm");
     await app.page.waitForFunction(() => (document.querySelector("#cv-status")?.textContent ?? "").includes("CV validado"));
+    // R4: assign the confirmed CV to the profile through the screen
+    // (edit -> select CV -> save draft -> confirm draft).
+    await app.page.click("#profiles-refresh");
+    const card = app.page.locator(".profile-card").first();
+    await card.getByRole("button", { name: "Editar" }).click();
+    await app.page.waitForFunction(() => (document.querySelector(".profile-card")?.textContent ?? "").includes("Guardar borrador"));
+    await card.locator("select").selectOption({ index: 1 });
+    await card.getByRole("button", { name: "Guardar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector(".profile-card")?.textContent ?? "").includes("Borrador guardado"));
+    await card.getByRole("button", { name: "Confirmar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-status")?.textContent ?? "").includes("Borrador confirmado"));
     // Policies: accept the required data-processing policy through the screen.
     await app.page.click("#policies-refresh");
     await app.page.waitForFunction(() => (document.querySelector("#policies-list")?.textContent ?? "").includes("Tratamiento de datos personales"));
     await app.page.getByRole("button", { name: "Aceptar Tratamiento de datos personales" }).click();
     await app.page.waitForFunction(() => (document.querySelector("#policies-list")?.textContent ?? "").includes("aceptada"));
-    // Consent and xAI key through the screen.
+    // Consent and xAI key through the screen. R3: a merely configured
+    // (unverified) fake key must NOT yield readiness.
     await app.page.click("#consent-apply");
     await app.page.waitForFunction(() => (document.querySelector("#consent-status")?.textContent ?? "").includes("Consentimiento registrado"));
     await app.page.fill("#xai-key", "FAKE-BROWSER-XAI-KEY-ONLY");
     await app.page.click("#xai-save");
-    await app.page.waitForFunction(() => (document.querySelector("#xai-status")?.textContent ?? "").includes("xAI: configurado"));
-    // Readiness through the screen: the profile card must now say ready.
-    const card = app.page.locator(".profile-card").first();
-    await card.getByRole("button", { name: "Comprobar preparación" }).click();
-    await app.page.waitForFunction(() => (document.querySelector(".profile-card")?.textContent ?? "").includes("Perfil preparado"));
+    await app.page.waitForFunction(() => (document.querySelector("#xai-status")?.textContent ?? "").includes("xAI: configurado, sin verificar"));
+    const card2 = app.page.locator(".profile-card").first();
+    await card2.getByRole("button", { name: "Comprobar preparación" }).click();
+    await app.page.waitForFunction(() => (document.querySelector(".profile-card")?.textContent ?? "").includes("Falta: xAI verificado"));
+  } finally {
+    await stopApp(app);
+  }
+});
+
+test("browser R2: load/save without changes preserves history, reorder moves ids, delete removes only one entry", async () => {
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    // Seed a rich person through the API (setup only); every operation
+    // under test below is performed through the screen.
+    const rich = {
+      full_name: "Synthetic Original",
+      email: "original@example.test",
+      links: ["https://example.test/professional-profile"],
+      employment: [
+        { id: "employment-alpha", employer: "Alpha Corp", title: "Analyst", start: "2019-03", end: "2022-01", links: ["https://example.test/alpha"], achievements: ["Synthetic achievement"] },
+        { id: "employment-beta", employer: "Beta Corp", title: "Senior Analyst", start: "2022-02", current: true },
+      ],
+      education: [
+        { id: "edu-alpha", institution: "Synthetic University", title: "BSc Synthetic", start: "2016", end: "2020", speciality: "Accounting", status: "completed" },
+      ],
+    };
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rich) });
+    assert.equal(created.status, 201);
+    const getPerson = async () => (await (await fetch(`${base}/api/person`)).json()).person.details;
+    // Load, then save WITHOUT changing anything.
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    assert.equal(await app.page.locator("#person-employment-list .entry-card").count(), 2);
+    await app.page.click("#person-save");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+    let details = await getPerson();
+    assert.deepEqual(details.employment, rich.employment, "an unchanged save must preserve every employment field and id");
+    assert.deepEqual(details.education, rich.education, "an unchanged save must preserve education, speciality and date precision");
+    assert.deepEqual(details.links, rich.links);
+    // Reorder: move the first entry down, save, ids travel with entries.
+    await app.page.locator("#person-employment-list .entry-card").first().getByRole("button", { name: "Bajar" }).click();
+    await app.page.click("#person-save");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+    details = await getPerson();
+    assert.deepEqual(details.employment.map((/** @type {any} */ e) => e.id), ["employment-beta", "employment-alpha"]);
+    assert.equal(details.employment[0].employer, "Beta Corp");
+    assert.equal(details.employment[0].current, true);
+    assert.deepEqual(details.employment[1], rich.employment[0]);
+    // Delete one entry: only it disappears, the rest is untouched.
+    await app.page.locator("#person-employment-list .entry-card").first().getByRole("button", { name: "Eliminar" }).click();
+    await app.page.click("#person-save");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+    details = await getPerson();
+    assert.deepEqual(details.employment.map((/** @type {any} */ e) => e.id), ["employment-alpha"]);
+    assert.deepEqual(details.employment[0], rich.employment[0]);
   } finally {
     await stopApp(app);
   }

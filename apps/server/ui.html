@@ -56,10 +56,21 @@ declares queda pendiente y se te pedirá cuando haga falta.</small></p>
 <input id="person-salary-max" type="number" placeholder="70000">
 <label for="person-salary-period">Periodo salarial</label>
 <input id="person-salary-period" placeholder="year">
-<label for="person-employment">Empleo (una línea por puesto: empleador | cargo | inicio YYYY o YYYY-MM | fin o vacío si es actual)</label>
-<textarea id="person-employment" rows="4" placeholder="Fixture Corp | Accountant | 2020-01 | 2024-06"></textarea>
-<label for="person-education">Estudios (una línea por estudio: institución | título | inicio | fin)</label>
-<textarea id="person-education" rows="4" placeholder="Fixture University | BSc Test Studies | 2016 | 2020"></textarea>
+<label for="person-links">Enlaces personales (uno por línea)</label>
+<textarea id="person-links" rows="3" placeholder="https://example.test/mi-perfil"></textarea>
+<h3>Empleo</h3>
+<p><small>Cada puesto tiene su propio formulario y conserva su
+identificador estable: reordenar, añadir o quitar un puesto no cambia
+la identidad de los demás. Marca «Empleo actual» de forma explícita;
+las fechas se escriben como año (YYYY) o año-mes (YYYY-MM) para
+conservar su precisión.</small></p>
+<div id="person-employment-list"></div>
+<button id="employment-add" type="button">Añadir empleo</button>
+<h3>Estudios</h3>
+<p><small>Cada estudio tiene su propio formulario y conserva su
+identificador estable, su especialidad y su estado.</small></p>
+<div id="person-education-list"></div>
+<button id="education-add" type="button">Añadir estudio</button>
 <button id="person-save">Guardar persona</button>
 <button id="person-load">Ver persona actual</button>
 <p class="status" id="person-status"></p>
@@ -77,8 +88,11 @@ eliminar nunca borra las instantáneas de candidaturas anteriores.</small></p>
 <input id="profile-focus" placeholder="Ej.: Finance">
 <label for="profile-template">Plantilla</label>
 <input id="profile-template" placeholder="Ej.: finance">
+<label for="profile-cv">CV asociado a este perfil (debe estar confirmado; un CV de otro perfil no cuenta)</label>
+<select id="profile-cv"><option value="">(sin CV asociado)</option></select>
 <button id="profile-create">Crear perfil</button>
 <button id="profiles-refresh">Actualizar lista</button>
+<p class="status" id="profiles-status"></p>
 <div id="profiles-list"></div>
 <pre id="profiles-out"></pre>
 </section>
@@ -94,6 +108,8 @@ en ese caso introduce los datos manualmente.</small></p>
 <input id="cv-file" type="file" accept=".pdf,.docx,.txt">
 <button id="cv-preview">Vista previa del CV</button>
 <pre id="cv-preview-out"></pre>
+<div id="cv-proposals"></div>
+<div id="cv-conflicts"></div>
 <button id="cv-confirm">Confirmar importación</button>
 <button id="cv-reject">Rechazar importación</button>
 <p class="status" id="cv-status"></p>
@@ -161,16 +177,38 @@ muestra aquí, ni se devuelve al navegador.</small></p>
 <label for="xai-key">Clave de API de xAI</label>
 <input id="xai-key" type="password" placeholder="Se guarda cifrada; no se muestra">
 <button id="xai-save">Guardar clave xAI</button>
+<label for="xai-model">Modelo de xAI</label>
+<input id="xai-model" placeholder="grok-4.20-non-reasoning">
+<button id="xai-model-save">Guardar modelo</button>
+<button id="xai-verify">Verificar conexión y modelo</button>
 <button id="xai-refresh">Comprobar estado de xAI</button>
 <p class="status" id="xai-status"></p>
+<p><small>Guardar una clave no basta para que un perfil esté preparado:
+la conexión y el modelo deben verificarse. Cambiar la clave o el
+modelo invalida la verificación anterior.</small></p>
 </section>
 
 <section id="settings-section">
-<h2>Modo automático</h2>
-<p><small>El modo automático está desactivado al inicio. Solo se puede
-activar cuando hay un perfil preparado y la política de aplicación
-automática está aceptada; se puede desactivar inmediatamente en
-cualquier momento.</small></p>
+<h2>Modo automático y su política</h2>
+<p><small>El modo automático está desactivado al inicio. Activarlo exige
+una política guardada con límite diario, perfiles, fuentes y
+condiciones: aceptar un consentimiento genérico no basta. Se puede
+desactivar inmediatamente en cualquier momento.</small></p>
+<label for="auto-daily-limit">Límite diario de candidaturas automáticas</label>
+<input id="auto-daily-limit" type="number" placeholder="5">
+<label>Perfiles incluidos en la política</label>
+<div id="auto-profiles"></div>
+<label>Fuentes incluidas en la política</label>
+<div id="auto-sources">
+<label><input type="checkbox" value="greenhouse"> greenhouse</label>
+<label><input type="checkbox" value="lever"> lever</label>
+<label><input type="checkbox" value="ashby"> ashby</label>
+<label><input type="checkbox" value="smartrecruiters"> smartrecruiters</label>
+</div>
+<label for="auto-conditions">Condiciones de la política</label>
+<textarea id="auto-conditions" rows="3" placeholder="Ej.: solo ofertas remotas en España con salario mínimo declarado"></textarea>
+<button id="auto-policy-save">Guardar política de aplicación automática</button>
+<p class="status" id="auto-policy-status"></p>
 <p class="status" id="settings-out"></p>
 <button id="auto-enable">Activar modo automático</button>
 <button id="auto-disable">Desactivar modo automático</button>
@@ -224,24 +262,157 @@ function personDetailsFromForm() {
     if (max) d.salary_expectations.max = Number(max);
     if (period) d.salary_expectations.period = period;
   }
-  const employment = lines("person-employment").map((l, i) => {
-    const [employer, title, start, end] = l.split("|").map((s) => s.trim());
-    const e = { id: "job-" + (i + 1), employer: employer || "", title: title || "" };
-    if (start) e.start = start;
-    if (end) e.end = end;
-    return e;
-  });
+  const links = lines("person-links");
+  if (links.length) d.links = links;
+  // Structured history editors (R2): entries keep their stable ids and
+  // every field the record has (links, achievements, current flag,
+  // speciality, date precision). Deleted entries are sent explicitly
+  // as { id, deleted: true }; entries never mentioned are preserved by
+  // the API merge, so saving can never silently delete data.
+  const employment = collectEntries("person-employment-list", "employment");
+  for (const id of deletedEmploymentIds) employment.push({ id, deleted: true });
   if (employment.length) d.employment = employment;
-  const education = lines("person-education").map((l, i) => {
-    const [institution, title, start, end] = l.split("|").map((s) => s.trim());
-    const e = { id: "edu-" + (i + 1), institution: institution || "", title: title || "" };
-    if (start) e.start = start;
-    if (end) e.end = end;
-    return e;
-  });
+  const education = collectEntries("person-education-list", "education");
+  for (const id of deletedEducationIds) education.push({ id, deleted: true });
   if (education.length) d.education = education;
   return d;
 }
+let deletedEmploymentIds = new Set();
+let deletedEducationIds = new Set();
+function newEntryId(prefix) {
+  try {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) return prefix + "-" + crypto.randomUUID();
+  } catch { /* fall through */ }
+  return prefix + "-" + Date.now() + "-" + Math.floor(Math.random() * 1e9);
+}
+function entryField(card, cls) {
+  const el = card.querySelector("." + cls);
+  return el ? el.value.trim() : "";
+}
+function entryLines(card, cls) {
+  const el = card.querySelector("." + cls);
+  return el ? el.value.split("\n").map((l) => l.trim()).filter(Boolean) : [];
+}
+function collectEntries(containerId, kind) {
+  const out = [];
+  for (const card of document.querySelectorAll("#" + containerId + " .entry-card")) {
+    const id = card.dataset.id;
+    if (kind === "employment") {
+      const e = { id, employer: entryField(card, "f-employer"), title: entryField(card, "f-title") };
+      const start = entryField(card, "f-start");
+      if (start) e.start = start;
+      const current = card.querySelector(".f-current")?.checked;
+      if (current) e.current = true;
+      else { const end = entryField(card, "f-end"); if (end) e.end = end; }
+      const location = entryField(card, "f-location");
+      if (location) e.location = location;
+      const functions = entryField(card, "f-functions");
+      if (functions) e.functions = functions;
+      const achievements = entryLines(card, "f-achievements");
+      if (achievements.length) e.achievements = achievements;
+      const links = entryLines(card, "f-links");
+      if (links.length) e.links = links;
+      const reason = entryField(card, "f-exit");
+      if (reason) e.exit_reason = reason;
+      out.push(e);
+    } else {
+      const e = { id, institution: entryField(card, "f-institution"), title: entryField(card, "f-title") };
+      const start = entryField(card, "f-start");
+      if (start) e.start = start;
+      const end = entryField(card, "f-end");
+      if (end) e.end = end;
+      const speciality = entryField(card, "f-speciality");
+      if (speciality) e.speciality = speciality;
+      const status = entryField(card, "f-status");
+      if (status) e.status = status;
+      const grade = entryField(card, "f-grade");
+      if (grade) e.grade = grade;
+      out.push(e);
+    }
+  }
+  return out;
+}
+function moveCard(card, dir) {
+  const sib = dir < 0 ? card.previousElementSibling : card.nextElementSibling;
+  if (!sib) return;
+  if (dir < 0) card.parentNode.insertBefore(card, sib);
+  else card.parentNode.insertBefore(sib, card);
+}
+function entryCard(kind, entry, deletedSet) {
+  const card = document.createElement("div");
+  card.className = "entry-card profile-card";
+  card.dataset.id = entry.id;
+  const mk = (label, cls, value, placeholder) => {
+    const lab = document.createElement("label");
+    lab.textContent = label;
+    const input = document.createElement("input");
+    input.className = cls;
+    input.value = value || "";
+    input.placeholder = placeholder || "";
+    card.append(lab, input);
+  };
+  const mkArea = (label, cls, value, placeholder) => {
+    const lab = document.createElement("label");
+    lab.textContent = label;
+    const ta = document.createElement("textarea");
+    ta.className = cls;
+    ta.rows = 2;
+    ta.value = value || "";
+    ta.placeholder = placeholder || "";
+    card.append(lab, ta);
+  };
+  if (kind === "employment") {
+    mk("Empleador", "f-employer", entry.employer, "Fixture Corp");
+    mk("Cargo", "f-title", entry.title, "Accountant");
+    mk("Inicio (YYYY o YYYY-MM)", "f-start", entry.start, "2020-01");
+    mk("Fin (YYYY o YYYY-MM)", "f-end", entry.end, "2024-06");
+    const curLab = document.createElement("label");
+    const cur = document.createElement("input");
+    cur.type = "checkbox";
+    cur.className = "f-current";
+    cur.checked = Boolean(entry.current);
+    curLab.append(cur, document.createTextNode(" Empleo actual"));
+    card.appendChild(curLab);
+    mk("Ubicación", "f-location", entry.location, "Madrid");
+    mkArea("Funciones", "f-functions", entry.functions, "");
+    mkArea("Logros (uno por línea)", "f-achievements", (entry.achievements || []).join("\n"), "");
+    mkArea("Enlaces (uno por línea)", "f-links", (entry.links || []).join("\n"), "");
+    mk("Motivo de salida (si está declarado)", "f-exit", entry.exit_reason, "");
+  } else {
+    mk("Institución", "f-institution", entry.institution, "Fixture University");
+    mk("Título", "f-title", entry.title, "BSc Test Studies");
+    mk("Inicio (YYYY o YYYY-MM)", "f-start", entry.start, "2016");
+    mk("Fin (YYYY o YYYY-MM)", "f-end", entry.end, "2020");
+    mk("Especialidad", "f-speciality", entry.speciality, "Accounting");
+    mk("Estado", "f-status", entry.status, "completed");
+    mk("Calificación (solo si consta)", "f-grade", entry.grade, "");
+  }
+  const up = document.createElement("button");
+  up.type = "button";
+  up.textContent = "Subir";
+  up.onclick = () => moveCard(card, -1);
+  const down = document.createElement("button");
+  down.type = "button";
+  down.textContent = "Bajar";
+  down.onclick = () => moveCard(card, 1);
+  const del = document.createElement("button");
+  del.type = "button";
+  del.textContent = "Eliminar";
+  del.onclick = () => { deletedSet.add(entry.id); card.remove(); };
+  card.append(up, down, del);
+  return card;
+}
+function renderEntries(containerId, kind, entries, deletedSet) {
+  const container = $(containerId);
+  container.innerHTML = "";
+  for (const e of entries || []) container.appendChild(entryCard(kind, e, deletedSet));
+}
+$("employment-add").onclick = () => {
+  $("person-employment-list").appendChild(entryCard("employment", { id: newEntryId("job"), employer: "", title: "" }, deletedEmploymentIds));
+};
+$("education-add").onclick = () => {
+  $("person-education-list").appendChild(entryCard("education", { id: newEntryId("edu"), institution: "", title: "" }, deletedEducationIds));
+};
 function fillPersonForm(details) {
   $("person-full-name").value = details.full_name || "";
   $("person-display-name").value = details.display_name || "";
@@ -259,13 +430,33 @@ function fillPersonForm(details) {
   $("person-salary-min").value = s.min ?? "";
   $("person-salary-max").value = s.max ?? "";
   $("person-salary-period").value = s.period || "";
-  $("person-employment").value = (details.employment || []).map((e) => [e.employer, e.title, e.start || "", e.end || ""].join(" | ")).join("\n");
-  $("person-education").value = (details.education || []).map((e) => [e.institution, e.title, e.start || "", e.end || ""].join(" | ")).join("\n");
+  $("person-links").value = (details.links || []).join("\n");
+  deletedEmploymentIds = new Set();
+  deletedEducationIds = new Set();
+  renderEntries("person-employment-list", "employment", details.employment || [], deletedEmploymentIds);
+  renderEntries("person-education-list", "education", details.education || [], deletedEducationIds);
 }
-const MISSING_LABELS = { identity: "identidad", name: "nombre", focus: "enfoque", cv_validated: "CV validado", policy: "política aceptada", consent: "consentimiento", xai: "xAI disponible" };
+const MISSING_LABELS = { identity: "identidad", name: "nombre", focus: "enfoque", cv_validated: "CV validado", policy: "política aceptada", consent: "consentimiento", xai: "xAI verificado", profile_deleted: "perfil eliminado" };
 function missingLabel(m) { return m.startsWith("fact ") ? "hecho " + m.slice(5) : (MISSING_LABELS[m] || m); }
+async function refreshProfileCvOptions() {
+  if (!personId) return [];
+  const data = await call("/api/cv?personId=" + personId, "GET");
+  const confirmed = (data.imports || []).filter((c) => c.status === "confirmed" || c.status === "confirmed_with_conflicts");
+  const sel = $("profile-cv");
+  const current = sel.value;
+  sel.innerHTML = '<option value="">(sin CV asociado)</option>';
+  for (const c of confirmed) {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = c.filename + " (" + c.status + ")";
+    sel.appendChild(opt);
+  }
+  if (current) sel.value = current;
+  return confirmed;
+}
 async function refreshProfiles() {
   if (!personId) { show($("profiles-out"), "guarda primero una persona"); return; }
+  const confirmedCvs = await refreshProfileCvOptions();
   const data = await call("/api/profiles?personId=" + personId, "GET");
   show($("profiles-out"), data);
   const list = $("profiles-list");
@@ -303,26 +494,40 @@ async function refreshProfiles() {
     templateLabel.textContent = "Plantilla";
     const templateInput = document.createElement("input");
     templateInput.value = p.template || "";
+    const cvLabel = document.createElement("label");
+    cvLabel.textContent = "CV asociado (debe estar confirmado)";
+    const cvSelect = document.createElement("select");
+    const noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = "(sin CV asociado)";
+    cvSelect.appendChild(noneOpt);
+    for (const c of confirmedCvs) {
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = c.filename + " (" + c.status + ")";
+      cvSelect.appendChild(opt);
+    }
+    cvSelect.value = p.body.cv_import_id || "";
     const draftOut = document.createElement("p");
     draftOut.className = "status";
     const saveBtn = document.createElement("button");
     saveBtn.textContent = "Guardar borrador";
-    saveBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (!draftId) throw new Error("sin borrador"); await call("/api/drafts/" + draftId, "PUT", { body: { focus: focusInput.value, template: templateInput.value, factRefs: p.body.factRefs || [] } }); draftOut.textContent = "Borrador guardado"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
+    saveBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (!draftId) throw new Error("sin borrador"); const body = { focus: focusInput.value, template: templateInput.value, factRefs: p.body.factRefs || [] }; if (cvSelect.value) body.cv_import_id = cvSelect.value; await call("/api/drafts/" + draftId, "PUT", { body }); draftOut.textContent = "Borrador guardado"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
     const confirmBtn = document.createElement("button");
     confirmBtn.textContent = "Confirmar borrador";
-    confirmBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (!draftId) throw new Error("sin borrador"); await call("/api/drafts/" + draftId + "/confirm", "POST", {}); draftOut.textContent = "Borrador confirmado"; await refreshProfiles(); } catch (e) { draftOut.textContent = "Error: " + e.message; } };
+    confirmBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (!draftId) throw new Error("sin borrador"); await call("/api/drafts/" + draftId + "/confirm", "POST", {}); await refreshProfiles(); $("profiles-status").textContent = "Borrador confirmado"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
     const discardBtn = document.createElement("button");
     discardBtn.textContent = "Descartar borrador";
     discardBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (draftId) await call("/api/drafts/" + draftId + "/discard", "POST", {}); draftOut.textContent = "Borrador descartado"; editArea.style.display = "none"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
-    editArea.append(focusLabel, focusInput, templateLabel, templateInput, saveBtn, confirmBtn, discardBtn, draftOut);
+    editArea.append(focusLabel, focusInput, templateLabel, templateInput, cvLabel, cvSelect, saveBtn, confirmBtn, discardBtn, draftOut);
     editBtn.onclick = async () => { try { const d = await call("/api/profiles/" + p.id + "/drafts", "POST", {}); draftsByCard.set(p.id, d.id); editArea.style.display = "block"; } catch (e) { readinessOut.textContent = "Error: " + e.message; } };
     card.append(editBtn, editArea);
     list.appendChild(card);
   }
 }
-$("person-save").onclick = async () => { try { const d = await call("/api/person", "POST", personDetailsFromForm()); personId = d.id; $("person-status").textContent = "Persona guardada: " + (d.person.details.full_name || ""); show($("person-out"), d); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
-$("person-load").onclick = async () => { try { const d = await call("/api/person", "GET"); if (d.person) { personId = d.person.id; fillPersonForm(d.person.details || {}); $("person-status").textContent = "Persona actual: " + (d.person.details.full_name || ""); } else { $("person-status").textContent = "Sin persona guardada"; } show($("person-out"), d); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
-$("profile-create").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); await call("/api/profiles", "POST", { personId, name: $("profile-name").value, body: { focus: $("profile-focus").value, template: $("profile-template").value } }); await refreshProfiles(); } catch (e) { show($("profiles-out"), "Error: " + e.message); } };
+$("person-save").onclick = async () => { try { const d = await call("/api/person", "POST", personDetailsFromForm()); personId = d.id; $("person-status").textContent = "Persona guardada: " + (d.person.details.full_name || ""); show($("person-out"), d); await refreshProfileCvOptions(); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
+$("person-load").onclick = async () => { try { const d = await call("/api/person", "GET"); if (d.person) { personId = d.person.id; fillPersonForm(d.person.details || {}); $("person-status").textContent = "Persona actual: " + (d.person.details.full_name || ""); await refreshProfileCvOptions(); } else { $("person-status").textContent = "Sin persona guardada"; } show($("person-out"), d); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
+$("profile-create").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); const body = { focus: $("profile-focus").value, template: $("profile-template").value }; if ($("profile-cv").value) body.cv_import_id = $("profile-cv").value; await call("/api/profiles", "POST", { personId, name: $("profile-name").value, body }); await refreshProfiles(); } catch (e) { show($("profiles-out"), "Error: " + e.message); } };
 $("profiles-refresh").onclick = refreshProfiles;
 $("cv-preview").onclick = async () => { try {
   if (!personId) throw new Error("guarda primero una persona");
@@ -335,8 +540,45 @@ $("cv-preview").onclick = async () => { try {
   const cand = preview.candidates || {};
   show($("cv-preview-out"), "Texto extraído:\n" + preview.extractedText + "\n\nDatos detectados:\nNombre: " + (cand.nameGuess || "") + "\nCorreo: " + (cand.email || "") + "\nTeléfono: " + (cand.phone || "") + (preview.warning ? "\nAviso: " + preview.warning : ""));
   $("cv-status").textContent = "Vista previa lista";
+  renderCvProposals(preview);
 } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
-$("cv-confirm").onclick = async () => { try { if (!currentCvId) throw new Error("primero genera una vista previa"); await call("/api/cv/" + currentCvId + "/confirm", "POST", {}); $("cv-status").textContent = "CV validado"; } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
+function renderCvProposals(preview) {
+  const box = $("cv-proposals");
+  box.innerHTML = "";
+  $("cv-conflicts").innerHTML = "";
+  for (const p of preview.proposals || []) {
+    const row = document.createElement("div");
+    const label = document.createElement("span");
+    label.textContent = p.concept + " (origen: " + (p.source_document || "") + ", " + (p.source_section || "") + ", confianza " + p.confidence + ") ";
+    const input = document.createElement("input");
+    input.value = p.value;
+    input.setAttribute("data-proposal-id", p.id);
+    const btn = document.createElement("button");
+    btn.textContent = "Corregir propuesta";
+    const out = document.createElement("span");
+    btn.onclick = async () => { try { await call("/api/cv/" + preview.id + "/proposals/" + p.id, "PUT", { value: input.value }); out.textContent = " Propuesta corregida"; } catch (e) { out.textContent = " Error: " + e.message; } };
+    row.append(label, input, btn, out);
+    box.appendChild(row);
+  }
+}
+function renderCvConflicts(result) {
+  const box = $("cv-conflicts");
+  box.innerHTML = "";
+  for (const c of result.conflicts || []) {
+    const row = document.createElement("div");
+    const label = document.createElement("span");
+    label.textContent = "Conflicto en " + c.concept + ": el hecho confirmado es «" + c.existing + "» y este CV propone «" + c.proposed + "». ";
+    const replaceBtn = document.createElement("button");
+    replaceBtn.textContent = "Usar el valor de este CV";
+    replaceBtn.onclick = async () => { try { const r = await call("/api/cv/" + currentCvId + "/confirm", "POST", { resolutions: { [c.proposalId]: "replace" } }); $("cv-status").textContent = r.status === "confirmed" ? "CV validado" : "CV confirmado con conflictos"; renderCvConflicts(r); } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
+    const keepBtn = document.createElement("button");
+    keepBtn.textContent = "Conservar el hecho confirmado";
+    keepBtn.onclick = async () => { try { const r = await call("/api/cv/" + currentCvId + "/confirm", "POST", { resolutions: { [c.proposalId]: "keep" } }); $("cv-status").textContent = r.status === "confirmed" ? "CV validado" : "CV confirmado con conflictos"; renderCvConflicts(r); } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
+    row.append(label, replaceBtn, keepBtn);
+    box.appendChild(row);
+  }
+}
+$("cv-confirm").onclick = async () => { try { if (!currentCvId) throw new Error("primero genera una vista previa"); const r = await call("/api/cv/" + currentCvId + "/confirm", "POST", {}); $("cv-status").textContent = r.status === "confirmed" ? "CV validado" : "CV confirmado con conflictos"; renderCvConflicts(r); } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
 $("cv-reject").onclick = async () => { try { if (!currentCvId) throw new Error("primero genera una vista previa"); await call("/api/cv/" + currentCvId + "/reject", "POST", {}); $("cv-status").textContent = "Importación rechazada"; } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
 $("cv-refresh").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("cv-out"), await call("/api/cv?personId=" + personId, "GET")); } catch (e) { show($("cv-out"), "Error: " + e.message); } };
 $("fact-save").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("facts-out"), await call("/api/facts", "POST", { personId, concept: $("fact-concept").value, scope: $("fact-scope").value, value: $("fact-value").value, provenance: $("fact-provenance").value })); } catch (e) { show($("facts-out"), "Error: " + e.message); } };
@@ -385,15 +627,58 @@ async function refreshPolicies() {
 }
 $("policies-refresh").onclick = refreshPolicies;
 $("consent-apply").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); await call("/api/consents", "POST", { personId, key: "apply_on_behalf" }); $("consent-status").textContent = "Consentimiento registrado"; } catch (e) { $("consent-status").textContent = "Error: " + e.message; } };
+function xaiStatusText(data) {
+  if (!data.configured) return "xAI: no configurado";
+  if (data.verified) return "xAI: configurado, verificado (" + data.model + ")";
+  return "xAI: configurado, sin verificar" + (data.error ? " (" + data.error + ")" : "");
+}
 async function refreshXai() {
   const data = await call("/api/xai-status", "GET");
-  $("xai-status").textContent = data.configured ? "xAI: configurado" : "xAI: no configurado";
+  $("xai-status").textContent = xaiStatusText(data);
+  if (data.model) $("xai-model").value = data.model;
 }
 $("xai-save").onclick = async () => { try { await call("/api/xai-key", "POST", { value: $("xai-key").value }); $("xai-key").value = ""; await refreshXai(); } catch (e) { $("xai-status").textContent = "Error: " + e.message; } };
+$("xai-model-save").onclick = async () => { try { await call("/api/xai-model", "POST", { model: $("xai-model").value }); await refreshXai(); } catch (e) { $("xai-status").textContent = "Error: " + e.message; } };
+$("xai-verify").onclick = async () => { try { const r = await call("/api/xai-verify", "POST", {}); $("xai-status").textContent = r.ok ? "xAI: verificado (" + r.status.model + ")" : "xAI: verificación fallida (" + (r.reason || "error") + ")"; } catch (e) { $("xai-status").textContent = "Error: " + e.message; } };
 $("xai-refresh").onclick = refreshXai;
+async function refreshAutoPolicy() {
+  const data = await call("/api/auto-policy", "GET");
+  const box = $("auto-profiles");
+  box.innerHTML = "";
+  if (personId) {
+    const profiles = await call("/api/profiles?personId=" + personId, "GET");
+    for (const p of profiles.profiles || []) {
+      const lab = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = p.id;
+      cb.setAttribute("data-profile-name", p.name);
+      if ((data.policy?.profile_ids || []).includes(p.id)) cb.checked = true;
+      lab.append(cb, document.createTextNode(" " + p.name));
+      box.appendChild(lab);
+    }
+  }
+  if (data.policy) {
+    $("auto-daily-limit").value = data.policy.daily_limit ?? "";
+    $("auto-conditions").value = data.policy.conditions ?? "";
+    for (const cb of document.querySelectorAll("#auto-sources input[type=checkbox]")) {
+      cb.checked = (data.policy.sources || []).includes(cb.value);
+    }
+  }
+  $("auto-policy-status").textContent = data.policy
+    ? (data.missing.length ? "Política incompleta: falta " + data.missing.join(", ") : "Política guardada y completa")
+    : "Sin política guardada: falta daily_limit, profile_ids, sources, conditions";
+}
+$("auto-policy-save").onclick = async () => { try {
+  const profileIds = [...document.querySelectorAll("#auto-profiles input[type=checkbox]:checked")].map((cb) => cb.value);
+  const sources = [...document.querySelectorAll("#auto-sources input[type=checkbox]:checked")].map((cb) => cb.value);
+  await call("/api/auto-policy", "POST", { policy: { daily_limit: Number($("auto-daily-limit").value), profile_ids: profileIds, sources, conditions: $("auto-conditions").value } });
+  await refreshAutoPolicy();
+} catch (e) { $("auto-policy-status").textContent = "Error: " + e.message; } };
 async function refreshSettings() {
   const data = await call("/api/settings", "GET");
   $("settings-out").textContent = data.auto_mode === "on" ? "Modo automático: activado" : "Modo automático: desactivado";
+  await refreshAutoPolicy();
 }
 $("auto-enable").onclick = async () => { try { await call("/api/settings", "POST", { key: "auto_mode", value: "on" }); await refreshSettings(); } catch (e) { $("settings-out").textContent = "Error: " + e.message; } };
 $("auto-disable").onclick = async () => { try { await call("/api/settings", "POST", { key: "auto_mode", value: "off" }); await refreshSettings(); } catch (e) { $("settings-out").textContent = "Error: " + e.message; } };
