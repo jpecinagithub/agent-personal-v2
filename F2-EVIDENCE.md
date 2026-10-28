@@ -515,3 +515,253 @@ afterwards as docs-only; the code it describes is unchanged from
 - G2 closure is left to the user's re-review, as the user ordered:
   this report does not close G2. A full F10 deployment (compose,
   install, backup/restore) is still pending and is not claimed.
+
+## G2 re-review corrections 2026-10-28
+
+Basis: the user's re-review of commit `eadf86b`
+(`~/workspace/user/files/G2-REVIEW.md` plus
+`~/workspace/user/files/review-results.json`: 13 checks, 5 correct,
+8 failing in six incidents R1–R6). The review scripts mentioned in
+that report were not uploaded, so every case below was reproduced
+from the report's written reproduction steps. The five checks the
+user verified as correct were NOT reopened: archiving one of ten
+profiles does not free a slot; the full person snapshot stays
+intact after edits; soft deletion retains previous attempts and
+their snapshots; soft deletion frees exactly one slot; a missing
+xAI key initially blocks readiness. They are covered by a new
+regression file, `tests/review-positive.test.mjs`, and stay green.
+G2 is NOT closed by this work: closure awaits the user's re-review,
+as the user ordered. F3 is not started.
+
+### R1 — CV data mixing (T-V2-016, RF-V2-012/018)
+
+Reproduction (report): preview CV A with `alpha@example.test`
+and CV B with `beta@example.test` for the same person, reject B,
+confirm A — the confirmed fact was B's email, because both
+imports shared mutable `declared_facts` rows.
+Fix by class: previews no longer write `declared_facts` at all.
+New migration `004_g2_rereview.sql` adds `cv_proposals` (one
+immutable row per import: value, concept, scope, source document,
+source section, confidence, status) and
+`cv_imports.candidate_proposal_ids_json`. `previewCv` stores one
+proposal row per candidate field; `confirmCvImport` applies ONLY
+that import's proposals, in a transaction, and resolves conflicts
+at confirm time: a differing already-confirmed fact with no
+resolution is reported as a conflict and left untouched (import
+status `confirmed_with_conflicts`, re-confirmable); resolution
+`replace` overwrites it, `keep` skips it. `correctProposal`
+allows correcting a proposal's value before confirming (refused
+after confirmation). Rejecting an import marks its proposals
+`rejected`, never touching another import's rows.
+Tests: `tests/cv-proposals.test.mjs` — reject B then confirm A
+yields alpha only; confirm B then reject A yields beta only;
+confirm A then confirm B yields `confirmed_with_conflicts` with
+the email conflict, fact stays alpha, then an explicit `keep`
+resolution leaves alpha; a pre-existing confirmed fact plus a CV
+conflicts, stays unchanged, then an explicit `replace` applies;
+correcting a proposal before confirm confirms the corrected
+value, correcting after confirmation is refused.
+
+### R2 — Saving a person deletes data and regenerates history IDs (T-V2-017/018, RF-V2-013..016)
+
+Reproduction (report, real browser): load a person with
+stable-ID employments, links, a professional achievement, a
+current job and an academic speciality, click "Ver persona
+actual" and "Guardar persona" without changing anything — the
+form rebuilt the person from its limited fields, employment
+IDs became `job-1`/`job-2` by position, and links,
+achievements, current flag and speciality disappeared;
+reordering the two employment lines changed the same job's ID.
+Fix by class, two layers. API: `updatePersonDetails` now
+merges instead of replacing (`mergePersonDetails` in
+`packages/shared/person.mjs`): a field absent from the patch
+survives (a present field replaces, including an explicit empty
+array); employment/education entries match by stable ID, never
+by position — a known ID merges field by field, a new ID is
+added, `deleted: true` removes it, entries absent from the
+patch array are preserved (omission is never a deletion);
+ordering: when the patch names every surviving entry, the patch
+order wins, otherwise original relative order is kept with new
+entries appended; the merged result is fully validated.
+UI: the person section now has structured employment/education
+editors — one card per entry with a stable `data-id`, fields
+for employer/institution, title, start/end (text inputs,
+preserving YYYY or YYYY-MM precision), current-job checkbox,
+location, functions, achievements, links, exit reason,
+speciality, status, grade, plus Subir/Bajar/Eliminar per card
+(delete records the ID in a deleted set and the save sends
+`{id, deleted: true}`) and "Añadir empleo"/"Añadir estudio"
+with fresh UUIDs.
+Tests: `tests/person-merge.test.mjs` (unchanged save preserves
+everything; partial patch preserves absent fields; reorder by
+ID; insert; explicit remove; per-entry field merge; unknown
+field rejected) and a new real-browser test in
+`tests/ui-browser.test.mjs` (seed a rich person via the API,
+then through the screen: unchanged load/save preserves IDs,
+links, achievements, current flag, speciality and date
+precision; "Bajar" reorders with IDs travelling; "Eliminar"
+removes only that entry).
+
+### R3 — A fake xAI key counts as available (T-V2-022, RF-V2-007/020)
+
+Reproduction (report): complete the other requirements and
+save a deliberately invalid synthetic key — readiness was
+`ready=true`, because availability only checked that a key
+existed.
+Fix by class: configured is now distinguished from verified.
+New module `packages/shared/xai-verify.mjs`: `verifyXaiConnection`
+calls the models endpoint (no generation spend) with an
+injectable fetch and returns `{ok, models, reason}` with
+reasons `no_key`, `network: …`, `auth` (401/403),
+`rate-limit` (429), `http_<status>`, `invalid_response`,
+`model_not_available`; only the SHA-256 fingerprint of the key
+is ever stored, never the key. `xai_verifications` records
+fingerprint+model+status; `isXaiVerified` is true only when
+the latest record for that exact fingerprint+model pair is ok,
+so changing the key or the model invalidates verification
+automatically. Server routes: `GET /api/xai-status`,
+`POST /api/xai-key` (clears verifications),
+`POST /api/xai-model` (clears verifications),
+`POST /api/xai-verify` (runs verification with the injected
+fetch, records it). Readiness requires `xaiVerified`, not
+merely configured; the UI shows "xAI: no configurado",
+"xAI: configurado, verificado (model)" or
+"xAI: configurado, sin verificar (error?)".
+Tests: `tests/xai-verify.test.mjs` — with a MOCKED provider
+(no real keys, no real calls, no spend): 401 is not verified,
+network error is not verified, a model list without the
+selected model is not verified, a valid positive response
+verifies only for that key and model, a later failed record
+revokes, clearing removes verification. The server/UI tests
+now pass a mocked `verifyFetchFn` to `createServer` and prove
+that a merely configured fake key leaves readiness missing
+`xai`, and that a verified mocked response clears it.
+
+### R4 — One validated CV enables every profile (T-V2-016/020/022, RF-V2-011/018/020)
+
+Reproduction (report): confirm a CV for the person, then
+create another profile without selecting any CV — the second
+profile already satisfied `cv_validated`, because readiness
+only asked whether the person had any confirmed CV.
+Fix by class: each profile has an explicit, versioned
+association to its content-template CV. `profiles` bodies
+accept `cv_import_id`, validated by `assertValidProfileCv`
+(confirmed import of the same person; empty means none
+selected); `profileCv` returns the selected CV only if
+confirmed and same-person; readiness requires that selected
+CV; drafts validate the CV on confirm; the profile create
+form and edit areas have a CV select fed from the person's
+confirmed imports. The same CV may be reused across profiles,
+but it must be selected for that profile. Attempts pin the
+chosen CV: `attempts.cv_import_id` plus `cv_snapshot_json`
+(id, filename, format, extracted text, status, confirmed_at,
+proposals), returned by `getAttempt` as `cvSnapshot`.
+Tests: `tests/profile-cv.test.mjs` — a new profile without a
+CV stays missing `cv_validated` even when another profile has
+one; assigning an unconfirmed CV throws; assigning a valid CV
+resolves; reuse across profiles is allowed; changing a
+profile's CV via draft leaves the old attempt's CV snapshot
+unchanged and the new attempt pins the new CV.
+
+### R5 — Auto mode without a bounded policy (T-V2-022, RF-V2-008)
+
+Reproduction (report): a ready profile plus accepted
+`auto_apply` consent activated auto mode (HTTP 200) with no
+daily limit, profiles, sources or policy conditions.
+Fix by class: `validateAutoPolicy` in
+`packages/shared/policies.mjs` requires a persisted policy
+with a positive-integer daily limit, a non-empty list of
+existing non-deleted profiles, a non-empty list of sources,
+and a non-empty conditions string, reporting each missing or
+invalid field by name; `getAutoPolicy`/`setAutoPolicy` store
+it under settings key `auto_policy`. `POST /api/settings`
+with `auto_mode=on` now requires a valid stored policy AND at
+least one policy profile ready (with verified xAI), with
+explained errors naming the missing policy fields or stating
+that none of the policy profiles is ready; generic consent
+text no longer substitutes. Deactivation (`off`) is always
+immediately available. The UI settings section is now "Modo
+automático y su política" with a daily-limit input, profile
+checkboxes, source checkboxes (greenhouse/lever/ashby/
+smartrecruiters), a conditions textarea, a save-policy
+button and a completeness status.
+Tests: `tests/auto-policy.test.mjs` — module-level: each
+missing field reported by name, unknown profile rejected,
+incomplete save refused, valid policy stores. Server-level:
+enabling without a policy returns 400 naming the missing
+fields, saving an incomplete policy returns 400, a valid
+policy plus a ready policy profile enables, disabling always
+succeeds (verification recorded directly via
+`recordXaiVerification` with a fake key fingerprint — mocked
+provider state, no real call).
+
+### R6 — A deleted profile can create new attempts (T-V2-020/021)
+
+Reproduction (report): prepare a profile, archive it, delete
+it, then POST /api/attempts with its ID and a synthetic offer
+— HTTP 201, a new attempt using the deleted profile.
+Fix by class: the backend validates profile state in both
+places. `profileReadiness` returns
+`{ready: false, missing: ["profile_deleted"]}` for a deleted
+profile, and `createAttempt` explicitly throws "profile is
+deleted: a deleted profile cannot create a new attempt"
+BEFORE any readiness work, so no snapshot or attempt row is
+created. Historical attempts remain readable with their
+snapshots (unchanged behaviour, covered by the positives
+file).
+Tests: `tests/deleted-attempt.test.mjs` — module-level:
+ready profile, attempt, archive, delete, readiness false with
+`profile_deleted`, `createAttempt` throws mentioning deleted,
+attempts and person-snapshot counts unchanged, old attempt
+still readable with its snapshot. Server-level: POST
+/api/attempts with the deleted profile returns 400 and
+creates nothing, GET of the old attempt still returns 200.
+
+### Verification (exact commands and observed results)
+
+Working copy, Node v24.22.1, in `~/workspace/agent-personal-v2/`:
+- `npm run typecheck` — exit 0 (two real errors found and
+  fixed during this work: the mocked verify fetch did not
+  satisfy the `fetch` type, fixed by typing the injected
+  option loosely in `createServer`; and `verifyRes.json.ok`
+  in `tests/ui.test.mjs`, fixed to `(await verifyRes.json()).ok`
+  because the helper returns the raw Response).
+- `npm test` — 84 pass / 0 fail (was 56; +28 new or rewritten
+  tests: cv-proposals, person-merge, xai-verify, profile-cv,
+  auto-policy, deleted-attempt, review-positive, plus the
+  updated cv/readiness/profiles/ui/ui-browser suites).
+- `npm run check` — exit 0.
+Two real bugs found by the suite and fixed during this work
+(not claimed as pre-existing): (1) `previewCv` inserted
+`cv_proposals` rows BEFORE the parent `cv_imports` row,
+tripping the foreign key `cv_proposals.cv_import_id →
+cv_imports(id)` — fixed by inserting the import row first
+and updating its proposal list afterwards; (2) the stale
+assertion `evidence.snapshotVersion === 1` in
+`tests/readiness.test.mjs` — assigning the CV through a draft
+confirmation legitimately bumps the profile from version 1 to
+version 2, so the attempt pins version 2; the assertion was
+corrected with that explanation, the code was not weakened.
+Fresh local clone verification of the code commit: `git
+clone` of the repo to a new `/tmp/agentv2-g2rereview-clone`
+directory, then `npm ci --no-audit --no-fund`
+(33 packages), `npm run typecheck` (exit 0), `npm test`
+(84 pass / 0 fail, ~14.4 s, browser tests included),
+`npm run check` (exit 0), at commit
+`f9726efc4268dc7c7c90bb32d61e64d7bc423269`, Node v24.22.1.
+Code commit: `f9726ef` (21 files, +1677/−161). This evidence
+is a separate docs-only commit on top of it.
+Honest limitations and still-open items: (1) xAI verification
+calls the real models endpoint in production; the tests prove
+the logic only against a mocked provider, and no real xAI
+call was made in this work (0 real calls, 0 spend). (2) The
+browser tests drive real Chromium via the existing recursive
+cache scan (commit `fcd5cc8`), which keeps working on x64
+and ARM hosts; no new browser dependency was introduced.
+(3) Person identity edits still apply immediately (the draft
+workflow applies to profile configuration), as before.
+(4) The F1 raw `updateProfile` sharp edge is unchanged; F2
+code paths do not use it after pinning. (5) Full F10
+deployment (compose, install, backup/restore) is still
+pending and is not claimed. (6) G2 closure awaits the user's
+re-review, as ordered; this report does not close G2.
