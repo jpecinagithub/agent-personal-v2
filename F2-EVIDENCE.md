@@ -230,3 +230,33 @@ above):
 
 Tested commit: `ab3371a`. This evidence file was committed afterwards
 as docs-only; the code it describes is unchanged from `ab3371a`.
+
+## Oracle deployment smoke test (parent verification, 2026-10-28)
+
+- Deployed copy: `git archive HEAD` of commit `aace7b2` (code
+  identical to `ab3371a` plus docs-only evidence) into
+  `~/agentv2-deploy-test` on Oracle, using the Node 24.22.1 binary
+  at `~/opt/node-v24.22.1-linux-arm64/bin` installed during the F1
+  deployment test. A direct `git clone` from Oracle still fails (no
+  GitHub credentials on that host); no deploy key was created.
+- Results on Oracle: `npm ci` ok, `npm run typecheck` exit 0,
+  `npm test` 45 pass / 0 fail (1.9 s), `npm run check` exit 0.
+- Server smoke test: started with `HOST=127.0.0.1 PORT=14919`.
+  `/health` returned `{"ok":true}`; `/` served the Spanish
+  configuration UI (title "Agente personal de empleo v2 —
+  Configuración"); `ss` showed the listener on `127.0.0.1:14919`
+  only. Server stopped afterwards and verified stopped (no listener
+  on 14919, health no longer responds).
+- Process note: the first stop used a pid file that pointed at a
+  wrapper process (pid 136741), not the server itself (pid 136743),
+  so the server briefly kept running after the first kill. It was
+  then stopped by the pid reported by `ss` for port 14919 and the
+  stop was verified separately. The deployed copy stays at
+  `~/agentv2-deploy-test` with the server stopped; it is not a
+  service and does not start on boot. A full F10 deployment (compose,
+  install, backup/restore) is still pending and is not claimed here.
+- Gate G2 under the standing local-testing decision: CLOSED, with the
+  limitations recorded in this file (no standalone CV-file importer;
+  person identity edits apply immediately rather than through
+  drafts; F1 raw `updateProfile` after pinning is not used by F2
+  code) and the F10 qualification above. Real xAI calls in F2: 0.
