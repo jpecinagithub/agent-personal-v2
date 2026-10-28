@@ -1040,3 +1040,26 @@ blocking, snapshots, ten-profile limit) remain green.
   edit is exact. The user's acceptance cases (repeated unchanged
   load/save) do not hit this window, and no silent duplication
   occurs on unchanged saves.
+
+## Parent verification of the re-review 3 corrections (2026-10-28)
+
+- Local, by the parent: `npm run typecheck` exit 0,
+  `npm test` 101 pass / 0 fail (21.2 s, browser tests included),
+  `npm run check` exit 0, repo PRIVATE, remote HEAD matching
+  `5347eb6`, no `.github` directory.
+- Oracle, by the parent, deployed copy `git archive HEAD` of
+  `5347eb6` into `~/agentv2-deploy-test` (direct clone still
+  fails: no GitHub credentials on Oracle; no deploy key created),
+  run detached via a log file: `npm ci` ok, `npm run typecheck`
+  exit 0, `npm test` 101 pass / 0 fail (12.0 s), `npm run check`
+  exit 0.
+- Oracle server smoke test: started on `127.0.0.1:14919`,
+  `/health` returned `{"ok":true}`, `/` served the Spanish
+  configuration UI, `ss` showed the listener on `127.0.0.1:14919`
+  only; stopped afterwards by the pid reported by `ss` for that
+  port and verified stopped. The deployed copy stays with the
+  server stopped; it is not a service and does not start on boot.
+- G2 closure is left to the user's re-review, as ordered: this
+  parent verification does not close G2. The limitation recorded
+  above (a legacy authorisation edited before its first adoption
+  save becomes a second entry) is carried forward unchanged.
