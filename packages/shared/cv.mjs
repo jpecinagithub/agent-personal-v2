@@ -180,18 +180,27 @@ export function listProposals(db, cvImportId) {
  * Correct one proposal before confirming. The correction edits only
  * this import's own proposal row, never another import's data, and
  * only while the import is still in preview.
+ * Belonging is validated BEFORE any write, and the update itself is
+ * conditioned on both identifiers in a single statement: a rejected
+ * cross-import correction (a proposal of import B corrected through
+ * import A's URL) changes nothing anywhere.
  * @param {any} db
  * @param {string} proposalId
  * @param {unknown} value
+ * @param {string} [expectedCvImportId] the import id from the request URL, when known
  * @returns {any}
  */
-export function correctProposal(db, proposalId, value) {
+export function correctProposal(db, proposalId, value, expectedCvImportId) {
   const proposal = db.prepare("SELECT * FROM cv_proposals WHERE id = ?").get(proposalId);
   if (!proposal) throw new Error("proposal not found");
+  if (expectedCvImportId !== undefined && proposal.cv_import_id !== expectedCvImportId) {
+    throw new Error("proposal does not belong to this CV import");
+  }
   const cv = db.prepare("SELECT status FROM cv_imports WHERE id = ?").get(proposal.cv_import_id);
   if (!cv || cv.status !== "preview") throw new Error("only proposals of a previewed CV can be corrected");
   if (value === undefined || value === null || String(value).trim() === "") throw new Error("corrected proposal value is required");
-  db.prepare("UPDATE cv_proposals SET value_json = ? WHERE id = ?").run(JSON.stringify(value), proposalId);
+  const r = db.prepare("UPDATE cv_proposals SET value_json = ? WHERE id = ? AND cv_import_id = ?").run(JSON.stringify(value), proposalId, proposal.cv_import_id);
+  if (r.changes === 0) throw new Error("proposal does not belong to this CV import");
   return { ...proposal, value };
 }
 
@@ -312,7 +321,10 @@ export function rejectCvImport(db, id) {
 }
 
 /**
- * A person has a validated CV when at least one import is confirmed.
+ * A person has a validated CV when at least one import is fully
+ * confirmed. An import with unresolved conflicts is NOT validated:
+ * it may be selected for a profile, but it does not satisfy readiness
+ * and cannot enter an attempt until its conflicts are resolved.
  * (Person-level helper kept for compatibility; readiness is per-profile,
  * see profiles.mjs profileCvValidated.)
  * @param {any} db
@@ -320,16 +332,35 @@ export function rejectCvImport(db, id) {
  * @returns {boolean}
  */
 export function hasValidatedCv(db, personId) {
-  return db.prepare("SELECT COUNT(*) AS n FROM cv_imports WHERE person_id = ? AND status IN ('confirmed', 'confirmed_with_conflicts')").get(personId).n > 0;
+  return db.prepare("SELECT COUNT(*) AS n FROM cv_imports WHERE person_id = ? AND status = 'confirmed'").get(personId).n > 0;
 }
 
 /**
- * The CV import a profile has explicitly selected, if it is confirmed.
+ * The CV import a profile has explicitly selected, if it is fully
+ * confirmed. A conflicted import is deliberately NOT validated here:
+ * readiness and attempt creation require a resolved CV.
  * @param {any} db
  * @param {string} cvImportId
  * @returns {any | null}
  */
 export function getValidatedCvImport(db, cvImportId) {
+  if (!cvImportId) return null;
+  const cv = getCvImport(db, cvImportId);
+  if (!cv || cv.status !== "confirmed") return null;
+  return cv;
+}
+
+/**
+ * The CV import a profile may SELECT: fully confirmed, or confirmed
+ * with unresolved conflicts. Selection is not validation: assigning a
+ * conflicted CV is allowed so the user can see and resolve it, but
+ * readiness still blocks until every conflict is resolved explicitly.
+ * A previewed, rejected or foreign import can never be selected.
+ * @param {any} db
+ * @param {string} cvImportId
+ * @returns {any | null}
+ */
+export function getProfileCvImport(db, cvImportId) {
   if (!cvImportId) return null;
   const cv = getCvImport(db, cvImportId);
   if (!cv || (cv.status !== "confirmed" && cv.status !== "confirmed_with_conflicts")) return null;

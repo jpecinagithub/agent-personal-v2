@@ -11,7 +11,7 @@
 import { randomUUID } from "node:crypto";
 import { getConfirmedFact } from "./facts.mjs";
 import { getPerson } from "./person.mjs";
-import { getValidatedCvImport } from "./cv.mjs";
+import { getValidatedCvImport, getProfileCvImport, getCvImport } from "./cv.mjs";
 import { requiredPoliciesAccepted, hasConsent } from "./policies.mjs";
 
 export const MAX_PROFILES = 10;
@@ -32,7 +32,11 @@ const ALLOWED_BODY_KEYS = new Set([
 export function assertValidProfileCv(db, personId, cvImportId) {
   if (cvImportId === undefined || cvImportId === null || cvImportId === "") return;
   if (typeof cvImportId !== "string") throw new Error("cv_import_id must be a string");
-  const cv = getValidatedCvImport(db, cvImportId);
+  // Selection accepts a fully confirmed CV and a conflicted one: the
+  // user must be able to select a conflicted CV in order to resolve
+  // it. Validation (readiness, attempts) is stricter — see profileCv
+  // and profileReadiness, which require a fully confirmed CV.
+  const cv = getProfileCvImport(db, cvImportId);
   if (!cv) throw new Error("the profile CV must be a confirmed CV import");
   if (cv.person_id !== personId) throw new Error("the profile CV must belong to the same person");
 }
@@ -214,7 +218,16 @@ export function profileReadiness(db, profileId, opts = {}) {
       missing.push(`fact ${ref.concept}${ref.scope ? ` (${ref.scope})` : ""}`);
     }
   }
-  if (!profileCv(db, profile)) missing.push("cv_validated");
+  if (!profileCv(db, profile)) {
+    // A precisely explained block: a selected CV with unresolved
+    // conflicts is a different reason from having no validated CV at
+    // all, and it is resolved by resolving the conflicts, not by
+    // picking another CV. createAttempt calls this readiness check
+    // before opening any transaction, so a blocked attempt creates
+    // no snapshot and no attempt row.
+    const assigned = profile.body.cv_import_id ? getCvImport(db, profile.body.cv_import_id) : null;
+    missing.push(assigned?.status === "confirmed_with_conflicts" ? "cv_conflicts_unresolved" : "cv_validated");
+  }
   if (!requiredPoliciesAccepted(db, profile.person_id)) missing.push("policy");
   if (!hasConsent(db, profile.person_id, "apply_on_behalf")) missing.push("consent");
   if (!opts.xaiVerified) missing.push("xai");

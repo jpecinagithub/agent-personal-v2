@@ -228,3 +228,67 @@ test("browser R2: load/save without changes preserves history, reorder moves ids
     await stopApp(app);
   }
 });
+
+test("browser G2 re-review 2: unchecking current, clearing links and editing authorisations saves explicitly", async () => {
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    // Seed through the API (setup only); every edit under test is
+    // performed through the screen, and the persisted state is
+    // checked after a reload, through the screen and through the API.
+    const rich = {
+      full_name: "Synthetic Original",
+      email: "original@example.test",
+      links: ["https://example.test/professional-profile"],
+      authorisations: [
+        { id: "auth-1", country: "ES", status: "authorised", valid_until: "2030-12", sponsorship_required: true },
+      ],
+      employment: [
+        { id: "employment-alpha", employer: "Alpha Corp", title: "Analyst", start: "2019-03", end: "2022-01" },
+        { id: "employment-beta", employer: "Beta Corp", title: "Senior Analyst", start: "2022-02", current: true },
+      ],
+    };
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rich) });
+    assert.equal(created.status, 201);
+    const getPerson = async () => (await (await fetch(`${base}/api/person`)).json()).person.details;
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    assert.equal(await app.page.locator("#person-authorisations-list .auth-card").count(), 1);
+    // (a) Uncheck "current" on the second job and enter an end date.
+    const beta = app.page.locator("#person-employment-list .entry-card").nth(1);
+    await beta.locator(".f-current").uncheck();
+    await beta.locator(".f-end").fill("2024-06");
+    // (b) Clear the personal links entirely.
+    await app.page.fill("#person-links", "");
+    // (c) Uncheck sponsorship and clear the validity on the authorisation.
+    const auth = app.page.locator("#person-authorisations-list .auth-card").first();
+    await auth.locator(".auth-sponsorship").uncheck();
+    await auth.locator(".auth-valid-until").fill("");
+    await app.page.click("#person-save");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+    // Reload and check the persisted state through the screen first.
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    const betaAfter = app.page.locator("#person-employment-list .entry-card").nth(1);
+    assert.equal(await betaAfter.locator(".f-current").isChecked(), false, "the unchecked current flag must stay unchecked after reload");
+    assert.equal(await betaAfter.locator(".f-end").inputValue(), "2024-06");
+    assert.equal(await app.page.locator("#person-links").inputValue(), "");
+    const authAfter = app.page.locator("#person-authorisations-list .auth-card").first();
+    assert.equal(await authAfter.locator(".auth-sponsorship").isChecked(), false);
+    assert.equal(await authAfter.locator(".auth-valid-until").inputValue(), "");
+    assert.equal(await authAfter.locator(".auth-country").inputValue(), "ES");
+    // And through the API, the persisted record itself.
+    const details = await getPerson();
+    const betaDetails = details.employment.find((/** @type {any} */ e) => e.id === "employment-beta");
+    assert.equal(betaDetails.current, false);
+    assert.equal(betaDetails.end, "2024-06");
+    assert.deepEqual(details.links, []);
+    assert.equal(details.authorisations[0].valid_until, undefined);
+    assert.equal(details.authorisations[0].sponsorship_required, false);
+    assert.equal(details.authorisations[0].country, "ES");
+    assert.equal(details.authorisations[0].status, "authorised");
+  } finally {
+    await stopApp(app);
+  }
+});

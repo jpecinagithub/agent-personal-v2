@@ -64,7 +64,14 @@ test("R4: assigning an unconfirmed CV is rejected; assigning a valid one resolve
 test("R4: changing a profile's CV does not alter historical attempts; new attempts pin the new version", async () => {
   const { db, personId } = setup();
   const cvA = await confirmedCv(db, personId, "a.txt", "Alpha Person\nalpha@example.test\n");
-  const cvB = await confirmedCv(db, personId, "b.txt", "Beta Person\nbeta@example.test\n");
+  // CV B conflicts with A's confirmed facts, so it lands in
+  // confirmed_with_conflicts: under the G2 re-review 2 rule it may be
+  // selected, but it cannot enter an attempt until its conflicts are
+  // resolved explicitly.
+  const previewB = await previewCv(db, personId, "b.txt", Buffer.from("Beta Person\nbeta@example.test\n", "utf8"));
+  const conflictResult = confirmCvImport(db, previewB.id);
+  assert.equal(conflictResult.status, "confirmed_with_conflicts");
+  const cvB = previewB.id;
   const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance", cv_import_id: cvA });
   const first = createAttempt(db, personId, profileId, offer(db, "offer-r4-1"), { xaiVerified: true });
   assert.equal(getAttempt(db, first).cvSnapshot.filename, "a.txt");
@@ -74,7 +81,20 @@ test("R4: changing a profile's CV does not alter historical attempts; new attemp
   const body = JSON.parse(String(db.prepare("SELECT body_json FROM profiles WHERE id = ?").get(profileId).body_json));
   updateDraft(db, draftId, { ...body, cv_import_id: cvB });
   confirmDraft(db, draftId);
-  const second = createAttempt(db, personId, profileId, offer(db, "offer-r4-2"), { xaiVerified: true });
+  assert.throws(
+    () => createAttempt(db, personId, profileId, offer(db, "offer-r4-2"), { xaiVerified: true }),
+    /cv_conflicts_unresolved/,
+    "the unresolved conflicted CV must not enter an attempt",
+  );
+  // Resolve every conflict explicitly (keep the confirmed facts), then
+  // the new attempt pins the new CV version.
+  const resolutions = {};
+  for (const c of conflictResult.conflicts) resolutions[c.proposalId] = "keep";
+  assert.equal(confirmCvImport(db, cvB, { resolutions }).status, "confirmed");
+  // Fresh offer: the rejected attempt above already inserted the
+  // offer-r4-2 row (the helper inserts before attempting), and offers
+  // are unique by canonical URL.
+  const second = createAttempt(db, personId, profileId, offer(db, "offer-r4-3"), { xaiVerified: true });
   assert.equal(getAttempt(db, second).cvSnapshot.filename, "b.txt");
   assert.equal(getAttempt(db, first).cvSnapshot.filename, "a.txt", "the historical attempt keeps its original CV version");
   assert.equal(getAttempt(db, first).cvSnapshot.extracted_text.includes("alpha@example.test"), true);

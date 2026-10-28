@@ -326,8 +326,11 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, ver
         if (!requireControlOrigin(req, res)) return;
         const body = await readJson(req);
         const parts = url.pathname.split("/");
-        const corrected = correctProposal(db, parts[5], body.value);
-        if (corrected.cv_import_id !== parts[3]) throw new Error("proposal does not belong to this CV import");
+        // Belonging is validated inside correctProposal BEFORE any
+        // write; the old code wrote first and checked afterwards, so
+        // a rejected cross-import correction had already modified
+        // the other import.
+        const corrected = correctProposal(db, parts[5], body.value, parts[3]);
         return send(res, 200, { proposal: corrected });
       }
       if (req.method === "POST" && url.pathname.startsWith("/api/cv/") && url.pathname.endsWith("/reject")) {

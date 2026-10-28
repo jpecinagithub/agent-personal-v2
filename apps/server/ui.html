@@ -38,8 +38,13 @@ declares queda pendiente y se te pedirá cuando haga falta.</small></p>
 <input id="person-availability" placeholder="Ej.: inmediata">
 <label for="person-languages">Idiomas (una línea por idioma: idioma, nivel)</label>
 <textarea id="person-languages" rows="3" placeholder="English, C1"></textarea>
-<label for="person-authorisations">Autorizaciones de trabajo (una línea por país: país, estado)</label>
-<textarea id="person-authorisations" rows="3" placeholder="ES, autorizado"></textarea>
+<h3>Autorizaciones de trabajo</h3>
+<p><small>Cada autorización tiene su propio formulario y conserva su
+identidad: país, estado, vigencia y necesidad de patrocinio. Borrar
+una autorización es explícito; vaciar un campo lo borra, no lo
+conserva en silencio.</small></p>
+<div id="person-authorisations-list"></div>
+<button id="authorisations-add" type="button">Añadir autorización</button>
 <label for="person-desired-roles">Puestos deseados (uno por línea)</label>
 <textarea id="person-desired-roles" rows="3" placeholder="Finance Manager"></textarea>
 <label for="person-locations">Ubicaciones (una por línea)</label>
@@ -230,40 +235,44 @@ const draftsByCard = new Map();
 const lines = (id) => $(id).value.split("\n").map((l) => l.trim()).filter(Boolean);
 const pairs = (id) => lines(id).map((l) => { const [a, b] = l.split(",").map((s) => s.trim()); return [a, b]; });
 function personDetailsFromForm() {
+  // Explicit-send rule (G2 re-review 2): the form sends its full
+  // state, never an omission that the backend would read as "no
+  // change". Cleared scalars go as null (the backend deletes the
+  // key), cleared lists go as [], an unchecked checkbox goes as
+  // false. Only fields this form does not render at all are omitted
+  // (and therefore preserved by the backend merge).
   const d = { full_name: $("person-full-name").value.trim() };
-  const display = $("person-display-name").value.trim();
-  if (display) d.display_name = display;
-  const email = $("person-email").value.trim();
-  if (email) d.email = email;
-  const phone = $("person-phone").value.trim();
-  if (phone) d.phone = phone;
-  const availability = $("person-availability").value.trim();
-  if (availability) d.availability = availability;
-  const languages = pairs("person-languages").map(([language, level]) => ({ language, level: level || "" }));
-  if (languages.length) d.languages = languages;
-  const authorisations = pairs("person-authorisations").map(([country, status]) => ({ country, status: status || "" }));
-  if (authorisations.length) d.authorisations = authorisations;
-  const roles = lines("person-desired-roles");
-  if (roles.length) d.desired_roles = roles;
-  const locations = lines("person-locations");
-  if (locations.length) d.locations = locations;
-  const skills = lines("person-skills");
-  if (skills.length) d.skills = skills;
-  const exclusions = lines("person-exclusions");
-  if (exclusions.length) d.exclusions = exclusions;
+  d.display_name = $("person-display-name").value.trim() || null;
+  d.email = $("person-email").value.trim() || null;
+  d.phone = $("person-phone").value.trim() || null;
+  d.availability = $("person-availability").value.trim() || null;
+  // Top-level lists: send when non-empty, or as [] when the loaded
+  // person had them (explicit clear); omit when the person never had
+  // them, so an unchanged save stays identical.
+  const sendList = (key, arr) => { if (arr.length > 0 || formHad[key]) d[key] = arr; };
+  sendList("languages", pairs("person-languages").map(([language, level]) => ({ language, level: level || "" })));
+  const auths = collectAuthorisations();
+  for (const id of deletedAuthorisationIds) auths.push({ id, deleted: true });
+  if (auths.length > 0 || formHad.authorisations) d.authorisations = auths;
+  sendList("desired_roles", lines("person-desired-roles"));
+  sendList("locations", lines("person-locations"));
+  sendList("skills", lines("person-skills"));
+  sendList("exclusions", lines("person-exclusions"));
+  const salary = {};
   const currency = $("person-salary-currency").value.trim();
   const min = $("person-salary-min").value.trim();
   const max = $("person-salary-max").value.trim();
   const period = $("person-salary-period").value.trim();
-  if (currency || min || max || period) {
-    d.salary_expectations = {};
-    if (currency) d.salary_expectations.currency = currency;
-    if (min) d.salary_expectations.min = Number(min);
-    if (max) d.salary_expectations.max = Number(max);
-    if (period) d.salary_expectations.period = period;
-  }
-  const links = lines("person-links");
-  if (links.length) d.links = links;
+  if (currency) salary.currency = currency;
+  if (min) salary.min = Number(min);
+  if (max) salary.max = Number(max);
+  if (period) salary.period = period;
+  // Send the salary object when it has content, or as {} when the
+  // loaded person had one and the user cleared every field (explicit
+  // clear). When the person never had one and the fields are empty,
+  // omit it so an unchanged save stays identical.
+  if (Object.keys(salary).length > 0 || formHadSalary) d.salary_expectations = salary;
+  sendList("links", lines("person-links"));
   // Structured history editors (R2): entries keep their stable ids and
   // every field the record has (links, achievements, current flag,
   // speciality, date precision). Deleted entries are sent explicitly
@@ -279,6 +288,8 @@ function personDetailsFromForm() {
 }
 let deletedEmploymentIds = new Set();
 let deletedEducationIds = new Set();
+let formHadSalary = false;
+let formHad = { languages: false, authorisations: false, desired_roles: false, locations: false, skills: false, exclusions: false, links: false };
 function newEntryId(prefix) {
   try {
     if (typeof crypto !== "undefined" && crypto.randomUUID) return prefix + "-" + crypto.randomUUID();
@@ -298,35 +309,38 @@ function collectEntries(containerId, kind) {
   for (const card of document.querySelectorAll("#" + containerId + " .entry-card")) {
     const id = card.dataset.id;
     if (kind === "employment") {
+      // An unchecked box stores false when the entry previously had
+      // true (the stale-true bug); when the entry never had a
+      // current flag, the flag is omitted so an unchanged save stays
+      // identical. A current job has no end date: end goes as null
+      // (explicit clear); otherwise the entered end, or null to clear
+      // a stale one. Other optional fields go as value-or-null for
+      // the same reason; lists go as arrays, possibly empty.
+      const checked = card.querySelector(".f-current")?.checked ?? false;
       const e = { id, employer: entryField(card, "f-employer"), title: entryField(card, "f-title") };
-      const start = entryField(card, "f-start");
-      if (start) e.start = start;
-      const current = card.querySelector(".f-current")?.checked;
-      if (current) e.current = true;
-      else { const end = entryField(card, "f-end"); if (end) e.end = end; }
-      const location = entryField(card, "f-location");
-      if (location) e.location = location;
-      const functions = entryField(card, "f-functions");
-      if (functions) e.functions = functions;
+      if (checked) e.current = true;
+      else if (card.dataset.currentWas === "true") e.current = false;
+      const current = checked;
+      // Lists: send them when non-empty, or as [] when the entry
+      // previously had them (explicit clear); omit them when the
+      // entry never had them, so an unchanged save stays identical.
       const achievements = entryLines(card, "f-achievements");
-      if (achievements.length) e.achievements = achievements;
+      if (achievements.length || card.dataset.hadAchievements === "1") e.achievements = achievements;
       const links = entryLines(card, "f-links");
-      if (links.length) e.links = links;
-      const reason = entryField(card, "f-exit");
-      if (reason) e.exit_reason = reason;
+      if (links.length || card.dataset.hadLinks === "1") e.links = links;
+      e.start = entryField(card, "f-start") || null;
+      e.end = current ? null : (entryField(card, "f-end") || null);
+      e.location = entryField(card, "f-location") || null;
+      e.functions = entryField(card, "f-functions") || null;
+      e.exit_reason = entryField(card, "f-exit") || null;
       out.push(e);
     } else {
       const e = { id, institution: entryField(card, "f-institution"), title: entryField(card, "f-title") };
-      const start = entryField(card, "f-start");
-      if (start) e.start = start;
-      const end = entryField(card, "f-end");
-      if (end) e.end = end;
-      const speciality = entryField(card, "f-speciality");
-      if (speciality) e.speciality = speciality;
-      const status = entryField(card, "f-status");
-      if (status) e.status = status;
-      const grade = entryField(card, "f-grade");
-      if (grade) e.grade = grade;
+      e.start = entryField(card, "f-start") || null;
+      e.end = entryField(card, "f-end") || null;
+      e.speciality = entryField(card, "f-speciality") || null;
+      e.status = entryField(card, "f-status") || null;
+      e.grade = entryField(card, "f-grade") || null;
       out.push(e);
     }
   }
@@ -371,10 +385,17 @@ function entryCard(kind, entry, deletedSet) {
     cur.type = "checkbox";
     cur.className = "f-current";
     cur.checked = Boolean(entry.current);
+    // Remember whether this entry ever had a current flag: an
+    // unchecked box must store false ONLY when the entry previously
+    // had true; for an entry that never had the flag, omitting it
+    // keeps an unchanged save byte-identical.
+    card.dataset.currentWas = entry.current === undefined ? "" : String(Boolean(entry.current));
     curLab.append(cur, document.createTextNode(" Empleo actual"));
     card.appendChild(curLab);
     mk("Ubicación", "f-location", entry.location, "Madrid");
     mkArea("Funciones", "f-functions", entry.functions, "");
+    card.dataset.hadAchievements = (entry.achievements || []).length > 0 ? "1" : "";
+    card.dataset.hadLinks = (entry.links || []).length > 0 ? "1" : "";
     mkArea("Logros (uno por línea)", "f-achievements", (entry.achievements || []).join("\n"), "");
     mkArea("Enlaces (uno por línea)", "f-links", (entry.links || []).join("\n"), "");
     mk("Motivo de salida (si está declarado)", "f-exit", entry.exit_reason, "");
@@ -407,6 +428,80 @@ function renderEntries(containerId, kind, entries, deletedSet) {
   container.innerHTML = "";
   for (const e of entries || []) container.appendChild(entryCard(kind, e, deletedSet));
 }
+let deletedAuthorisationIds = new Set();
+function authCard(entry, deletedSet) {
+  const card = document.createElement("div");
+  card.className = "auth-card profile-card";
+  card.dataset.id = entry.id;
+  const mk = (label, cls, value, placeholder) => {
+    const lab = document.createElement("label");
+    lab.textContent = label;
+    const input = document.createElement("input");
+    input.className = cls;
+    input.value = value || "";
+    input.placeholder = placeholder || "";
+    card.append(lab, input);
+  };
+  mk("País", "auth-country", entry.country, "ES");
+  mk("Estado", "auth-status", entry.status, "autorizado");
+  mk("Vigencia (YYYY o YYYY-MM)", "auth-valid-until", entry.valid_until, "2030-12");
+  const spLab = document.createElement("label");
+  const sp = document.createElement("input");
+  sp.type = "checkbox";
+  sp.className = "auth-sponsorship";
+  sp.checked = Boolean(entry.sponsorship_required);
+  card.dataset.sponsorshipWas = entry.sponsorship_required === undefined ? "" : String(Boolean(entry.sponsorship_required));
+  spLab.append(sp, document.createTextNode(" Necesita patrocinio"));
+  card.appendChild(spLab);
+  const up = document.createElement("button");
+  up.type = "button";
+  up.textContent = "Subir";
+  up.onclick = () => moveCard(card, -1);
+  const down = document.createElement("button");
+  down.type = "button";
+  down.textContent = "Bajar";
+  down.onclick = () => moveCard(card, 1);
+  const del = document.createElement("button");
+  del.type = "button";
+  del.textContent = "Eliminar";
+  del.onclick = () => { deletedSet.add(entry.id); card.remove(); };
+  card.append(up, down, del);
+  return card;
+}
+function renderAuthorisations(entries) {
+  const container = $("person-authorisations-list");
+  container.innerHTML = "";
+  for (const e of entries || []) {
+    // Entries stored before ids existed gain one in the form so later
+    // saves address them by id; the backend matches id-less stored
+    // entries by country on the first such save.
+    if (!e.id) e.id = newEntryId("auth");
+    container.appendChild(authCard(e, deletedAuthorisationIds));
+  }
+}
+function collectAuthorisations() {
+  const out = [];
+  for (const card of document.querySelectorAll("#person-authorisations-list .auth-card")) {
+    const field = (cls) => { const el = card.querySelector("." + cls); return el ? el.value.trim() : ""; };
+    const entry = {
+      id: card.dataset.id,
+      country: field("auth-country"),
+      status: field("auth-status"),
+      valid_until: field("auth-valid-until") || null,
+    };
+    // Same rule as the current-job flag: an unchecked box stores
+    // false only when the entry previously had true; otherwise the
+    // flag is omitted so an unchanged save stays identical.
+    const spChecked = card.querySelector(".auth-sponsorship")?.checked ?? false;
+    if (spChecked) entry.sponsorship_required = true;
+    else if (card.dataset.sponsorshipWas === "true") entry.sponsorship_required = false;
+    out.push(entry);
+  }
+  return out;
+}
+$("authorisations-add").onclick = () => {
+  $("person-authorisations-list").appendChild(authCard({ id: newEntryId("auth"), country: "", status: "" }, deletedAuthorisationIds));
+};
 $("employment-add").onclick = () => {
   $("person-employment-list").appendChild(entryCard("employment", { id: newEntryId("job"), employer: "", title: "" }, deletedEmploymentIds));
 };
@@ -420,12 +515,23 @@ function fillPersonForm(details) {
   $("person-phone").value = details.phone || "";
   $("person-availability").value = details.availability || "";
   $("person-languages").value = (details.languages || []).map((l) => l.language + ", " + l.level).join("\n");
-  $("person-authorisations").value = (details.authorisations || []).map((a) => a.country + ", " + a.status).join("\n");
+  formHad = {
+    languages: (details.languages || []).length > 0,
+    authorisations: (details.authorisations || []).length > 0,
+    desired_roles: (details.desired_roles || []).length > 0,
+    locations: (details.locations || []).length > 0,
+    skills: (details.skills || []).length > 0,
+    exclusions: (details.exclusions || []).length > 0,
+    links: (details.links || []).length > 0,
+  };
+  deletedAuthorisationIds = new Set();
+  renderAuthorisations(details.authorisations || []);
   $("person-desired-roles").value = (details.desired_roles || []).join("\n");
   $("person-locations").value = (details.locations || []).join("\n");
   $("person-skills").value = (details.skills || []).join("\n");
   $("person-exclusions").value = (details.exclusions || []).join("\n");
   const s = details.salary_expectations || {};
+  formHadSalary = Object.keys(s).length > 0;
   $("person-salary-currency").value = s.currency || "";
   $("person-salary-min").value = s.min ?? "";
   $("person-salary-max").value = s.max ?? "";
@@ -436,12 +542,18 @@ function fillPersonForm(details) {
   renderEntries("person-employment-list", "employment", details.employment || [], deletedEmploymentIds);
   renderEntries("person-education-list", "education", details.education || [], deletedEducationIds);
 }
-const MISSING_LABELS = { identity: "identidad", name: "nombre", focus: "enfoque", cv_validated: "CV validado", policy: "política aceptada", consent: "consentimiento", xai: "xAI verificado", profile_deleted: "perfil eliminado" };
+const MISSING_LABELS = { identity: "identidad", name: "nombre", focus: "enfoque", cv_validated: "CV validado", cv_conflicts_unresolved: "CV con conflictos sin resolver (resuélvelos en la sección de CV)", policy: "política aceptada", consent: "consentimiento", xai: "xAI verificado", profile_deleted: "perfil eliminado" };
 function missingLabel(m) { return m.startsWith("fact ") ? "hecho " + m.slice(5) : (MISSING_LABELS[m] || m); }
+let conflictedCvs = [];
 async function refreshProfileCvOptions() {
   if (!personId) return [];
   const data = await call("/api/cv?personId=" + personId, "GET");
-  const confirmed = (data.imports || []).filter((c) => c.status === "confirmed" || c.status === "confirmed_with_conflicts");
+  // Only FULLY confirmed CVs are selectable: a CV with unresolved
+  // conflicts is shown, disabled, with the reason — it cannot satisfy
+  // readiness or enter an attempt until its conflicts are resolved
+  // explicitly in the CV section.
+  const confirmed = (data.imports || []).filter((c) => c.status === "confirmed");
+  conflictedCvs = (data.imports || []).filter((c) => c.status === "confirmed_with_conflicts");
   const sel = $("profile-cv");
   const current = sel.value;
   sel.innerHTML = '<option value="">(sin CV asociado)</option>';
@@ -449,6 +561,13 @@ async function refreshProfileCvOptions() {
     const opt = document.createElement("option");
     opt.value = c.id;
     opt.textContent = c.filename + " (" + c.status + ")";
+    sel.appendChild(opt);
+  }
+  for (const c of conflictedCvs) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.disabled = true;
+    opt.textContent = c.filename + " (conflictos pendientes — resolver antes de usar)";
     sel.appendChild(opt);
   }
   if (current) sel.value = current;
@@ -505,6 +624,13 @@ async function refreshProfiles() {
       const opt = document.createElement("option");
       opt.value = c.id;
       opt.textContent = c.filename + " (" + c.status + ")";
+      cvSelect.appendChild(opt);
+    }
+    if (p.body.cv_import_id && !confirmedCvs.some((c) => c.id === p.body.cv_import_id)) {
+      const opt = document.createElement("option");
+      opt.value = p.body.cv_import_id;
+      opt.disabled = true;
+      opt.textContent = "(CV con conflictos pendientes — resolver antes de usar)";
       cvSelect.appendChild(opt);
     }
     cvSelect.value = p.body.cv_import_id || "";

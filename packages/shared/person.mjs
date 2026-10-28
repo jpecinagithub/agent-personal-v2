@@ -43,7 +43,7 @@ export function validatePersonDetails(details) {
   if (!isNonEmptyString(details.email) && !isNonEmptyString(details.phone)) {
     throw new Error("at least one contact method (email or phone) is required");
   }
-  if (details.email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(details.email)) {
+  if (typeof details.email === "string" && details.email !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(details.email)) {
     throw new Error("email is not a valid address");
   }
   if (details.languages !== undefined) {
@@ -59,6 +59,12 @@ export function validatePersonDetails(details) {
     for (const a of details.authorisations) {
       if (!a || !isNonEmptyString(a.country) || !isNonEmptyString(a.status)) {
         throw new Error("each authorisation needs a country and a status");
+      }
+      if (a.valid_until !== undefined && a.valid_until !== null && !DATE_RE.test(a.valid_until)) {
+        throw new Error("authorisation valid_until must be YYYY or YYYY-MM");
+      }
+      if (a.sponsorship_required !== undefined && typeof a.sponsorship_required !== "boolean") {
+        throw new Error("authorisation sponsorship_required must be a boolean");
       }
     }
   }
@@ -124,6 +130,79 @@ export function createPersonFull(db, details) {
  * @param {Record<string, any>} patch partial update
  * @returns {Record<string, any>} merged, validated details
  */
+/**
+ * Merge one entry array by stable identity, never by position and
+ * never by blind replacement. A null field value inside an entry is
+ * an EXPLICIT CLEAR of that nested property (the key is removed);
+ * an absent field is preserved. New entries strip null-valued keys.
+ * @param {any[]} current stored entries
+ * @param {any[]} patch entries
+ * @param {string} section field name, for error messages
+ * @param {(entry: any) => string | null} keyOf how to identify an entry
+ * @param {boolean} idRequired whether an entry without an id is an error
+ * @returns {any[]}
+ */
+function mergeEntryArray(current, patch, section, keyOf, idRequired) {
+  const byKey = new Map();
+  const order = [];
+  for (const e of current) {
+    let k = keyOf(e);
+    if (k === null) continue;
+    // Never silently drop a stored entry: if two current entries share
+    // a natural key (e.g. two authorisations for one country), the
+    // duplicate keeps a unique internal key and survives untouched.
+    if (byKey.has(k)) k = `${k}#dup${order.length}`;
+    byKey.set(k, e);
+    order.push(k);
+  }
+  const mentioned = [];
+  for (const entry of patch) {
+    if (!entry || typeof entry !== "object") throw new Error(`each ${section} entry must be an object`);
+    let key = keyOf(entry);
+    if (key === null) {
+      if (idRequired) throw new Error(`each ${section} entry needs an id`);
+      // Legacy entry without an id: it is a new entry, and it gains
+      // one now so later saves can address it by id.
+      key = randomUUID();
+      entry.id = key;
+    }
+    if (entry.deleted === true) {
+      byKey.delete(key);
+      const at = order.indexOf(key);
+      if (at >= 0) order.splice(at, 1);
+      continue;
+    }
+    mentioned.push(key);
+    if (byKey.has(key)) {
+      const kept = byKey.get(key);
+      for (const [k, v] of Object.entries(entry)) {
+        if (k === "deleted" || k === "id") continue;
+        if (v === null) delete kept[k];
+        else kept[k] = v;
+      }
+      // An entry matched by natural key (a legacy authorisation
+      // stored without an id) gains a stable id now, so later saves
+      // address it by id instead of re-matching by country.
+      if (!isNonEmptyString(kept.id)) kept.id = randomUUID();
+    } else {
+      const fresh = {};
+      for (const [k, v] of Object.entries(entry)) {
+        if (k !== "deleted" && v !== null) fresh[k] = v;
+      }
+      byKey.set(key, fresh);
+      order.push(key);
+    }
+  }
+  // Order: when the patch names every surviving entry (the UI sending
+  // its full list), the patch order wins, so an explicit reorder takes
+  // effect. When it names only a subset (a partial patch), the original
+  // relative order is kept and new entries append — a partial edit
+  // must never silently reorder history. Either way the id travels
+  // with the entry: reordering never renames anything.
+  const coversAll = order.every((id) => mentioned.includes(id));
+  return (coversAll ? mentioned : order).map((id) => byKey.get(id));
+}
+
 export function mergePersonDetails(existing, patch) {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
     throw new Error("person patch must be an object");
@@ -135,48 +214,26 @@ export function mergePersonDetails(existing, patch) {
   for (const [key, value] of Object.entries(patch)) {
     if (key === "employment" || key === "education") {
       if (!Array.isArray(value)) throw new Error(`${key} must be an array`);
-      const current = Array.isArray(merged[key]) ? merged[key] : [];
-      const byId = new Map(current.map((e) => [e.id, e]));
-      const order = current.map((e) => e.id);
-      for (const entry of value) {
-        if (!entry || !isNonEmptyString(entry.id)) throw new Error(`each ${key} entry needs an id`);
-        if (entry.deleted === true) {
-          byId.delete(entry.id);
-          const at = order.indexOf(entry.id);
-          if (at >= 0) order.splice(at, 1);
-          continue;
-        }
-        if (byId.has(entry.id)) {
-          const kept = byId.get(entry.id);
-          for (const [k, v] of Object.entries(entry)) {
-            if (k !== "deleted") kept[k] = v;
-          }
-        } else {
-          byId.set(entry.id, { ...entry });
-          order.push(entry.id);
-        }
-      }
-      // Order: when the patch names every surviving entry (the UI
-      // sending its full list), the patch order wins, so an explicit
-      // reorder takes effect. When it names only a subset (a partial
-      // patch), the original relative order is kept and new entries
-      // append — a partial edit must never silently reorder history.
-      // Either way the id travels with the entry: reordering never
-      // renames anything.
-      const mentioned = value.filter((e) => e && !e.deleted).map((e) => e.id);
-      // `order` was already updated by the loop: deletions spliced out,
-      // new ids appended. It therefore holds the surviving entries in
-      // original order. coversAll is true exactly when the patch named
-      // every surviving entry (the UI sending its full list).
-      const coversAll = order.every((id) => mentioned.includes(id));
-      if (coversAll) {
-        merged[key] = mentioned.map((id) => byId.get(id));
-      } else {
-        merged[key] = order.map((id) => byId.get(id));
-      }
+      merged[key] = mergeEntryArray(
+        Array.isArray(merged[key]) ? merged[key] : [], value, key,
+        (e) => (isNonEmptyString(e?.id) ? e.id : null), true,
+      );
       continue;
     }
-    merged[key] = value;
+    if (key === "authorisations") {
+      if (!Array.isArray(value)) throw new Error("authorisations must be an array");
+      merged[key] = mergeEntryArray(
+        Array.isArray(merged[key]) ? merged[key] : [], value, key,
+        (e) => (isNonEmptyString(e?.id) ? e.id : (isNonEmptyString(e?.country) ? `country:${e.country}` : null)), false,
+      );
+      continue;
+    }
+    // Explicit deletion vs absence, at top level too: a null value
+    // clears the field; an absent key preserves it. (Employment,
+    // education and authorisations are handled above; every other
+    // field, including an empty array, replaces when present.)
+    if (value === null) delete merged[key];
+    else merged[key] = value;
   }
   return validatePersonDetails(merged);
 }
