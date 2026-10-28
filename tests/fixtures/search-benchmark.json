@@ -1,0 +1,3095 @@
+{
+  "version": 1,
+  "description": "Synthetic F3 search benchmark (T-V2-034). No real offers, companies or personal data. Each offer carries an `expected` annotation used by tests/search-rank.test.mjs with the benchmark criteria defined there.",
+  "sentStrongKey": "ats:greenhouse|tenant:acme-test|posting:post-sent-1",
+  "sentOfferId": "bench-060",
+  "offers": [
+    {
+      "id": "bench-001",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-001",
+      "canonicalUrl": "https://example.test/jobs/bench-001",
+      "applyUrl": "https://example.test/apply/bench-001",
+      "title": "FP&A Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "",
+        "city": "Logroño",
+        "raw": "ES",
+        "remote": false
+      },
+      "workMode": "hybrid",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "FP&A Manager with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 55000,
+        "max": 75000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-002",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-002",
+      "canonicalUrl": "https://example.test/jobs/bench-002",
+      "applyUrl": "https://example.test/apply/bench-002",
+      "title": "Finance Manager",
+      "company": "Globex Test Ltd",
+      "location": {
+        "country": "IE",
+        "region": "",
+        "city": "Dublin",
+        "raw": "IE",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 56000,
+        "max": 76000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-003",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-003",
+      "canonicalUrl": "https://example.test/jobs/bench-003",
+      "applyUrl": "https://example.test/apply/bench-003",
+      "title": "Financial Controller",
+      "company": "Initech Test BV",
+      "location": {
+        "country": "NL",
+        "region": "",
+        "city": "Amsterdam",
+        "raw": "NL",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Financial Controller with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 57000,
+        "max": 77000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-004",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-004",
+      "canonicalUrl": "https://example.test/jobs/bench-004",
+      "applyUrl": "https://example.test/apply/bench-004",
+      "title": "Head of FP&A",
+      "company": "Northwind Test Ltd",
+      "location": {
+        "country": "ES",
+        "region": "",
+        "city": "",
+        "raw": "Remote (Spain)",
+        "remote": true
+      },
+      "workMode": "remote",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Head of FP&A with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 58000,
+        "max": 78000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-005",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-005",
+      "canonicalUrl": "https://example.test/jobs/bench-005",
+      "applyUrl": "https://example.test/apply/bench-005",
+      "title": "Finance Director",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "IE",
+        "region": "",
+        "city": "Dublin",
+        "raw": "IE",
+        "remote": false
+      },
+      "workMode": "hybrid",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Director with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 59000,
+        "max": 79000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-006",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-006",
+      "canonicalUrl": "https://example.test/jobs/bench-006",
+      "applyUrl": "https://example.test/apply/bench-006",
+      "title": "Group Controller",
+      "company": "Globex Test Ltd",
+      "location": {
+        "country": "NL",
+        "region": "",
+        "city": "Amsterdam",
+        "raw": "NL",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Group Controller with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 60000,
+        "max": 80000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-007",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-007",
+      "canonicalUrl": "https://example.test/jobs/bench-007",
+      "applyUrl": "https://example.test/apply/bench-007",
+      "title": "Regional Controller",
+      "company": "Initech Test BV",
+      "location": {
+        "country": "ES",
+        "region": "",
+        "city": "Logroño",
+        "raw": "ES",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Regional Controller with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 61000,
+        "max": 81000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-008",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-008",
+      "canonicalUrl": "https://example.test/jobs/bench-008",
+      "applyUrl": "https://example.test/apply/bench-008",
+      "title": "Finance Manager",
+      "company": "Northwind Test Ltd",
+      "location": {
+        "country": "NL",
+        "region": "",
+        "city": "Amsterdam",
+        "raw": "NL",
+        "remote": false
+      },
+      "workMode": "hybrid",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 62000,
+        "max": 82000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-009",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-009",
+      "canonicalUrl": "https://example.test/jobs/bench-009",
+      "applyUrl": "https://example.test/apply/bench-009",
+      "title": "FP&A Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "",
+        "city": "",
+        "raw": "Remote (Spain)",
+        "remote": true
+      },
+      "workMode": "remote",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "FP&A Manager with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 63000,
+        "max": 83000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-010",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-010",
+      "canonicalUrl": "https://example.test/jobs/bench-010",
+      "applyUrl": "https://example.test/apply/bench-010",
+      "title": "Financial Controller",
+      "company": "Globex Test Ltd",
+      "location": {
+        "country": "ES",
+        "region": "",
+        "city": "Logroño",
+        "raw": "ES",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Financial Controller with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 64000,
+        "max": 84000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-011",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-011",
+      "canonicalUrl": "https://example.test/jobs/bench-011",
+      "applyUrl": "https://example.test/apply/bench-011",
+      "title": "Head of Finance",
+      "company": "Initech Test BV",
+      "location": {
+        "country": "IE",
+        "region": "",
+        "city": "Dublin",
+        "raw": "IE",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Head of Finance with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 65000,
+        "max": 85000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-012",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-012",
+      "canonicalUrl": "https://example.test/jobs/bench-012",
+      "applyUrl": "https://example.test/apply/bench-012",
+      "title": "Finance Manager",
+      "company": "Northwind Test Ltd",
+      "location": {
+        "country": "ES",
+        "region": "",
+        "city": "Logroño",
+        "raw": "ES",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 66000,
+        "max": 86000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-013",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-013",
+      "canonicalUrl": "https://example.test/jobs/bench-013",
+      "applyUrl": "https://example.test/apply/bench-013",
+      "title": "FP&A Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "NL",
+        "region": "",
+        "city": "Amsterdam",
+        "raw": "NL",
+        "remote": false
+      },
+      "workMode": "hybrid",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "FP&A Manager with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 67000,
+        "max": 87000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-014",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-014",
+      "canonicalUrl": "https://example.test/jobs/bench-014",
+      "applyUrl": "https://example.test/apply/bench-014",
+      "title": "Finance Director",
+      "company": "Globex Test Ltd",
+      "location": {
+        "country": "ES",
+        "region": "",
+        "city": "Logroño",
+        "raw": "ES",
+        "remote": false
+      },
+      "workMode": "hybrid",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Director with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 68000,
+        "max": 88000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-015",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-015",
+      "canonicalUrl": "https://example.test/jobs/bench-015",
+      "applyUrl": "https://example.test/apply/bench-015",
+      "title": "Financial Controller",
+      "company": "Initech Test BV",
+      "location": {
+        "country": "IE",
+        "region": "",
+        "city": "Dublin",
+        "raw": "IE",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Financial Controller with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 69000,
+        "max": 89000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-016",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-016",
+      "canonicalUrl": "https://example.test/jobs/bench-016",
+      "applyUrl": "https://example.test/apply/bench-016",
+      "title": "Head of FP&A",
+      "company": "Northwind Test Ltd",
+      "location": {
+        "country": "IE",
+        "region": "",
+        "city": "Dublin",
+        "raw": "IE",
+        "remote": false
+      },
+      "workMode": "hybrid",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Head of FP&A with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 70000,
+        "max": 90000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-017",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-017",
+      "canonicalUrl": "https://example.test/jobs/bench-017",
+      "applyUrl": "https://example.test/apply/bench-017",
+      "title": "Group Controller",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "NL",
+        "region": "",
+        "city": "Amsterdam",
+        "raw": "NL",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Group Controller with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 71000,
+        "max": 91000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-018",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-018",
+      "canonicalUrl": "https://example.test/jobs/bench-018",
+      "applyUrl": "https://example.test/apply/bench-018",
+      "title": "Finance Director",
+      "company": "Globex Test Ltd",
+      "location": {
+        "country": "ES",
+        "region": "",
+        "city": "",
+        "raw": "Remote (Spain)",
+        "remote": true
+      },
+      "workMode": "remote",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Director with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 72000,
+        "max": 92000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-019",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-019",
+      "canonicalUrl": "https://example.test/jobs/bench-019",
+      "applyUrl": "https://example.test/apply/bench-019",
+      "title": "Finance Manager",
+      "company": "Initech Test BV",
+      "location": {
+        "country": "IE",
+        "region": "",
+        "city": "Dublin",
+        "raw": "IE",
+        "remote": false
+      },
+      "workMode": "hybrid",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 73000,
+        "max": 93000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "eligible"
+      }
+    },
+    {
+      "id": "bench-020",
+      "source": "lever-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-001",
+      "canonicalUrl": "https://example.test/jobs/bench-001",
+      "applyUrl": "https://example.test/apply/bench-020",
+      "title": "FP&A Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "",
+        "city": "Logroño",
+        "raw": "ES",
+        "remote": false
+      },
+      "workMode": "hybrid",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "FP&A Manager with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 55000,
+        "max": 75000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-26T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "duplicate-strong",
+        "duplicateStrongOf": "bench-001"
+      }
+    },
+    {
+      "id": "bench-021",
+      "source": "ashby-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-002",
+      "canonicalUrl": "https://example.test/jobs/bench-002",
+      "applyUrl": "https://example.test/apply/bench-021",
+      "title": "Finance Manager",
+      "company": "Globex Test Ltd",
+      "location": {
+        "country": "IE",
+        "region": "",
+        "city": "Dublin",
+        "raw": "IE",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 56000,
+        "max": 76000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-26T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "duplicate-strong",
+        "duplicateStrongOf": "bench-002"
+      }
+    },
+    {
+      "id": "bench-022",
+      "source": "xai-web",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-003",
+      "canonicalUrl": "https://example.test/jobs/bench-003",
+      "applyUrl": "https://example.test/apply/bench-022",
+      "title": "Financial Controller",
+      "company": "Initech Test BV",
+      "location": {
+        "country": "NL",
+        "region": "",
+        "city": "Amsterdam",
+        "raw": "NL",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Financial Controller with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 57000,
+        "max": 77000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-26T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "duplicate-strong",
+        "duplicateStrongOf": "bench-003"
+      }
+    },
+    {
+      "id": "bench-023",
+      "source": "lever-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-004",
+      "canonicalUrl": "https://example.test/jobs/bench-004",
+      "applyUrl": "https://example.test/apply/bench-023",
+      "title": "Head of FP&A",
+      "company": "Northwind Test Ltd",
+      "location": {
+        "country": "ES",
+        "region": "",
+        "city": "",
+        "raw": "Remote (Spain)",
+        "remote": true
+      },
+      "workMode": "remote",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Head of FP&A with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 58000,
+        "max": 78000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-26T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "duplicate-strong",
+        "duplicateStrongOf": "bench-004"
+      }
+    },
+    {
+      "id": "bench-024",
+      "source": "ashby-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-005",
+      "canonicalUrl": "https://example.test/jobs/bench-005",
+      "applyUrl": "https://example.test/apply/bench-024",
+      "title": "Finance Director",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "IE",
+        "region": "",
+        "city": "Dublin",
+        "raw": "IE",
+        "remote": false
+      },
+      "workMode": "hybrid",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Director with FP&A experience, IFRS knowledge and team leadership.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 59000,
+        "max": 79000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-27T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "relisting",
+        "duplicateStrongOf": "bench-005"
+      }
+    },
+    {
+      "id": "bench-025",
+      "source": "manual-import",
+      "ats": null,
+      "tenant": null,
+      "postingId": null,
+      "canonicalUrl": "https://example.test/jobs/canon-1",
+      "applyUrl": "https://example.test/apply/canon-1",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {
+        "canonicalVerified": true
+      },
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "duplicate-canonical"
+      }
+    },
+    {
+      "id": "bench-026",
+      "source": "xai-web",
+      "ats": null,
+      "tenant": null,
+      "postingId": null,
+      "canonicalUrl": "https://example.test/jobs/canon-1?utm_source=newsletter",
+      "applyUrl": "https://example.test/apply/canon-1",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-26T00:00:00Z",
+      "evidence": {
+        "canonicalVerified": true
+      },
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "duplicate-canonical",
+        "duplicateStrongOf": "bench-025"
+      }
+    },
+    {
+      "id": "bench-027",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-nw-ES",
+      "canonicalUrl": "https://example.test/jobs/bench-027",
+      "applyUrl": "https://example.test/apply/bench-027",
+      "title": "Finance Manager",
+      "company": "Northwind Test Ltd",
+      "location": {
+        "country": "ES",
+        "region": "",
+        "city": "Madrid",
+        "raw": "ES",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager role in ES with local reporting duties.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "same-title-different-location"
+      }
+    },
+    {
+      "id": "bench-028",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-nw-IE",
+      "canonicalUrl": "https://example.test/jobs/bench-028",
+      "applyUrl": "https://example.test/apply/bench-028",
+      "title": "Finance Manager",
+      "company": "Northwind Test Ltd",
+      "location": {
+        "country": "IE",
+        "region": "",
+        "city": "Cork",
+        "raw": "IE",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager role in IE with local reporting duties.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "same-title-different-location"
+      }
+    },
+    {
+      "id": "bench-029",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-nw-NL",
+      "canonicalUrl": "https://example.test/jobs/bench-029",
+      "applyUrl": "https://example.test/apply/bench-029",
+      "title": "Finance Manager",
+      "company": "Northwind Test Ltd",
+      "location": {
+        "country": "NL",
+        "region": "",
+        "city": "Rotterdam",
+        "raw": "NL",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager role in NL with local reporting duties.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "same-title-different-location"
+      }
+    },
+    {
+      "id": "bench-030",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-unc-0-a",
+      "canonicalUrl": "https://example.test/jobs/bench-030",
+      "applyUrl": "https://example.test/apply/bench-030",
+      "title": "Finance Manager",
+      "company": "Globex Test Ltd",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Uncertain-pair 0: Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "uncertain-pair",
+        "uncertainGroup": "uncertain-0"
+      }
+    },
+    {
+      "id": "bench-031",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-unc-0-b",
+      "canonicalUrl": "https://example.test/jobs/bench-031",
+      "applyUrl": "https://example.test/apply/bench-031",
+      "title": "Finance Manager",
+      "company": "Globex Test Ltd",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Uncertain-pair 0: Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "uncertain-pair",
+        "uncertainGroup": "uncertain-0",
+        "uncertainWith": "bench-030"
+      }
+    },
+    {
+      "id": "bench-032",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-unc-1-a",
+      "canonicalUrl": "https://example.test/jobs/bench-032",
+      "applyUrl": "https://example.test/apply/bench-032",
+      "title": "Finance Manager",
+      "company": "Globex Test Ltd",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Uncertain-pair 1: Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "uncertain-pair",
+        "uncertainGroup": "uncertain-1"
+      }
+    },
+    {
+      "id": "bench-033",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-unc-1-b",
+      "canonicalUrl": "https://example.test/jobs/bench-033",
+      "applyUrl": "https://example.test/apply/bench-033",
+      "title": "Finance Manager",
+      "company": "Globex Test Ltd",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Uncertain-pair 1: Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "uncertain-pair",
+        "uncertainGroup": "uncertain-1",
+        "uncertainWith": "bench-032"
+      }
+    },
+    {
+      "id": "bench-034",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-034",
+      "canonicalUrl": "https://example.test/jobs/bench-034",
+      "applyUrl": "https://example.test/apply/bench-034",
+      "title": "Gerente de Finanzas",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Gerente de finanzas con experiencia en FP&A.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "es",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "language"
+        ],
+        "category": "non-english"
+      }
+    },
+    {
+      "id": "bench-035",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-035",
+      "canonicalUrl": "https://example.test/jobs/bench-035",
+      "applyUrl": "https://example.test/apply/bench-035",
+      "title": "Responsable Financier",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "FR",
+        "region": "",
+        "city": "Paris",
+        "raw": "Paris",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Responsable financier avec expérience FP&A.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "fr",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "language"
+        ],
+        "category": "non-english"
+      }
+    },
+    {
+      "id": "bench-036",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-036",
+      "canonicalUrl": "https://example.test/jobs/bench-036",
+      "applyUrl": "https://example.test/apply/bench-036",
+      "title": "Finanzmanager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "DE",
+        "region": "",
+        "city": "Berlin",
+        "raw": "Berlin",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finanzmanager mit FP&A-Erfahrung.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "de",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "language"
+        ],
+        "category": "non-english"
+      }
+    },
+    {
+      "id": "bench-037",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-037",
+      "canonicalUrl": "https://example.test/jobs/bench-037",
+      "applyUrl": "https://example.test/apply/bench-037",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Puesto de gerente de finanzas en español.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "es",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "language"
+        ],
+        "category": "non-english"
+      }
+    },
+    {
+      "id": "bench-038",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-038",
+      "canonicalUrl": "https://example.test/jobs/bench-038",
+      "applyUrl": "https://example.test/apply/bench-038",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "US",
+        "region": "",
+        "city": "",
+        "raw": "Remote (US only)",
+        "remote": true
+      },
+      "workMode": "remote",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "remoteCountries",
+          "countries",
+          "authorisation"
+        ],
+        "category": "restricted-remote"
+      }
+    },
+    {
+      "id": "bench-039",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-039",
+      "canonicalUrl": "https://example.test/jobs/bench-039",
+      "applyUrl": "https://example.test/apply/bench-039",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "DE",
+        "region": "",
+        "city": "",
+        "raw": "Remote (Germany only)",
+        "remote": true
+      },
+      "workMode": "remote",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "remoteCountries",
+          "countries"
+        ],
+        "category": "restricted-remote"
+      }
+    },
+    {
+      "id": "bench-040",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-040",
+      "canonicalUrl": "https://example.test/jobs/bench-040",
+      "applyUrl": "https://example.test/apply/bench-040",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "NL",
+        "region": "",
+        "city": "",
+        "raw": "Remote (Netherlands only)",
+        "remote": true
+      },
+      "workMode": "remote",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "remoteCountries"
+        ],
+        "category": "restricted-remote"
+      }
+    },
+    {
+      "id": "bench-041",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-041",
+      "canonicalUrl": "https://example.test/jobs/bench-041",
+      "applyUrl": "https://example.test/apply/bench-041",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": null,
+        "region": "",
+        "city": "",
+        "raw": "Remote",
+        "remote": true
+      },
+      "workMode": "remote",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "remote-unknown-country"
+      }
+    },
+    {
+      "id": "bench-042",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-042",
+      "canonicalUrl": "https://example.test/jobs/bench-042",
+      "applyUrl": "https://example.test/apply/bench-042",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": null,
+        "region": "",
+        "city": "",
+        "raw": "Remote",
+        "remote": true
+      },
+      "workMode": "remote",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "remote-unknown-country"
+      }
+    },
+    {
+      "id": "bench-043",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-043",
+      "canonicalUrl": "https://example.test/jobs/bench-043",
+      "applyUrl": "https://example.test/apply/bench-043",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "published": false
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "unknown-salary"
+      }
+    },
+    {
+      "id": "bench-044",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-044",
+      "canonicalUrl": "https://example.test/jobs/bench-044",
+      "applyUrl": "https://example.test/apply/bench-044",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "published": false
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "unknown-salary"
+      }
+    },
+    {
+      "id": "bench-045",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-045",
+      "canonicalUrl": "https://example.test/jobs/bench-045",
+      "applyUrl": "https://example.test/apply/bench-045",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "published": false
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "unknown-salary"
+      }
+    },
+    {
+      "id": "bench-046",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-046",
+      "canonicalUrl": "https://example.test/jobs/bench-046",
+      "applyUrl": "https://example.test/apply/bench-046",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "status": "closed",
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "status"
+        ],
+        "category": "closed"
+      }
+    },
+    {
+      "id": "bench-047",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-047",
+      "canonicalUrl": "https://example.test/jobs/bench-047",
+      "applyUrl": "https://example.test/apply/bench-047",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "status": "expired",
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "status"
+        ],
+        "category": "expired"
+      }
+    },
+    {
+      "id": "bench-048",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-048",
+      "canonicalUrl": "https://example.test/jobs/bench-048",
+      "applyUrl": "https://example.test/apply/bench-048",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "status": "closed",
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "status"
+        ],
+        "category": "closed"
+      }
+    },
+    {
+      "id": "bench-049",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-049",
+      "canonicalUrl": "https://example.test/jobs/bench-049",
+      "applyUrl": "https://example.test/apply/bench-049",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": null,
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "unknown-date"
+      }
+    },
+    {
+      "id": "bench-050",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-050",
+      "canonicalUrl": "https://example.test/jobs/bench-050",
+      "applyUrl": "https://example.test/apply/bench-050",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": null,
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "unknown-date"
+      }
+    },
+    {
+      "id": "bench-051",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-051",
+      "canonicalUrl": "https://example.test/jobs/bench-051",
+      "applyUrl": "https://example.test/apply/bench-051",
+      "title": "Salesforce Administrator",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Salesforce administration and CRM configuration.",
+      "skills": [
+        "Salesforce"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "ambiguous-title"
+      }
+    },
+    {
+      "id": "bench-052",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-052",
+      "canonicalUrl": "https://example.test/jobs/bench-052",
+      "applyUrl": "https://example.test/apply/bench-052",
+      "title": "Sales Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Sales team management and pipeline growth.",
+      "skills": [
+        "Sales"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "ambiguous-title"
+      }
+    },
+    {
+      "id": "bench-053",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-053",
+      "canonicalUrl": "https://example.test/jobs/bench-053",
+      "applyUrl": "https://example.test/apply/bench-053",
+      "title": "Finance Assistant",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Assisting the finance team with reporting.",
+      "skills": [
+        "Excel"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "ambiguous-title"
+      }
+    },
+    {
+      "id": "bench-054",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-054",
+      "canonicalUrl": "https://example.test/jobs/bench-054",
+      "applyUrl": "https://example.test/apply/bench-054",
+      "title": "Finance Manager",
+      "company": "Blocked Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "companies"
+        ],
+        "category": "blocked-company"
+      }
+    },
+    {
+      "id": "bench-055",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-055",
+      "canonicalUrl": "https://example.test/jobs/bench-055",
+      "applyUrl": "https://example.test/apply/bench-055",
+      "title": "Finance Manager",
+      "company": "Blocked Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "companies"
+        ],
+        "category": "blocked-company"
+      }
+    },
+    {
+      "id": "bench-056",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-056",
+      "canonicalUrl": "https://example.test/jobs/bench-056",
+      "applyUrl": "https://example.test/apply/bench-056",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "COBOL",
+        "FP&A"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "excludedSkills"
+        ],
+        "category": "excluded-skill"
+      }
+    },
+    {
+      "id": "bench-057",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-057",
+      "canonicalUrl": "https://example.test/jobs/bench-057",
+      "applyUrl": "https://example.test/apply/bench-057",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "COBOL",
+        "FP&A"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "excludedSkills"
+        ],
+        "category": "excluded-skill"
+      }
+    },
+    {
+      "id": "bench-058",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-058",
+      "canonicalUrl": "https://example.test/jobs/bench-058",
+      "applyUrl": "https://example.test/apply/bench-058",
+      "title": "Finance Intern",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "excludedTitles"
+        ],
+        "category": "excluded-title"
+      }
+    },
+    {
+      "id": "bench-059",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-059",
+      "canonicalUrl": "https://example.test/jobs/bench-059",
+      "applyUrl": "https://example.test/apply/bench-059",
+      "title": "Finance Intern",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "excludedTitles"
+        ],
+        "category": "excluded-title"
+      }
+    },
+    {
+      "id": "bench-060",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-sent-1",
+      "canonicalUrl": "https://example.test/jobs/bench-060",
+      "applyUrl": "https://example.test/apply/bench-060",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "alreadySent"
+        ],
+        "category": "already-sent"
+      }
+    },
+    {
+      "id": "bench-061",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-061",
+      "canonicalUrl": "https://example.test/jobs/bench-061",
+      "applyUrl": "https://example.test/apply/bench-061",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "no",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "sponsorship"
+        ],
+        "category": "sponsorship-no"
+      }
+    },
+    {
+      "id": "bench-062",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-062",
+      "canonicalUrl": "https://example.test/jobs/bench-062",
+      "applyUrl": "https://example.test/apply/bench-062",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "no",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "sponsorship"
+        ],
+        "category": "sponsorship-no"
+      }
+    },
+    {
+      "id": "bench-063",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-063",
+      "canonicalUrl": "https://example.test/jobs/bench-063",
+      "applyUrl": "https://example.test/apply/bench-063",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "unknown",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "sponsorship-unknown"
+      }
+    },
+    {
+      "id": "bench-064",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-064",
+      "canonicalUrl": "https://example.test/jobs/bench-064",
+      "applyUrl": "https://example.test/apply/bench-064",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "ES",
+        "region": "La Rioja",
+        "city": "Logroño",
+        "raw": "Logroño, Spain",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "unknown",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": false,
+        "reasons": [],
+        "category": "sponsorship-unknown"
+      }
+    },
+    {
+      "id": "bench-065",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-065",
+      "canonicalUrl": "https://example.test/jobs/bench-065",
+      "applyUrl": "https://example.test/apply/bench-065",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "US",
+        "region": "",
+        "city": "New York",
+        "raw": "New York",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "authorisation",
+          "countries"
+        ],
+        "category": "authorisation-no"
+      }
+    },
+    {
+      "id": "bench-066",
+      "source": "greenhouse-catalog",
+      "ats": "greenhouse",
+      "tenant": "acme-test",
+      "postingId": "post-bench-066",
+      "canonicalUrl": "https://example.test/jobs/bench-066",
+      "applyUrl": "https://example.test/apply/bench-066",
+      "title": "Finance Manager",
+      "company": "Acme Test Corp",
+      "location": {
+        "country": "US",
+        "region": "",
+        "city": "New York",
+        "raw": "New York",
+        "remote": false
+      },
+      "workMode": "onsite",
+      "seniority": "senior",
+      "contractType": "permanent",
+      "workingTime": "full-time",
+      "sector": "finance",
+      "description": "Finance Manager with FP&A experience and IFRS knowledge.",
+      "skills": [
+        "FP&A",
+        "IFRS"
+      ],
+      "salary": {
+        "min": 50000,
+        "max": 70000,
+        "currency": "EUR",
+        "period": "year",
+        "published": true
+      },
+      "language": "en",
+      "sponsorship": "yes",
+      "relocation": "no",
+      "publishedAt": "2026-10-20T00:00:00Z",
+      "firstSeenAt": "2026-10-21T00:00:00Z",
+      "evidence": {},
+      "expected": {
+        "excluded": true,
+        "reasons": [
+          "authorisation",
+          "countries"
+        ],
+        "category": "authorisation-no"
+      }
+    }
+  ]
+}

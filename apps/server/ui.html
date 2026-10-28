@@ -100,7 +100,7 @@ button:disabled { opacity: 0.55; cursor: default; background: #23261C; color: #9
 /* Primary actions: lime, near-black text, no visible border. */
 #person-save, #profile-create, #cv-confirm, #map-save,
 #consent-apply, #xai-save, #xai-model-save, #auto-policy-save,
-#auto-enable, #q-resolve {
+#auto-enable, #q-resolve, #search-def-create {
   background: #CDFF3C;
   border-color: transparent;
   color: #101203;
@@ -110,10 +110,10 @@ button:disabled { opacity: 0.55; cursor: default; background: #23261C; color: #9
 }
 #person-save:hover, #profile-create:hover, #cv-confirm:hover,
 #map-save:hover, #consent-apply:hover, #xai-save:hover, #xai-model-save:hover,
-#auto-policy-save:hover, #auto-enable:hover, #q-resolve:hover { background: #D8FF66; border-color: transparent; }
+#auto-policy-save:hover, #auto-enable:hover, #q-resolve:hover, #search-def-create:hover { background: #D8FF66; border-color: transparent; }
 #person-save:disabled, #profile-create:disabled, #cv-confirm:disabled,
 #map-save:disabled, #consent-apply:disabled, #xai-save:disabled, #xai-model-save:disabled,
-#auto-policy-save:disabled, #auto-enable:disabled, #q-resolve:disabled { background: #3A3F22; color: #7C838A; }
+#auto-policy-save:disabled, #auto-enable:disabled, #q-resolve:disabled, #search-def-create:disabled { background: #3A3F22; color: #7C838A; }
 /* Delete stays muted grey like the reference: no red is invented. */
 .profile-card button:last-child { background: #1D2026; border-color: #2A2E35; color: #9AA1A6; }
 pre {
@@ -426,6 +426,78 @@ desactivar inmediatamente en cualquier momento.</small></p>
 <button id="auto-enable">Activar modo automático</button>
 <button id="auto-disable">Desactivar modo automático</button>
 <button id="settings-refresh">Actualizar modo automático</button>
+</section>
+
+<section id="search-section">
+<h2>Búsqueda</h2>
+<p><small>Las búsquedas guardadas se ejecutan contra los catálogos verificados. Una fuente que falla no se muestra como «sin resultados»: su error queda registrado en la ejecución. La autoaplicación está desactivada: toda acción «auto» se ejecuta solo como revisión.</small></p>
+<h3>Definición de búsqueda</h3>
+<label for="search-def-name">Nombre</label><input id="search-def-name" placeholder="FP&A — English — Europe">
+<label for="search-def-profile">Perfil</label><select id="search-def-profile"></select>
+<button id="search-profiles-refresh" type="button">Actualizar perfiles</button>
+<label for="search-def-titles">Títulos aceptados (separados por comas)</label><input id="search-def-titles" placeholder="Finance Manager, FP&A Manager">
+<label for="search-def-titles-exclude">Títulos excluidos (separados por comas)</label><input id="search-def-titles-exclude" placeholder="Intern, Junior">
+<label for="search-def-countries">Países (códigos separados por comas)</label><input id="search-def-countries" placeholder="ES, IE, NL">
+<label for="search-def-modes">Modalidades (separadas por comas: remote, hybrid, onsite)</label><input id="search-def-modes" placeholder="remote, hybrid">
+<p><small>Fuentes:</small></p>
+<div id="search-sources">
+<label><input type="checkbox" value="greenhouse-catalog" checked> Greenhouse (catálogo)</label>
+<label><input type="checkbox" value="lever-catalog"> Lever (catálogo)</label>
+<label><input type="checkbox" value="ashby-catalog"> Ashby (catálogo)</label>
+<label><input type="checkbox" value="xai-web"> Descubrimiento web xAI (solo si xAI está verificado)</label>
+<label><input type="checkbox" value="linkedin-assisted"> LinkedIn (asistido, sin ofertas en vivo)</label>
+<label><input type="checkbox" value="manual-import"> Importación manual</label>
+</div>
+<label for="search-def-timezone">Zona horaria de la programación</label><input id="search-def-timezone" value="Europe/Madrid">
+<label for="search-def-times">Horas locales (HH:MM, separadas por comas)</label><input id="search-def-times" value="09:00">
+<label for="search-def-action">Acción</label><select id="search-def-action">
+<option value="save">Solo guardar</option>
+<option value="review">Recomendar para revisión</option>
+<option value="auto" disabled>Autoaplicar (desactivada)</option>
+</select>
+<label for="search-def-maxjobs">Máximo de ofertas por ejecución</label><input id="search-def-maxjobs" value="100">
+<label for="search-def-maxpages">Máximo de páginas por fuente</label><input id="search-def-maxpages" value="10">
+<button id="search-def-create">Guardar búsqueda</button>
+<button id="search-def-refresh" type="button">Actualizar búsquedas</button>
+<p class="status" id="search-def-status"></p>
+<div id="search-definitions-list"></div>
+<h3>Resultados de la última ejecución</h3>
+<p class="status" id="search-run-status"></p>
+<div id="search-results-list"></div>
+<h3>Conectores</h3>
+<p><small>Leyenda: nativo = la fuente aplica el filtro; procesado después = se comprueba tras recuperar el listado o el detalle; no disponible = la fuente no ofrece ese filtro.</small></p>
+<button id="search-connectors-refresh" type="button">Actualizar conectores</button>
+<div id="search-connectors-list"></div>
+<label for="search-compile-definition">Definición para la vista de compilación</label><select id="search-compile-definition"></select>
+<button id="search-compile-refresh" type="button">Ver compilación por conector</button>
+<div id="search-compile-out"></div>
+<h3>Catálogo de empresas</h3>
+<p><small>Un board solo se usa en búsquedas después de verificarlo. Añadir no es verificar.</small></p>
+<label for="board-company">Empresa</label><input id="board-company" placeholder="Empresa de ejemplo">
+<label for="board-ats">ATS</label><select id="board-ats"><option value="greenhouse">Greenhouse</option><option value="lever">Lever</option><option value="ashby">Ashby</option></select>
+<label for="board-slug">Board (slug en minúsculas)</label><input id="board-slug" placeholder="empresa">
+<button id="board-add" type="button">Añadir empresa</button>
+<button id="boards-refresh" type="button">Actualizar catálogo</button>
+<p class="status" id="board-status"></p>
+<div id="boards-list"></div>
+<h3>LinkedIn (asistido)</h3>
+<p><small>LinkedIn es asistido: se construye la URL de búsqueda y se importan enlaces, CSV o texto. Easy Apply nunca se ejecuta.</small></p>
+<label for="linkedin-keywords">Palabras clave</label><input id="linkedin-keywords" placeholder="Finance Manager">
+<label for="linkedin-location">Ubicación</label><input id="linkedin-location" placeholder="Madrid">
+<button id="linkedin-build-url" type="button">Construir URL de búsqueda</button>
+<p class="status" id="linkedin-url-out"></p>
+<label for="linkedin-import-kind">Tipo de importación</label><select id="linkedin-import-kind"><option value="url">URL</option><option value="csv">CSV</option><option value="text">Texto</option></select>
+<label for="linkedin-import-payload">Contenido a importar</label><textarea id="linkedin-import-payload" rows="3" placeholder="https://www.linkedin.com/jobs/view/..."></textarea>
+<button id="linkedin-import" type="button">Importar</button>
+<p class="status" id="linkedin-import-status"></p>
+<h3>Extraer oferta (análisis de contenido completo)</h3>
+<label for="extract-url">URL de la oferta (https)</label><input id="extract-url" placeholder="https://empresa.example/oferta">
+<button id="extract-run" type="button">Analizar oferta</button>
+<div id="extract-out"></div>
+<h3>Benchmark de búsqueda</h3>
+<p><small>Métricas calculadas sobre el corpus anotado local (nunca una cobertura de todo Internet): exclusiones duras con pase falso, duplicados, fechas desconocidas marcadas y precisión top-20.</small></p>
+<button id="search-benchmark-run" type="button">Ejecutar benchmark</button>
+<div id="search-benchmark-out"></div>
 </section>
 
 <script>
@@ -1429,6 +1501,198 @@ async function refreshSettings() {
 $("auto-enable").onclick = async () => { try { await call("/api/settings", "POST", { key: "auto_mode", value: "on" }); await refreshSettings(); } catch (e) { $("settings-out").textContent = "Error: " + e.message; } };
 $("auto-disable").onclick = async () => { try { await call("/api/settings", "POST", { key: "auto_mode", value: "off" }); await refreshSettings(); } catch (e) { $("settings-out").textContent = "Error: " + e.message; } };
 $("settings-refresh").onclick = refreshSettings;
+// ------------------------------------------------------------------
+// F3: Búsqueda (definiciones, resultados, conectores, catálogo,
+// LinkedIn asistido, extracción y benchmark). La autoaplicación está
+// desactivada en el servidor: ejecutar una definición solo produce
+// resultados para revisión, nunca intentos de envío.
+// ------------------------------------------------------------------
+const searchProfileNames = new Map();
+const splitList = (value) => String(value || "").split(",").map((s) => s.trim()).filter(Boolean);
+async function refreshSearchProfiles() {
+  if (!personId) { $("search-def-status").textContent = "guarda primero una persona"; return; }
+  const data = await call("/api/profiles?personId=" + personId, "GET");
+  const select = $("search-def-profile");
+  select.innerHTML = "";
+  searchProfileNames.clear();
+  for (const p of data.profiles || []) {
+    searchProfileNames.set(p.id, p.name);
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name;
+    select.appendChild(opt);
+  }
+  if (!select.value && (data.profiles || []).length === 0) $("search-def-status").textContent = "sin perfiles: crea uno en la pestaña Perfiles";
+}
+$("search-profiles-refresh").onclick = async () => { try { await refreshSearchProfiles(); } catch (e) { $("search-def-status").textContent = "Error: " + e.message; } };
+function searchDefinitionFromForm() {
+  const profileIds = [];
+  if ($("search-def-profile").value) profileIds.push($("search-def-profile").value);
+  if (profileIds.length === 0) throw new Error("elige un perfil (o actualiza la lista de perfiles)");
+  return {
+    personId,
+    name: $("search-def-name").value.trim(),
+    profileIds,
+    titles: { any: splitList($("search-def-titles").value), exclude: splitList($("search-def-titles-exclude").value) },
+    locations: { countries: splitList($("search-def-countries").value), remoteCountries: splitList($("search-def-countries").value) },
+    workModes: splitList($("search-def-modes").value).length ? splitList($("search-def-modes").value) : ["remote", "hybrid", "onsite"],
+    offerLanguage: "en",
+    sources: [...document.querySelectorAll("#search-sources input[type=checkbox]:checked")].map((cb) => cb.value),
+    schedule: { timezone: $("search-def-timezone").value.trim() || "Europe/Madrid", localTimes: splitList($("search-def-times").value), enabled: true },
+    action: $("search-def-action").value,
+    limits: { maxJobs: Number($("search-def-maxjobs").value) || 100, maxPagesPerSource: Number($("search-def-maxpages").value) || 10 },
+  };
+}
+function renderSearchDefinitions(definitions) {
+  const list = $("search-definitions-list");
+  list.innerHTML = "";
+  const compileSelect = $("search-compile-definition");
+  compileSelect.innerHTML = "";
+  for (const d of definitions || []) {
+    const opt = document.createElement("option");
+    opt.value = d.id;
+    opt.textContent = d.name;
+    compileSelect.appendChild(opt);
+    const row = document.createElement("div");
+    const label = document.createElement("span");
+    label.textContent = d.name + (d.paused ? " (pausada)" : "") + " ";
+    const dup = document.createElement("button");
+    dup.textContent = "Duplicar";
+    dup.onclick = async () => { try { await call("/api/search-definitions/" + d.id + "/duplicate", "POST", {}); await refreshSearchDefinitions(); } catch (e) { $("search-def-status").textContent = "Error: " + e.message; } };
+    const pause = document.createElement("button");
+    pause.textContent = d.paused ? "Reanudar" : "Pausar";
+    pause.onclick = async () => { try { await call("/api/search-definitions/" + d.id + (d.paused ? "/resume" : "/pause"), "POST", {}); await refreshSearchDefinitions(); } catch (e) { $("search-def-status").textContent = "Error: " + e.message; } };
+    const run = document.createElement("button");
+    run.textContent = "Ejecutar";
+    run.onclick = async () => { try {
+      const r = await call("/api/search-definitions/" + d.id + "/run", "POST", {});
+      $("search-run-status").textContent = "Ejecución " + r.run.status + ": " + r.summary.coverage + " (" + r.summary.completed + "/" + r.summary.attempted + " fuentes completadas)"
+        + (r.summary.autoApplyNote ? " — " + r.summary.autoApplyNote : "");
+      renderSearchResults(r);
+    } catch (e) { $("search-run-status").textContent = "Error: " + e.message; } };
+    row.append(label, dup, pause, run);
+    list.appendChild(row);
+  }
+}
+function renderSearchResults(runData) {
+  const box = $("search-results-list");
+  box.innerHTML = "";
+  for (const profile of runData.perProfile || []) {
+    const head = document.createElement("h3");
+    head.textContent = "Perfil: " + (searchProfileNames.get(profile.profileId) || "perfil");
+    box.appendChild(head);
+    for (const entry of profile.ranked || []) {
+      const row = document.createElement("div");
+      row.textContent = (entry.offer.title || "") + " — puntuación " + entry.total + (entry.needsReview ? " (revisar)" : "");
+      box.appendChild(row);
+    }
+    const note = document.createElement("div");
+    note.textContent = "Excluidas: " + profile.excludedCount + " · ya enviadas: " + profile.sentExcludedCount + " · pendientes de equivalencia: " + profile.pendingCount;
+    box.appendChild(note);
+  }
+  const compHead = document.createElement("h3");
+  compHead.textContent = "Comparación por perfil";
+  box.appendChild(compHead);
+  for (const entry of runData.comparison || []) {
+    const row = document.createElement("div");
+    const best = entry.bestProfileId ? (searchProfileNames.get(entry.bestProfileId) || "perfil") : "ningún perfil elegible";
+    row.textContent = (entry.offer.title || "") + " — mejor perfil: " + best + (entry.bestTotal !== null ? " (" + entry.bestTotal + ")" : "");
+    box.appendChild(row);
+  }
+}
+async function refreshSearchDefinitions() {
+  const data = await call("/api/search-definitions" + (personId ? "?personId=" + personId : ""), "GET");
+  renderSearchDefinitions(data.definitions);
+}
+$("search-def-create").onclick = async () => { try {
+  const r = await call("/api/search-definitions", "POST", searchDefinitionFromForm());
+  $("search-def-status").textContent = "Búsqueda guardada: " + r.definition.name;
+  await refreshSearchDefinitions();
+} catch (e) { $("search-def-status").textContent = "Error: " + e.message; } };
+$("search-def-refresh").onclick = async () => { try { await refreshSearchDefinitions(); } catch (e) { $("search-def-status").textContent = "Error: " + e.message; } };
+$("search-connectors-refresh").onclick = async () => { try {
+  const data = await call("/api/search-connectors", "GET");
+  const list = $("search-connectors-list");
+  list.innerHTML = "";
+  for (const c of data.connectors || []) {
+    const row = document.createElement("div");
+    row.textContent = c.name + " — " + c.status + (c.mode === "assisted" ? " (asistido)" : "");
+    list.appendChild(row);
+  }
+} catch (e) { $("search-connectors-list").textContent = "Error: " + e.message; } };
+$("search-compile-refresh").onclick = async () => { try {
+  const id = $("search-compile-definition").value;
+  if (!id) throw new Error("elige una definición");
+  const data = await call("/api/search-connectors?definitionId=" + id, "GET");
+  const box = $("search-compile-out");
+  box.innerHTML = "";
+  for (const entry of data.compile || []) {
+    const row = document.createElement("div");
+    if (!entry.compile) { row.textContent = (entry.connector?.name || entry.connector?.id || "?") + ": " + (entry.error || "sin compilación"); }
+    else {
+      const native = Object.keys(entry.compile.nativeQuery || {}).join(", ") || "ninguno";
+      const post = (entry.compile.postprocessed || []).join(", ") || "ninguno";
+      const unsup = (entry.compile.unsupported || []).join(", ") || "ninguno";
+      row.textContent = (entry.connector?.name || entry.compile.connectorId) + ": nativo: " + native + "; procesado después: " + post + "; no disponible: " + unsup;
+    }
+    box.appendChild(row);
+  }
+} catch (e) { $("search-compile-out").textContent = "Error: " + e.message; } };
+async function refreshBoards() {
+  const data = await call("/api/company-boards", "GET");
+  const list = $("boards-list");
+  list.innerHTML = "";
+  for (const b of data.boards || []) {
+    const row = document.createElement("div");
+    const label = document.createElement("span");
+    label.textContent = b.company + " (" + b.ats + "/" + b.board + ")" + (b.verified_at ? " — verificada" : " — sin verificar") + (b.paused ? " — pausada" : "") + " ";
+    const verify = document.createElement("button");
+    verify.textContent = "Verificar";
+    verify.onclick = async () => { try { const r = await call("/api/company-boards/" + b.id + "/verify", "POST", {}); $("board-status").textContent = r.ok ? "Empresa verificada" : "Verificación fallida: " + (r.reason || r.cause || ""); await refreshBoards(); } catch (e) { $("board-status").textContent = "Error: " + e.message; } };
+    const pause = document.createElement("button");
+    pause.textContent = b.paused ? "Reanudar" : "Pausar";
+    pause.onclick = async () => { try { await call("/api/company-boards/" + b.id + "/pause", "POST", { paused: !b.paused }); await refreshBoards(); } catch (e) { $("board-status").textContent = "Error: " + e.message; } };
+    row.append(label, verify, pause);
+    list.appendChild(row);
+  }
+}
+$("board-add").onclick = async () => { try {
+  const r = await call("/api/company-boards", "POST", { company: $("board-company").value, ats: $("board-ats").value, board: $("board-slug").value });
+  $("board-status").textContent = "Empresa añadida (sin verificar): " + r.board.company;
+  await refreshBoards();
+} catch (e) { $("board-status").textContent = "Error: " + e.message; } };
+$("boards-refresh").onclick = async () => { try { await refreshBoards(); } catch (e) { $("board-status").textContent = "Error: " + e.message; } };
+$("linkedin-build-url").onclick = async () => { try {
+  const r = await call("/api/linkedin/build-url", "POST", { keywords: $("linkedin-keywords").value, location: $("linkedin-location").value });
+  $("linkedin-url-out").textContent = r.url;
+} catch (e) { $("linkedin-url-out").textContent = "Error: " + e.message; } };
+$("linkedin-import").onclick = async () => { try {
+  const r = await call("/api/linkedin/import", "POST", { kind: $("linkedin-import-kind").value, payload: $("linkedin-import-payload").value });
+  $("linkedin-import-status").textContent = "Importadas " + r.count + " ofertas (URL de candidatura nunca inventada)";
+} catch (e) { $("linkedin-import-status").textContent = "Error: " + e.message; } };
+$("extract-run").onclick = async () => { try {
+  const r = await call("/api/offers/extract", "POST", { url: $("extract-url").value });
+  const a = r.analysis;
+  const statusText = a.status === "ok" ? "Extracción correcta"
+    : a.status === "blocked" ? "Bloqueada (un 403 no significa que la vacante esté cerrada)"
+    : a.status === "unavailable" ? "No disponible"
+    : a.status === "insufficient" ? "Contenido insuficiente"
+    : a.status === "invalid" ? "URL no válida" : ("Error: " + (a.reason || a.status));
+  $("extract-out").textContent = statusText
+    + (a.title ? " — " + a.title : "")
+    + (a.language ? " — idioma: " + a.language : "")
+    + (a.publishedAt ? " — publicada: " + a.publishedAt : " — fecha de publicación desconocida")
+    + (a.reason && a.status !== "ok" ? " (" + a.reason + ")" : "");
+} catch (e) { $("extract-out").textContent = "Error: " + e.message; } };
+$("search-benchmark-run").onclick = async () => { try {
+  const r = await call("/api/search-benchmark", "POST", {});
+  const m = r.metrics;
+  $("search-benchmark-out").textContent = "Exclusiones duras con pase falso: " + m.hardExclusionFalsePasses
+    + " · duplicados: " + m.dedupe.duplicates + " · grupos inciertos: " + m.dedupe.uncertainGroups
+    + " · fechas desconocidas marcadas: " + m.unknownDate.markedUnknown + "/" + m.unknownDate.total
+    + " · precisión top-20: " + m.top20.correct + "/" + m.top20.size
+    + " · ofertas en el corpus: " + m.totalOffers;
+} catch (e) { $("search-benchmark-out").textContent = "Error: " + e.message; } };
 </script>
 </body>
 </html>

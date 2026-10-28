@@ -23,15 +23,41 @@ import { previewCv, listCvImports, getCvImport, confirmCvImport, rejectCvImport,
 import { listPolicies, listConsents, giveConsent, acceptPolicy, hasConsent, getSetting, setSetting, getAutoPolicy, setAutoPolicy, validateAutoPolicy } from "../../packages/shared/policies.mjs";
 // G2 re-review: xAI verification (R3) — configured is not verified.
 import { verifyXaiConnection, recordXaiVerification, clearXaiVerifications, isXaiVerified, latestVerification, lastVerifiedModels, keyFingerprint, DEFAULT_XAI_MODEL } from "../../packages/shared/xai-verify.mjs";
+// F3 integration: saved searches, runs, connectors, catalog, imports,
+// extraction and the benchmark (packages/shared/search-run.mjs and
+// search-scheduler.mjs). xAI-gated discovery functions are passed to
+// the pipeline only when xAI is verified (see the run route).
+import { recoverStuckRuns } from "../../packages/shared/search-scheduler.mjs";
+import {
+  createSearchDefinition, getSearchDefinition, listSearchDefinitions,
+  updateSearchDefinition, deleteSearchDefinition, duplicateSearchDefinition,
+  pauseSearchDefinition, getSearchRun, listSearchRuns, listSearchResults,
+  runSearchDefinition, runSearchBenchmark, storeImportedCandidates,
+  compileViewForDefinition,
+} from "../../packages/shared/search-run.mjs";
+import { listConnectors, getConnector, pauseConnector, resumeConnector } from "../../packages/shared/search-registry.mjs";
+import { addBoard, getBoard, listBoards, pauseBoard, verifyBoard } from "../../packages/shared/company-catalog.mjs";
+import { buildSearchUrl, importUrl, importCsv, importText } from "../../packages/shared/linkedin.mjs";
+import { extractOffer } from "../../packages/shared/offer-extract.mjs";
 
 /**
- * @param {{dataDir: string, port?: number, recoverIntervalMs?: number, verifyFetchFn?: any}} opts
+ * @param {{dataDir: string, port?: number, recoverIntervalMs?: number, verifyFetchFn?: any, fetchFn?: any, xaiSearchFn?: any, xaiClassifyFn?: any}} opts
  * verifyFetchFn is injected only for the xAI verify route so tests can
  * prove verification against a mocked provider (never a real call).
+ * fetchFn is the injectable fetch for ATS / extract / board-verify
+ * calls (integration tests inject a mock; production defaults to
+ * globalThis.fetch). xaiSearchFn / xaiClassifyFn are injected xAI
+ * discovery functions; the run route passes them to the pipeline
+ * ONLY when xAI is verified, otherwise the xai-web source records
+ * "xai not verified" (see search-run.mjs).
  */
-export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, verifyFetchFn = globalThis.fetch }) {
+export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, verifyFetchFn = globalThis.fetch, fetchFn = globalThis.fetch, xaiSearchFn = null, xaiClassifyFn = null }) {
   const db = openDatabase(path.join(dataDir, "agentv2.db"));
   recover(db);
+  // F3: runs still "running" after a restart are interrupted, with
+  // exactly one recovery flag per definition (never an auto re-run
+  // of all missed slots). A sweep failure must not break startup.
+  try { recoverStuckRuns(db); } catch { /* next run attempt reports it */ }
   // Periodic recovery sweep: a lease that expires AFTER a restart is
   // recovered automatically when it expires, without another restart.
   // The timer is stopped when the HTTP server closes (see below).
@@ -442,6 +468,159 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, ver
         }
         setSetting(db, body.key, body.value);
         return send(res, 200, { ok: true });
+      }
+      // F3 integration: saved searches, runs, results, connectors,
+      // catalog, LinkedIn imports, extraction and the benchmark.
+      // Every state-changing route requires the control origin, as
+      // everywhere else in this server.
+      if (req.method === "POST" && url.pathname === "/api/search-definitions") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const definition = createSearchDefinition(db, body);
+        return send(res, 201, { definition });
+      }
+      if (req.method === "GET" && url.pathname === "/api/search-definitions") {
+        return send(res, 200, { definitions: listSearchDefinitions(db, { personId: url.searchParams.get("personId") }) });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/search-definitions/") && url.pathname.endsWith("/duplicate")) {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const definition = duplicateSearchDefinition(db, url.pathname.split("/")[3], body.name ?? null);
+        return send(res, 201, { definition });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/search-definitions/") && url.pathname.endsWith("/pause")) {
+        if (!requireControlOrigin(req, res)) return;
+        return send(res, 200, { definition: pauseSearchDefinition(db, url.pathname.split("/")[3], true) });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/search-definitions/") && url.pathname.endsWith("/resume")) {
+        if (!requireControlOrigin(req, res)) return;
+        return send(res, 200, { definition: pauseSearchDefinition(db, url.pathname.split("/")[3], false) });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/search-definitions/") && url.pathname.endsWith("/run")) {
+        if (!requireControlOrigin(req, res)) return;
+        // xAI-gated: the pipeline receives a search function only
+        // when xAI is verified for the current key + model.
+        const result = await runSearchDefinition(db, url.pathname.split("/")[3], {
+          fetchFn,
+          xaiSearchFn: xaiVerified() && xaiSearchFn ? xaiSearchFn : null,
+          xaiClassifyFn: xaiVerified() && xaiClassifyFn ? xaiClassifyFn : null,
+        });
+        if (result.locked) return send(res, 409, { locked: true, runId: result.runId });
+        return send(res, 200, result);
+      }
+      if (req.method === "GET" && url.pathname.startsWith("/api/search-definitions/")) {
+        const definition = getSearchDefinition(db, url.pathname.split("/")[3]);
+        if (!definition) return send(res, 404, { error: "search definition not found" });
+        return send(res, 200, { definition });
+      }
+      if (req.method === "PUT" && url.pathname.startsWith("/api/search-definitions/")) {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        return send(res, 200, { definition: updateSearchDefinition(db, url.pathname.split("/")[3], body) });
+      }
+      if (req.method === "DELETE" && url.pathname.startsWith("/api/search-definitions/")) {
+        if (!requireControlOrigin(req, res)) return;
+        deleteSearchDefinition(db, url.pathname.split("/")[3]);
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === "GET" && url.pathname.startsWith("/api/search-runs/")) {
+        const run = getSearchRun(db, url.pathname.split("/")[3]);
+        if (!run) return send(res, 404, { error: "search run not found" });
+        return send(res, 200, { run });
+      }
+      if (req.method === "GET" && url.pathname === "/api/search-runs") {
+        return send(res, 200, { runs: listSearchRuns(db, { definitionId: url.searchParams.get("definitionId") }) });
+      }
+      if (req.method === "GET" && url.pathname === "/api/search-results") {
+        const runId = url.searchParams.get("runId");
+        const profileId = url.searchParams.get("profileId");
+        if (!runId && !profileId) return send(res, 400, { error: "runId or profileId is required" });
+        return send(res, 200, { results: listSearchResults(db, { runId, profileId }) });
+      }
+      if (req.method === "GET" && url.pathname === "/api/search-connectors") {
+        const definitionId = url.searchParams.get("definitionId");
+        const connectors = listConnectors();
+        if (!definitionId) return send(res, 200, { connectors });
+        const definition = getSearchDefinition(db, definitionId);
+        if (!definition) return send(res, 404, { error: "search definition not found" });
+        return send(res, 200, {
+          connectors,
+          compile: compileViewForDefinition(definition),
+          legend: {
+            native: "nativo: la fuente aplica el filtro antes de devolver resultados",
+            postprocessed: "procesado después: se comprueba tras recuperar el listado o el detalle",
+            unsupported: "no disponible: la fuente no ofrece ese filtro",
+          },
+        });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/search-connectors/") && url.pathname.endsWith("/pause")) {
+        if (!requireControlOrigin(req, res)) return;
+        return send(res, 200, { connector: pauseConnector(url.pathname.split("/")[3]) });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/search-connectors/") && url.pathname.endsWith("/resume")) {
+        if (!requireControlOrigin(req, res)) return;
+        return send(res, 200, { connector: resumeConnector(url.pathname.split("/")[3]) });
+      }
+      if (req.method === "GET" && url.pathname === "/api/company-boards") {
+        return send(res, 200, {
+          boards: listBoards(db, {
+            includePaused: url.searchParams.get("includePaused") !== "false",
+            onlyVerified: url.searchParams.get("onlyVerified") === "true",
+          }),
+        });
+      }
+      if (req.method === "POST" && url.pathname === "/api/company-boards") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const board = addBoard(db, { company: body.company, ats: body.ats, board: body.board, region: body.region ?? "unknown", source_url: body.source_url ?? null });
+        return send(res, 201, { board });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/company-boards/") && url.pathname.endsWith("/verify")) {
+        if (!requireControlOrigin(req, res)) return;
+        const id = url.pathname.split("/")[3];
+        if (!getBoard(db, id)) return send(res, 404, { error: "board not found" });
+        const result = await verifyBoard(db, id, { fetchFn });
+        return send(res, 200, result);
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/company-boards/") && url.pathname.endsWith("/pause")) {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const id = url.pathname.split("/")[3];
+        if (!getBoard(db, id)) return send(res, 404, { error: "board not found" });
+        return send(res, 200, { board: pauseBoard(db, id, body.paused !== false) });
+      }
+      if (req.method === "POST" && url.pathname === "/api/linkedin/build-url") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        return send(res, 200, { url: buildSearchUrl({ keywords: body.keywords, location: body.location, workMode: body.workMode, jobType: body.jobType, experience: body.experience }) });
+      }
+      if (req.method === "POST" && url.pathname === "/api/linkedin/import") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        let candidates;
+        if (body.kind === "url") {
+          candidates = [await importUrl(body.payload, { extractFn: (link) => extractOffer(link, { fetchFn }) })];
+        } else if (body.kind === "csv") {
+          candidates = importCsv(body.payload ?? "");
+        } else if (body.kind === "text") {
+          candidates = importText(body.payload ?? "");
+        } else {
+          throw new Error("linkedin import kind must be url, csv or text");
+        }
+        const imported = storeImportedCandidates(db, candidates);
+        return send(res, 201, { imported, count: imported.length });
+      }
+      if (req.method === "POST" && url.pathname === "/api/offers/extract") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        if (typeof body.url !== "string" || !body.url) throw new Error("url is required");
+        const analysis = await extractOffer(body.url, { fetchFn, classifyFn: xaiVerified() && xaiClassifyFn ? xaiClassifyFn : null });
+        return send(res, 200, { analysis });
+      }
+      if (req.method === "POST" && url.pathname === "/api/search-benchmark") {
+        if (!requireControlOrigin(req, res)) return;
+        const fixture = JSON.parse(fs.readFileSync(new URL("../../tests/fixtures/search-benchmark.json", import.meta.url), "utf8"));
+        return send(res, 200, { metrics: runSearchBenchmark(fixture) });
       }
       if (req.method === "GET" && url.pathname.startsWith("/queue/")) {
         const job = getJob(db, url.pathname.split("/")[2]);
