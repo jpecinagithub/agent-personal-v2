@@ -25,7 +25,7 @@ import { getConnector, compileCriteria } from "./search-registry.mjs";
 import { listBoards } from "./company-catalog.mjs";
 import { fetchGreenhouseJobs, fetchLeverPostings, fetchAshbyJobs } from "./ats-connectors.mjs";
 import { extractOffer, detectLanguage } from "./offer-extract.mjs";
-import { generateQueries } from "./xai-discovery.mjs";
+import { generateQueries, validateDiscovery } from "./xai-discovery.mjs";
 import { importUrl, importCsv, importText } from "./linkedin.mjs";
 import { presentedHistory, getProfileFull } from "./profiles.mjs";
 import { getPerson } from "./person.mjs";
@@ -263,6 +263,15 @@ export function buildProfileView(db, profileId) {
   const details = person.details ?? {};
   const presented = presentedHistory(details, profile.body ?? {});
   const body = profile.body ?? {};
+  // Sponsorship / mobility are carried through, never dropped: the
+  // filter engine derives the sponsorship criterion from them (a
+  // person who needs sponsorship must never get a silent
+  // not_applicable for it), and mobility is the relocation data.
+  const sponsorshipRequiredByCountry = {};
+  for (const entry of details.authorisations ?? []) {
+    if (!entry?.country) continue;
+    sponsorshipRequiredByCountry[String(entry.country).toUpperCase()] = entry.sponsorship_required === true;
+  }
   return {
     profileId: profile.id,
     name: profile.name,
@@ -276,6 +285,9 @@ export function buildProfileView(db, profileId) {
     presentedEmployment: presented.employment,
     presentedEducation: presented.education,
     authorisationByCountry: authorisationMapFromPerson(details.authorisations),
+    sponsorshipRequired: Object.values(sponsorshipRequiredByCountry).some(Boolean),
+    sponsorshipRequiredByCountry,
+    mobility: details.mobility ?? null,
   };
 }
 
@@ -299,6 +311,10 @@ export function definitionToCriteria(definition) {
   const def = definition?.criteria ?? definition ?? {};
   const criteria = {};
   if (def.titles !== undefined) criteria.titles = def.titles;
+  // The boolean AST participates in filtering (it used to be
+  // validated and stored, then discarded): the filter engine
+  // evaluates it against the offer title as a hard criterion.
+  if (def.booleanAst !== undefined) criteria.titleAst = def.booleanAst;
   const locations = def.locations;
   if (Array.isArray(locations)) {
     const countries = locations.filter((v) => /^[A-Za-z]{2}$/.test(String(v).trim()));
@@ -342,6 +358,11 @@ export function definitionToCriteria(definition) {
   // Authorisation is profile-side and always checked when a country
   // is known; unknown authorisation is review, never assumed.
   criteria.authorisation = { unknownPolicy: def.authorisationUnknown ?? "review" };
+  // Unknown policies for the tri-state criteria the pipeline derives
+  // from the profile view (sponsorship need, mobility). The
+  // requirements themselves come from the view, not the definition.
+  if (def.sponsorshipUnknown !== undefined) criteria.sponsorshipUnknownPolicy = def.sponsorshipUnknown;
+  if (def.relocationUnknown !== undefined) criteria.relocationUnknownPolicy = def.relocationUnknown;
   if (typeof def.publishedWithinDays === "number") criteria.publishedWithinDays = def.publishedWithinDays;
   return criteria;
 }
@@ -461,10 +482,16 @@ function mapConnectorStatus(status) {
 
 /**
  * Fetch one ATS source from its verified catalog boards only.
- * @param {any} db @param {string} ats @param {any} fetchFn @param {any} budget @param {string} sourceId
+ * startCursors resumes pagination: { [board]: { skip, limit } | number }
+ * from a previous run's stored cursors. A board whose stored cursor is
+ * null (fully paged) restarts at 0; a stored numeric skip resumes
+ * there. Cursors are ALWAYS kept numeric — assigning a cursor object
+ * wholesale to skip produced skip=[object Object] and corrupted the
+ * stored cursor.
+ * @param {any} db @param {string} ats @param {any} fetchFn @param {any} budget @param {string} sourceId @param {any} [startCursors]
  * @returns {Promise<{jobs: any[], cursors: any, boardErrors: any[], status: string, cause: string | null, retryAfterMs: number | null}>}
  */
-async function fetchAtsSource(db, ats, fetchFn, budget, sourceId) {
+async function fetchAtsSource(db, ats, fetchFn, budget, sourceId, startCursors = {}) {
   const boards = listBoards(db, { onlyVerified: true, includePaused: false }).filter((b) => b.ats === ats);
   if (boards.length === 0) {
     return { jobs: [], cursors: {}, boardErrors: [], status: "failed", cause: `no verified catalog boards for ${ats}`, retryAfterMs: null };
@@ -491,7 +518,11 @@ async function fetchAtsSource(db, ats, fetchFn, budget, sourceId) {
         jobs.push(job);
       }
     } else if (ats === "lever") {
+      // Resume from the stored cursor for this board when one exists.
+      const stored = startCursors?.[board.board];
       let skip = 0;
+      if (typeof stored === "number" && Number.isFinite(stored)) skip = stored;
+      else if (stored && typeof stored === "object" && Number.isFinite(Number(stored.skip))) skip = Number(stored.skip);
       let cursor = null;
       for (;;) {
         if (budgetDeadlineExceeded(budget) || !budgetAllowsJob(budget) || !budgetAllowsPage(budget, sourceId)) break;
@@ -508,7 +539,11 @@ async function fetchAtsSource(db, ats, fetchFn, budget, sourceId) {
           jobs.push(job);
         }
         if (cursor === null || cursor === undefined) break;
-        skip = cursor;
+        // The connector cursor is { skip, limit } (or a bare number):
+        // extract the numeric offset, never the object itself.
+        const next = typeof cursor === "object" && cursor !== null ? Number(cursor.skip) : Number(cursor);
+        if (!Number.isFinite(next)) break;
+        skip = next;
       }
       cursors[board.board] = cursor;
     }
@@ -548,6 +583,16 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
   const claim = claimRunLock(db, definitionId, definition.criteria);
   if (claim.locked) return { locked: true, runId: claim.runId, definitionId };
   const runId = claim.runId;
+  // Resume: cursors from the most recent FINISHED run of this
+  // definition (the current run row has no finished_at yet, so it
+  // is excluded). A stored non-null cursor continues pagination;
+  // a null cursor means that board was fully paged and restarts.
+  const previousCursors = (() => {
+    try {
+      const prev = listSearchRuns(db, { definitionId }).find((r) => r.id !== runId && r.finished_at);
+      return prev?.cursors ?? {};
+    } catch { return {}; }
+  })();
   const budget = createBudget(definition.limits, { deadlineMs: opts.deadlineMs ?? DEFAULT_RUN_DEADLINE_MS, nowMs: opts.nowMs ?? Date.now() });
   try {
     // Profile views (presented history + own fields only).
@@ -602,7 +647,7 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
       }
       const ats = ATS_BY_CONNECTOR[sourceId];
       if (ats) {
-        const fetched = await fetchAtsSource(db, ats, fetchFn, budget, sourceId);
+        const fetched = await fetchAtsSource(db, ats, fetchFn, budget, sourceId, previousCursors[sourceId] ?? {});
         cursors[sourceId] = fetched.cursors;
         if (fetched.boardErrors.length > 0) sourceErrors[sourceId] = fetched.boardErrors;
         if (fetched.status === "completed" || fetched.status === "completed_zero_results") recordSourceSuccess(db, definitionId, sourceId);
@@ -649,25 +694,40 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
               firstSeenAt: result.firstSeenAt, evidence: { canonicalVerified: true, ...(result.evidence ?? {}) },
             });
           }
+          // Discovered jobs go through the SAME validation pipeline
+          // as every other candidate (T-V2-029): an LLM assertion is
+          // never an offer. Each job's URL is validated against its
+          // asserted title/company AND fully extracted; anything
+          // unvalidated or unextractable is dropped with a recorded
+          // reason and never reaches eligibility/ranking.
+          let discoveryFailures = 0;
           for (const job of discoveredJobs) {
             if (!budgetAllowsJob(budget)) break;
+            const url = job.canonicalUrl ?? job.url ?? null;
+            if (!url) { discoveryFailures += 1; continue; }
+            const validation = await validateDiscovery(url, { fetchFn, expectedTitle: job.title ?? null, expectedCompany: job.company ?? null });
+            if (!validation.verified) { discoveryFailures += 1; continue; }
+            const result = await extractOffer(url, { fetchFn, classifyFn: opts.xaiClassifyFn ?? null });
+            if (result.status !== "ok") { discoveryFailures += 1; continue; }
             noteJob(budget);
             extracted.push({
-              source: "xai-web", ats: "xai-web", tenant: job.tenant ?? "unknown", postingId: job.postingId ?? null,
-              canonicalUrl: job.canonicalUrl ?? job.url ?? null, applyUrl: job.applyUrl ?? "",
-              title: job.title ?? "unknown", company: job.company ?? null,
-              location: typeof job.location === "string" ? { country: null, region: null, city: null, raw: job.location, remote: false } : (job.location ?? { country: null, region: null, city: null, raw: null, remote: false }),
-              workMode: job.workMode ?? "unknown", seniority: job.seniority ?? null,
-              contractType: job.contractType ?? null, workingTime: job.workingTime ?? null, sector: job.sector ?? null,
-              description: job.description ?? "", skills: job.skills ?? [],
-              salary: job.salary ?? { min: null, max: null, currency: null, period: null, published: false },
-              language: job.language ?? null, sponsorship: job.sponsorship ?? "unknown", relocation: job.relocation ?? "unknown",
-              publishedAt: job.publishedAt ?? null, firstSeenAt: new Date().toISOString(),
-              evidence: { canonicalVerified: Boolean(job.canonicalUrl), ...(job.evidence ?? {}) },
+              source: "xai-web", ats: "xai-web", tenant: (() => { try { return new URL(result.url).hostname; } catch { return "unknown"; } })(),
+              postingId: null, canonicalUrl: result.url, applyUrl: "",
+              title: result.title ?? "unknown", company: result.company ?? null,
+              location: { country: null, region: null, city: null, raw: null, remote: false },
+              workMode: "unknown", seniority: null, contractType: null, workingTime: null, sector: null,
+              description: result.description ?? "", skills: [],
+              salary: { min: null, max: null, currency: null, period: null, published: false },
+              language: result.language ?? null, languageMethod: result.languageMethod ?? null,
+              sponsorship: "unknown", relocation: "unknown", publishedAt: result.publishedAt ?? null,
+              firstSeenAt: result.firstSeenAt, evidence: { canonicalVerified: true, discoveryVerified: true, ...(result.evidence ?? {}) },
             });
           }
-          if (extractFailures > 0) sourceErrors[sourceId] = [{ reason: `${extractFailures} discovered URL(s) failed extraction` }];
-          perSource.push({ source: sourceId, status: "completed", observed: urls.length + discoveredJobs.length, valid: 0, duplicates: 0, excluded: 0, pending: 0, cause: extractFailures > 0 ? `${extractFailures} discovered URL(s) failed extraction` : null });
+          const failureNotes = [];
+          if (extractFailures > 0) failureNotes.push(`${extractFailures} discovered URL(s) failed extraction`);
+          if (discoveryFailures > 0) failureNotes.push(`${discoveryFailures} discovered job(s) failed validation/extraction and were dropped`);
+          if (failureNotes.length > 0) sourceErrors[sourceId] = [...(sourceErrors[sourceId] ?? []), ...failureNotes.map((reason) => ({ reason }))];
+          perSource.push({ source: sourceId, status: "completed", observed: urls.length + discoveredJobs.length, valid: 0, duplicates: 0, excluded: 0, pending: 0, cause: failureNotes.length > 0 ? failureNotes.join("; ") : null });
           allOffers = allOffers.concat(extracted);
         } catch (err) {
           recordSourceFailure(db, definitionId, sourceId, {});

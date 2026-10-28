@@ -18,7 +18,7 @@
 //   is false; they are never counted as matches.
 // - Non-English main content is a hard exclusion (RF-V2-027).
 // - A missing value is `unknown`, never zero and never a pass.
-import { wholeWordMatch } from "./search-presets.mjs";
+import { wholeWordMatch, evaluateAst } from "./search-presets.mjs";
 import { canonicalId } from "./search-dedupe.mjs";
 
 /**
@@ -154,6 +154,37 @@ function titleMatches(offer, wanted) {
  * @param {any} [profileView]
  * @returns {{perCriterion: Record<string, any>, eligible: boolean, needsReview: boolean, canAutoApply: boolean, hardFailed: string[], failed: string[], unknowns: string[]}}
  */
+/**
+ * Sponsorship requirement derived from the profile view actually used
+ * by the pipeline (never a silent not_applicable when the person
+ * needs sponsorship): per-country when the offer country is known
+ * and the person has an authorisation entry there, otherwise the
+ * person's global sponsorship need. An explicit criterion always
+ * wins. Relocation mirrors this: a local-only mobility explicitly
+ * needs no relocation support; any other mobility value invents no
+ * requirement — one must come from an explicit criterion.
+ */
+function effectiveSponsorshipSpec(c, view, offer) {
+  if (c.sponsorship !== undefined && c.sponsorship !== null) return c.sponsorship;
+  const policy = c.sponsorshipUnknownPolicy ?? c.sponsorshipUnknown ?? "review";
+  const map = view?.sponsorshipRequiredByCountry ?? {};
+  const country = offer?.location?.country;
+  if (country) {
+    const key = String(country).toUpperCase();
+    if (Object.prototype.hasOwnProperty.call(map, key)) {
+      return map[key] ? { required: true, unknownPolicy: policy } : { required: false };
+    }
+  }
+  if (view?.sponsorshipRequired === true) return { required: true, unknownPolicy: policy };
+  return undefined;
+}
+
+function effectiveRelocationSpec(c, view) {
+  if (c.relocation !== undefined && c.relocation !== null) return c.relocation;
+  if (view?.mobility === "local") return { required: false };
+  return undefined;
+}
+
 export function evaluateOffer(offer, criteria = {}, profileView = null) {
   const c = criteria ?? {};
   const perCriterion = {};
@@ -211,6 +242,22 @@ export function evaluateOffer(offer, criteria = {}, profileView = null) {
     const hit = c.excludedTitles.find((t) => titleMatches(offer, t));
     if (hit) perCriterion.excludedTitles = crit("fail", `title matches excluded title: ${hit}`, HARD);
     else if (!perCriterion.titles) perCriterion.excludedTitles = crit("pass", "no excluded title matched");
+  }
+
+  // --- Boolean title AST: it participates in filtering, it is not a
+  // stored label. A title the AST rejects is a hard exclusion, so
+  // NOT Junior excludes "Finance Manager Junior" (whole-word match
+  // inside evaluateAst; phrases match as phrases).
+  if (c.titleAst !== undefined && c.titleAst !== null) {
+    let matches = false;
+    try {
+      matches = evaluateAst(c.titleAst, offer?.title ?? "");
+    } catch {
+      matches = false;
+    }
+    perCriterion.titleAst = matches
+      ? crit("pass", "title matches the boolean expression")
+      : crit("fail", "title does not match the boolean expression", HARD);
   }
 
   // --- Geography and mode ---
@@ -327,8 +374,8 @@ export function evaluateOffer(offer, criteria = {}, profileView = null) {
     // block for an application that would need it.
     return crit("fail", `${name}: offer is ${got}, required ${want}`, HARD);
   };
-  perCriterion.sponsorship = triCriterion("sponsorship", offer?.sponsorship, c.sponsorship);
-  perCriterion.relocation = triCriterion("relocation", offer?.relocation, c.relocation);
+  perCriterion.sponsorship = triCriterion("sponsorship", offer?.sponsorship, effectiveSponsorshipSpec(c, profileView, offer));
+  perCriterion.relocation = triCriterion("relocation", offer?.relocation, effectiveRelocationSpec(c, profileView));
 
   // --- Authorisation (profile-side, by offer country) ---
   if (c.authorisation !== undefined && c.authorisation !== null) {
