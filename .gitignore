@@ -8,3 +8,10 @@ data/
 secrets.json
 secrets.key
 node_modules/
+# Local personal-data helper scripts (kept in the user's PC folder, never
+# in the repo): they embed personal CV/salary data and must not be
+# committed, especially while the repository is public.
+create-person-from-cv.mjs
+declare-screening-facts.mjs
+fill-eu-authorisations.mjs
+update-person-fields.mjs
