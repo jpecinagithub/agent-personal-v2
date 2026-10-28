@@ -686,7 +686,7 @@ test("browser G2 regression: defaults editable and deletable, explicit create mo
       app.page.waitForResponse((r) => r.url().includes("/api/facts") && r.request().method() === "GET"),
       app.page.click("#facts-refresh"),
     ]);
-    await app.page.waitForFunction(() => (document.querySelector("#person-facts-list .fact-value")?.value ?? "") === "C1");
+    await app.page.waitForFunction(() => (/** @type {HTMLInputElement | null} */ (document.querySelector("#person-facts-list .fact-value")))?.value === "C1");
     const factCard = app.page.locator("#person-facts-list .profile-card").first();
     await factCard.locator(".fact-value").fill("C2");
     await factCard.getByRole("button", { name: "Corregir valor" }).click();
