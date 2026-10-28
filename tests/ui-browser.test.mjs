@@ -88,6 +88,9 @@ test("browser: create a person and a profile through the forms, no JSON, no IDs"
     await app.page.click("#person-save");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
     assert.match(await bodyText(app.page), /Persona guardada: Test Person/);
+    // WHY (redesign 2026-10-28): profiles live on the Perfiles tab now;
+    // the create form is hidden until the tab is selected.
+    await app.page.click("#tab-profiles");
     await app.page.fill("#profile-name", "Finanzas");
     await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
@@ -107,6 +110,9 @@ test("browser: duplicate, archive and delete a profile through the screen", asyn
     await app.page.fill("#person-email", "test.person@example.test");
     await app.page.click("#person-save");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+    // WHY (redesign 2026-10-28): profiles live on the Perfiles tab now;
+    // the create form is hidden until the tab is selected.
+    await app.page.click("#tab-profiles");
     await app.page.fill("#profile-name", "Finanzas");
     await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
@@ -133,6 +139,9 @@ test("browser: CV import preview and confirm, CV assignment, policies, consent, 
     await app.page.fill("#person-email", "test.person@example.test");
     await app.page.click("#person-save");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+    // WHY (redesign 2026-10-28): profiles live on the Perfiles tab now;
+    // the create form is hidden until the tab is selected.
+    await app.page.click("#tab-profiles");
     await app.page.fill("#profile-name", "Finanzas");
     await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
@@ -300,9 +309,22 @@ test("browser G2 re-review 3: consecutive saves without reload refresh reference
     // no reload in between. The bug: reference flags described the
     // state at load, so the second save omitted empties/false values
     // based on pre-first-save state and the backend kept them.
+    // WHY (redesign 2026-10-28): skills, salary and the other
+    // per-profile fields moved from the person form to the profiles
+    // tab, so this test no longer drives them through the person
+    // form. Its consecutive-save core stays: links and employment
+    // fields that remain in the person form must still round-trip
+    // across saves without reload. The seeded per-profile values
+    // below double as the preservation check: the person form never
+    // sends them, so both saves must leave them exactly as stored.
     const seed = {
       full_name: "Synthetic Original",
       email: "original@example.test",
+      desired_roles: ["Finance Manager"],
+      locations: ["Madrid"],
+      skills: ["accounting"],
+      exclusions: ["night shifts"],
+      salary_expectations: { currency: "EUR", min: 40000, max: 60000, period: "year" },
       employment: [
         { id: "job-1", employer: "Alpha Corp", title: "Analyst", start: "2020-01", current: false },
       ],
@@ -323,13 +345,11 @@ test("browser G2 re-review 3: consecutive saves without reload refresh reference
     };
     await app.page.click("#person-load");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    // The moved fields have no inputs in the person form any more.
+    assert.equal(await app.page.locator("#person-skills").count(), 0, "skills moved to the profiles tab");
+    assert.equal(await app.page.locator("#person-salary-currency").count(), 0, "salary moved to the profiles tab");
     // First save: add values to fields that were absent/false.
     await app.page.fill("#person-links", "https://example.test/professional-profile");
-    await app.page.fill("#person-skills", "accounting");
-    await app.page.fill("#person-salary-currency", "EUR");
-    await app.page.fill("#person-salary-min", "40000");
-    await app.page.fill("#person-salary-max", "60000");
-    await app.page.fill("#person-salary-period", "year");
     const job = app.page.locator("#person-employment-list .entry-card").first();
     await job.locator(".f-achievements").fill("Shipped X");
     await job.locator(".f-links").fill("https://example.test/job");
@@ -337,19 +357,12 @@ test("browser G2 re-review 3: consecutive saves without reload refresh reference
     await savePerson();
     let details = await getPerson();
     assert.deepEqual(details.links, ["https://example.test/professional-profile"]);
-    assert.deepEqual(details.skills, ["accounting"]);
-    assert.deepEqual(details.salary_expectations, { currency: "EUR", min: 40000, max: 60000, period: "year" });
     assert.deepEqual(details.employment[0].achievements, ["Shipped X"]);
     assert.deepEqual(details.employment[0].links, ["https://example.test/job"]);
     assert.equal(details.employment[0].current, true);
     // Second save WITHOUT reloading: clear everything just added,
     // uncheck both boxes, add an end date.
     await app.page.fill("#person-links", "");
-    await app.page.fill("#person-skills", "");
-    await app.page.fill("#person-salary-currency", "");
-    await app.page.fill("#person-salary-min", "");
-    await app.page.fill("#person-salary-max", "");
-    await app.page.fill("#person-salary-period", "");
     const job2 = app.page.locator("#person-employment-list .entry-card").first();
     await job2.locator(".f-achievements").fill("");
     await job2.locator(".f-links").fill("");
@@ -360,8 +373,6 @@ test("browser G2 re-review 3: consecutive saves without reload refresh reference
     await app.page.click("#person-load");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
     assert.equal(await app.page.locator("#person-links").inputValue(), "");
-    assert.equal(await app.page.locator("#person-skills").inputValue(), "");
-    assert.equal(await app.page.locator("#person-salary-currency").inputValue(), "");
     const jobAfter = app.page.locator("#person-employment-list .entry-card").first();
     assert.equal(await jobAfter.locator(".f-achievements").inputValue(), "");
     assert.equal(await jobAfter.locator(".f-links").inputValue(), "");
@@ -370,18 +381,23 @@ test("browser G2 re-review 3: consecutive saves without reload refresh reference
     // And through the API, the persisted record itself.
     details = await getPerson();
     assert.deepEqual(details.links, []);
-    assert.deepEqual(details.skills, []);
-    assert.deepEqual(details.salary_expectations, {});
     assert.deepEqual(details.employment[0].achievements, []);
     assert.deepEqual(details.employment[0].links, []);
     assert.equal(details.employment[0].current, false);
     assert.equal(details.employment[0].end, "2024-06");
     // WHY (user order 2026-10-28): the form no longer edits
     // authorisations, so the seeded entry must survive both
-    // consecutive form saves exactly as stored.
+    // consecutive form saves exactly as stored. The same holds for
+    // the per-profile fields since the redesign: the form never sends
+    // them, so both saves must leave them untouched.
     assert.deepEqual(details.authorisations, [
       { id: "auth-1", country: "ES", status: "authorised", valid_until: "2030-12", sponsorship_required: false },
     ]);
+    assert.deepEqual(details.desired_roles, ["Finance Manager"]);
+    assert.deepEqual(details.locations, ["Madrid"]);
+    assert.deepEqual(details.skills, ["accounting"]);
+    assert.deepEqual(details.exclusions, ["night shifts"]);
+    assert.deepEqual(details.salary_expectations, { currency: "EUR", min: 40000, max: 60000, period: "year" });
   } finally {
     await stopApp(app);
   }
@@ -424,11 +440,106 @@ test("browser: person form no longer shows authorisations, and a form save prese
     assert.ok(!(await bodyText(app.page)).includes("Autorizaciones de trabajo"), "no authorisations heading in the form");
     // Save through the form (changing an unrelated field) and check
     // the stored authorisations survived exactly.
-    await app.page.fill("#person-skills", "accounting");
+    // WHY (redesign 2026-10-28): skills moved to the profiles tab, so
+    // this test now changes links, which stayed in the person form.
+    await app.page.fill("#person-links", "https://example.test/professional-profile");
     await app.page.click("#person-save");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
     const after = (await getPerson()).authorisations;
     assert.deepEqual(after, before, "form save preserves stored authorisations byte-identical, ids and extra fields intact");
+  } finally {
+    await stopApp(app);
+  }
+});
+
+test("browser redesign: tabs switch views, profile create seeds from person and stores fields + selections, draft edit persists them", async () => {
+  // WHY (redesign 2026-10-28): the person form no longer edits
+  // per-profile fields and the profiles live on their own tab. This
+  // test guards the new contract through the real screen: tabs switch
+  // without losing unsaved input, profile creation shows the new
+  // fields and history-selection checkboxes, empty create fields are
+  // seeded from the person's stored values, selections are stored,
+  // and editing through a draft persists them.
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    const seed = {
+      full_name: "Test Person",
+      email: "test.person@example.test",
+      desired_roles: ["Finance Manager"],
+      locations: ["Madrid"],
+      skills: ["accounting"],
+      exclusions: ["night shifts"],
+      salary_expectations: { currency: "EUR", min: 50000, max: 70000, period: "year" },
+      employment: [
+        { id: "job-1", employer: "Alpha Corp", title: "Analyst", start: "2020-01" },
+        { id: "job-2", employer: "Beta Ltd", title: "Accountant", start: "2022-01" },
+      ],
+      education: [
+        { id: "edu-1", institution: "Other University", title: "MBA", start: "2021", end: "2022" },
+      ],
+    };
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(seed) });
+    assert.equal(created.status, 201);
+    const personId = (await (await fetch(`${base}/api/person`)).json()).person.id;
+    const getProfiles = async () => (await (await fetch(`${base}/api/profiles?personId=${personId}`)).json()).profiles;
+    // Tabs: person visible and profiles hidden by default.
+    assert.equal(await app.page.locator("#person-section").isVisible(), true);
+    assert.equal(await app.page.locator("#profiles-section").isVisible(), false);
+    // Unsaved input survives a tab switch both ways.
+    await app.page.fill("#person-links", "https://example.test/keep");
+    await app.page.click("#tab-profiles");
+    assert.equal(await app.page.locator("#profiles-section").isVisible(), true);
+    assert.equal(await app.page.locator("#person-section").isVisible(), false);
+    await app.page.click("#tab-person");
+    assert.equal(await app.page.locator("#person-links").inputValue(), "https://example.test/keep");
+    // Load the person: the create form's selection checkboxes render
+    // from the master history.
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    await app.page.click("#tab-profiles");
+    assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").count(), 2);
+    assert.equal(await app.page.locator("#profile-education-select input[type=checkbox]").count(), 1);
+    assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").nth(0).isChecked(), true);
+    assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").nth(1).isChecked(), true);
+    // Create with the per-profile fields left empty (seeding) and a
+    // subset selection: only job-1, no education.
+    await app.page.fill("#profile-name", "Finanzas");
+    await app.page.fill("#profile-focus", "Finance");
+    await app.page.locator("#profile-employment-select input[type=checkbox]").nth(1).uncheck();
+    await app.page.locator("#profile-education-select input[type=checkbox]").nth(0).uncheck();
+    await app.page.click("#profile-create");
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
+    let profiles = await getProfiles();
+    assert.equal(profiles.length, 1);
+    assert.deepEqual(profiles[0].body.desired_roles, ["Finance Manager"]);
+    assert.deepEqual(profiles[0].body.locations, ["Madrid"]);
+    assert.deepEqual(profiles[0].body.skills, ["accounting"]);
+    assert.deepEqual(profiles[0].body.exclusions, ["night shifts"]);
+    assert.deepEqual(profiles[0].body.salary_expectations, { currency: "EUR", min: 50000, max: 70000, period: "year" });
+    assert.deepEqual(profiles[0].body.employment_ids, ["job-1"]);
+    assert.deepEqual(profiles[0].body.education_ids, []);
+    // Edit through the draft: change skills, tick the education entry
+    // back in, save and confirm; the body must reflect both changes.
+    const card = app.page.locator("#profiles-list .profile-card").first();
+    await card.getByRole("button", { name: "Editar" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list .profile-card")?.textContent ?? "").includes("Guardar borrador"));
+    // Edit-area textareas, in order: desired roles, locations, skills,
+    // exclusions — so skills is index 2.
+    await card.locator("textarea").nth(2).fill("forecasting");
+    await card.locator("label").filter({ hasText: "MBA" }).locator("input[type=checkbox]").check();
+    await card.getByRole("button", { name: "Guardar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list .profile-card")?.textContent ?? "").includes("Borrador guardado"));
+    await card.getByRole("button", { name: "Confirmar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-status")?.textContent ?? "").includes("Borrador confirmado"));
+    profiles = await getProfiles();
+    assert.deepEqual(profiles[0].body.skills, ["forecasting"]);
+    assert.deepEqual(profiles[0].body.employment_ids, ["job-1"]);
+    assert.deepEqual(profiles[0].body.education_ids, ["edu-1"]);
+    // And the untouched seeded values survived the draft round-trip.
+    assert.deepEqual(profiles[0].body.desired_roles, ["Finance Manager"]);
+    assert.deepEqual(profiles[0].body.salary_expectations, { currency: "EUR", min: 50000, max: 70000, period: "year" });
   } finally {
     await stopApp(app);
   }

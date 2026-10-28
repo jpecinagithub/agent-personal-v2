@@ -18,8 +18,31 @@ export const MAX_PROFILES = 10;
 
 const ALLOWED_BODY_KEYS = new Set([
   "focus", "template", "factRefs", "desired_roles", "locations",
-  "salary_expectations", "notes", "cv_import_id",
+  "salary_expectations", "skills", "exclusions",
+  "employment_ids", "education_ids", "notes", "cv_import_id",
 ]);
+
+// User-approved redesign 2026-10-28 (post-G2): the person holds the
+// UNIVERSAL data and the MASTER employment/education history, while
+// each profile holds its own presentation of that history. A profile
+// body may therefore carry per-profile desired_roles, locations,
+// skills, exclusions and salary_expectations, plus employment_ids /
+// education_ids selecting which master-history entries the profile
+// presents. Selection semantics (see presentedHistory below):
+//   - key ABSENT  -> the profile presents ALL master entries
+//     (backward compatible: profiles created before selections existed
+//     behave exactly as before);
+//   - key present and EMPTY -> the profile presents NONE;
+//   - key present with ids -> exactly those entries, in master order;
+//     ids that no longer exist in the master history are ignored.
+// NOTE for future resume generation (F-phases that build application
+// documents): it MUST use the profile's per-profile fields and the
+// presentedHistory selection, NOT the whole person history. Attempts
+// already pin the profile snapshot (body_json, which carries the
+// selection) plus a full person snapshot, so a past attempt keeps
+// resolving to what was presented at that moment; do not change
+// attempt/snapshot logic to "fix" this — read the selection at
+// generation time instead.
 
 /**
  * R4: a profile's CV must be explicitly selected for THAT profile and
@@ -51,6 +74,14 @@ export function profileCv(db, profile) {
 }
 
 /** Validate a profile body: unknown keys are rejected, factRefs must be concept/scope pairs. */
+function checkProfileStringArray(body, key) {
+  if (body[key] === undefined) return;
+  if (!Array.isArray(body[key])) throw new Error(`${key} must be an array`);
+  for (const v of body[key]) {
+    if (typeof v !== "string" || v.trim() === "") throw new Error(`each ${key} entry must be a non-empty string`);
+  }
+}
+
 export function validateProfileBody(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("profile body must be an object");
   for (const key of Object.keys(body)) {
@@ -63,7 +94,47 @@ export function validateProfileBody(body) {
       if (r.scope !== undefined && typeof r.scope !== "string") throw new Error("factRef scope must be a string");
     }
   }
+  // Per-profile fields (user-approved redesign 2026-10-28): same shapes
+  // as the person fields they mirror, so a profile can present its own
+  // roles, locations, skills, exclusions and salary without touching
+  // the person's universal data.
+  for (const key of ["desired_roles", "locations", "skills", "exclusions", "employment_ids", "education_ids"]) {
+    checkProfileStringArray(body, key);
+  }
+  if (body.salary_expectations !== undefined) {
+    const s = body.salary_expectations;
+    if (!s || typeof s !== "object" || Array.isArray(s)) throw new Error("salary_expectations must be an object");
+    for (const k of Object.keys(s)) {
+      if (!["currency", "min", "max", "period"].includes(k)) throw new Error(`unknown salary_expectations field: ${k}`);
+    }
+    if (s.min !== undefined && typeof s.min !== "number") throw new Error("salary_expectations.min must be a number");
+    if (s.max !== undefined && typeof s.max !== "number") throw new Error("salary_expectations.max must be a number");
+    if (s.min !== undefined && s.max !== undefined && s.min > s.max) throw new Error("salary_expectations.min must not exceed max");
+  }
   return { ...body };
+}
+
+/**
+ * Which master-history entries a profile presents, given the person's
+ * details and the profile body. Absent selection key -> all entries
+ * (backward compatible); empty array -> none; otherwise exactly the
+ * listed ids, in master order, with unknown ids ignored. This is the
+ * presentation rule future resume generation must use; it changes
+ * nothing stored.
+ */
+export function presentedHistory(personDetails, profileBody) {
+  const select = (entries, key) => {
+    const list = entries || [];
+    const ids = profileBody?.[key];
+    if (ids === undefined) return list;
+    if (!Array.isArray(ids) || ids.length === 0) return [];
+    const wanted = new Set(ids);
+    return list.filter((e) => wanted.has(e.id));
+  };
+  return {
+    employment: select(personDetails?.employment, "employment_ids"),
+    education: select(personDetails?.education, "education_ids"),
+  };
 }
 
 /** Non-deleted profiles (active + archived) occupy a slot; deleted ones do not. */
@@ -242,6 +313,12 @@ export function profileReadiness(db, profileId, opts = {}) {
  * never rewrite this stored content. R6: a deleted profile is
  * rejected here, before any snapshot or attempt row is created, so a
  * stale tab or a direct API call cannot create an attempt from it.
+ * NOTE (redesign 2026-10-28): the person snapshot stays the WHOLE
+ * person (master history); it is not filtered here. When a future
+ * step generates application documents from an attempt, it must apply
+ * presentedHistory(personSnapshotDetails, profileSnapshotBody) and the
+ * profile's per-profile fields, so the attempt presents the profile's
+ * selection rather than the whole history.
  * @param {any} db
  * @param {string} personId
  * @param {string} profileId

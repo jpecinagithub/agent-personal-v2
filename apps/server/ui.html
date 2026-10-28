@@ -137,6 +137,12 @@ pre {
   margin: 12px 0;
 }
 .status { font-weight: 600; color: #F2F4F1; }
+/* Person/profile tabs: presentation only. Switching tabs only shows
+   or hides the two sections below; it never reloads, resets or
+   submits either form, so unsaved input survives a tab switch. */
+#tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+#tabs button[role="tab"] { margin: 0; }
+#tabs button[role="tab"][aria-selected="true"] { background: #CDFF3C; border-color: transparent; color: #101203; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -147,8 +153,17 @@ xAI se guarda en el almacén de secretos y solo se informa si está
 configurada o no. Nada de lo que escribas aquí se inventa: lo que no
 declares queda pendiente y se te pedirá cuando haga falta.</small></p>
 
+<div id="tabs" role="tablist" aria-label="Persona o perfiles">
+<button id="tab-person" type="button" role="tab" aria-selected="true">Persona</button>
+<button id="tab-profiles" type="button" role="tab" aria-selected="false">Perfiles</button>
+</div>
+
 <section id="person-section">
 <h2>Persona</h2>
+<p><small>Datos universales: valen para todos los perfiles. Aquí vive
+también tu historial maestro completo (empleo y estudios): los
+perfiles no lo copian, sino que eligen qué parte de él presentan.
+Lo que quites de un perfil sigue estando aquí.</small></p>
 <label for="person-full-name">Nombre completo</label>
 <input id="person-full-name" placeholder="Ej.: Test Person">
 <label for="person-display-name">Nombre a mostrar (opcional)</label>
@@ -161,35 +176,25 @@ declares queda pendiente y se te pedirá cuando haga falta.</small></p>
 <input id="person-availability" placeholder="Ej.: inmediata">
 <label for="person-languages">Idiomas (una línea por idioma: idioma, nivel)</label>
 <textarea id="person-languages" rows="3" placeholder="English, C1"></textarea>
-<label for="person-desired-roles">Puestos deseados (uno por línea)</label>
-<textarea id="person-desired-roles" rows="3" placeholder="Finance Manager"></textarea>
-<label for="person-locations">Ubicaciones (una por línea)</label>
-<textarea id="person-locations" rows="3" placeholder="Madrid"></textarea>
-<label for="person-skills">Habilidades (una por línea)</label>
-<textarea id="person-skills" rows="3" placeholder="accounting"></textarea>
-<label for="person-exclusions">Exclusiones (una por línea)</label>
-<textarea id="person-exclusions" rows="3" placeholder="turnos de noche"></textarea>
-<label for="person-salary-currency">Moneda de la expectativa salarial</label>
-<input id="person-salary-currency" placeholder="EUR">
-<label for="person-salary-min">Salario mínimo esperado</label>
-<input id="person-salary-min" type="number" placeholder="50000">
-<label for="person-salary-max">Salario máximo esperado</label>
-<input id="person-salary-max" type="number" placeholder="70000">
-<label for="person-salary-period">Periodo salarial</label>
-<input id="person-salary-period" placeholder="year">
 <label for="person-links">Enlaces personales (uno por línea)</label>
 <textarea id="person-links" rows="3" placeholder="https://example.test/mi-perfil"></textarea>
-<h3>Empleo</h3>
-<p><small>Cada puesto tiene su propio formulario y conserva su
-identificador estable: reordenar, añadir o quitar un puesto no cambia
-la identidad de los demás. Marca «Empleo actual» de forma explícita;
-las fechas se escriben como año (YYYY) o año-mes (YYYY-MM) para
-conservar su precisión.</small></p>
+<p><small>Los puestos deseados, las ubicaciones, las habilidades, las
+exclusiones y la expectativa salarial ya no se editan aquí: son datos
+específicos de cada perfil y viven en la pestaña Perfiles. Lo que ya
+tengas guardado en esos campos se conserva al guardar esta pestaña.</small></p>
+<h3>Empleo — historial maestro</h3>
+<p><small>El registro completo. Cada puesto tiene su propio formulario
+y conserva su identificador estable: reordenar, añadir o quitar un
+puesto no cambia la identidad de los demás. Marca «Empleo actual» de
+forma explícita; las fechas se escriben como año (YYYY) o año-mes
+(YYYY-MM) para conservar su precisión. Cada perfil elige qué puestos
+de aquí presenta.</small></p>
 <div id="person-employment-list"></div>
 <button id="employment-add" type="button">Añadir empleo</button>
-<h3>Estudios</h3>
-<p><small>Cada estudio tiene su propio formulario y conserva su
-identificador estable, su especialidad y su estado.</small></p>
+<h3>Estudios — historial maestro</h3>
+<p><small>El registro completo. Cada estudio tiene su propio formulario
+y conserva su identificador estable, su especialidad y su estado.
+Cada perfil elige qué estudios de aquí presenta.</small></p>
 <div id="person-education-list"></div>
 <button id="education-add" type="button">Añadir estudio</button>
 <button id="person-save">Guardar persona</button>
@@ -200,9 +205,11 @@ identificador estable, su especialidad y su estado.</small></p>
 
 <section id="profiles-section">
 <h2>Perfiles (máximo 10 no eliminados)</h2>
-<p><small>Archivar un perfil no libera su plaza: el límite cuenta los
-perfiles activos y los archivados; solo eliminar libera una plaza, y
-eliminar nunca borra las instantáneas de candidaturas anteriores.</small></p>
+<p><small>Datos específicos de cada perfil: lo que un perfil presenta
+puede diferir de otro. Archivar un perfil no libera su plaza: el
+límite cuenta los perfiles activos y los archivados; solo eliminar
+libera una plaza, y eliminar nunca borra las instantáneas de
+candidaturas anteriores.</small></p>
 <label for="profile-name">Nombre del perfil</label>
 <input id="profile-name" placeholder="Ej.: Finanzas">
 <label for="profile-focus">Enfoque</label>
@@ -211,6 +218,33 @@ eliminar nunca borra las instantáneas de candidaturas anteriores.</small></p>
 <input id="profile-template" placeholder="Ej.: finance">
 <label for="profile-cv">CV asociado a este perfil (debe estar confirmado; un CV de otro perfil no cuenta)</label>
 <select id="profile-cv"><option value="">(sin CV asociado)</option></select>
+<label for="profile-desired-roles">Puestos deseados (uno por línea)</label>
+<textarea id="profile-desired-roles" rows="3" placeholder="Finance Manager"></textarea>
+<label for="profile-locations">Ubicaciones (una por línea)</label>
+<textarea id="profile-locations" rows="3" placeholder="Madrid"></textarea>
+<label for="profile-skills">Habilidades (una por línea)</label>
+<textarea id="profile-skills" rows="3" placeholder="accounting"></textarea>
+<label for="profile-exclusions">Exclusiones (una por línea)</label>
+<textarea id="profile-exclusions" rows="3" placeholder="turnos de noche"></textarea>
+<label for="profile-salary-currency">Moneda de la expectativa salarial</label>
+<input id="profile-salary-currency" placeholder="EUR">
+<label for="profile-salary-min">Salario mínimo esperado</label>
+<input id="profile-salary-min" type="number" placeholder="50000">
+<label for="profile-salary-max">Salario máximo esperado</label>
+<input id="profile-salary-max" type="number" placeholder="70000">
+<label for="profile-salary-period">Periodo salarial</label>
+<input id="profile-salary-period" placeholder="year">
+<p><small>Qué presenta este perfil de tu historial maestro. Si no tocas
+estas casillas, el perfil presenta todo el historial. Si desmarcas
+todas las de un bloque, ese bloque no presenta ninguna entrada. Las
+entradas que borres del historial maestro después simplemente dejan
+de presentarse. Al crear, los campos vacíos se rellenan con tus
+valores guardados en la persona, para que nada de lo que ya tenías se
+pierda en el cambio.</small></p>
+<label>Empleo que presenta este perfil</label>
+<div id="profile-employment-select"></div>
+<label>Estudios que presenta este perfil</label>
+<div id="profile-education-select"></div>
 <button id="profile-create">Crear perfil</button>
 <button id="profiles-refresh">Actualizar lista</button>
 <p class="status" id="profiles-status"></p>
@@ -333,7 +367,20 @@ async function call(path, method, body) {
 }
 let personId = null;
 let currentCvId = null;
+let lastPersonDetails = null;
 const draftsByCard = new Map();
+// Tabs (redesign 2026-10-28): switching only shows/hides the person
+// and profiles sections. It never reloads, resets or submits either
+// form, so unsaved input survives a tab switch.
+function showTab(name) {
+  $("person-section").style.display = name === "person" ? "" : "none";
+  $("profiles-section").style.display = name === "profiles" ? "" : "none";
+  $("tab-person").setAttribute("aria-selected", name === "person" ? "true" : "false");
+  $("tab-profiles").setAttribute("aria-selected", name === "profiles" ? "true" : "false");
+}
+$("tab-person").onclick = () => showTab("person");
+$("tab-profiles").onclick = () => showTab("profiles");
+showTab("person");
 const lines = (id) => $(id).value.split("\n").map((l) => l.trim()).filter(Boolean);
 const pairs = (id) => lines(id).map((l) => { const [a, b] = l.split(",").map((s) => s.trim()); return [a, b]; });
 function personDetailsFromForm() {
@@ -359,24 +406,12 @@ function personDetailsFromForm() {
   // so saving from this form leaves stored authorisations exactly as
   // they were (ids and extra fields intact). Authorisations still
   // exist in the backend model and in the declared-facts system.
-  sendList("desired_roles", lines("person-desired-roles"));
-  sendList("locations", lines("person-locations"));
-  sendList("skills", lines("person-skills"));
-  sendList("exclusions", lines("person-exclusions"));
-  const salary = {};
-  const currency = $("person-salary-currency").value.trim();
-  const min = $("person-salary-min").value.trim();
-  const max = $("person-salary-max").value.trim();
-  const period = $("person-salary-period").value.trim();
-  if (currency) salary.currency = currency;
-  if (min) salary.min = Number(min);
-  if (max) salary.max = Number(max);
-  if (period) salary.period = period;
-  // Send the salary object when it has content, or as {} when the
-  // loaded person had one and the user cleared every field (explicit
-  // clear). When the person never had one and the fields are empty,
-  // omit it so an unchanged save stays identical.
-  if (Object.keys(salary).length > 0 || formHadSalary) d.salary_expectations = salary;
+  // NOTE (redesign 2026-10-28): the person form also no longer sends
+  // the per-profile fields (desired_roles, locations, skills,
+  // exclusions, salary_expectations) — they live on each profile now
+  // (Perfiles tab). They are simply omitted here, so the backend
+  // merge preserves whatever is stored in them, exactly like
+  // authorisations above. The person backend fields are untouched.
   sendList("links", lines("person-links"));
   // Structured history editors (R2): entries keep their stable ids and
   // every field the record has (links, achievements, current flag,
@@ -393,8 +428,7 @@ function personDetailsFromForm() {
 }
 let deletedEmploymentIds = new Set();
 let deletedEducationIds = new Set();
-let formHadSalary = false;
-let formHad = { languages: false, desired_roles: false, locations: false, skills: false, exclusions: false, links: false };
+let formHad = { languages: false, links: false };
 function newEntryId(prefix) {
   try {
     if (typeof crypto !== "undefined" && crypto.randomUUID) return prefix + "-" + crypto.randomUUID();
@@ -548,30 +582,24 @@ function fillPersonForm(details) {
   $("person-languages").value = (details.languages || []).map((l) => l.language + ", " + l.level).join("\n");
   formHad = {
     languages: (details.languages || []).length > 0,
-    desired_roles: (details.desired_roles || []).length > 0,
-    locations: (details.locations || []).length > 0,
-    skills: (details.skills || []).length > 0,
-    exclusions: (details.exclusions || []).length > 0,
     links: (details.links || []).length > 0,
   };
   // NOTE (user order 2026-10-28): stored authorisations are
   // deliberately not rendered here; the form never sends them, so a
-  // save preserves them exactly (see personDetailsFromForm).
-  $("person-desired-roles").value = (details.desired_roles || []).join("\n");
-  $("person-locations").value = (details.locations || []).join("\n");
-  $("person-skills").value = (details.skills || []).join("\n");
-  $("person-exclusions").value = (details.exclusions || []).join("\n");
-  const s = details.salary_expectations || {};
-  formHadSalary = Object.keys(s).length > 0;
-  $("person-salary-currency").value = s.currency || "";
-  $("person-salary-min").value = s.min ?? "";
-  $("person-salary-max").value = s.max ?? "";
-  $("person-salary-period").value = s.period || "";
+  // save preserves them exactly (see personDetailsFromForm). The same
+  // holds for the per-profile fields since the redesign: they are
+  // edited on the Perfiles tab, never here.
   $("person-links").value = (details.links || []).join("\n");
   deletedEmploymentIds = new Set();
   deletedEducationIds = new Set();
   renderEntries("person-employment-list", "employment", details.employment || [], deletedEmploymentIds);
   renderEntries("person-education-list", "education", details.education || [], deletedEducationIds);
+  // The profile create form selects from this master history, so it
+  // re-renders from the loaded person. Type profile fields after
+  // loading the person, not before, or a person load will reset the
+  // create form's selections to "all entries".
+  lastPersonDetails = details;
+  renderCreateSelections(details);
 }
 const MISSING_LABELS = { identity: "identidad", name: "nombre", focus: "enfoque", cv_validated: "CV validado", cv_conflicts_unresolved: "CV con conflictos sin resolver (resuélvelos en la sección de CV)", policy: "política aceptada", consent: "consentimiento", xai: "xAI verificado", profile_deleted: "perfil eliminado" };
 function missingLabel(m) { return m.startsWith("fact ") ? "hecho " + m.slice(5) : (MISSING_LABELS[m] || m); }
@@ -604,8 +632,58 @@ async function refreshProfileCvOptions() {
   if (current) sel.value = current;
   return confirmed;
 }
+// Profile history selection (redesign 2026-10-28). checkedIds === null
+// means the profile body carries NO selection key, which presents ALL
+// master entries (backward compatible). An explicit array — possibly
+// empty — is honoured exactly. Unknown ids are ignored later by
+// presentedHistory; the UI only ever offers ids that exist now.
+function buildSelectionCheckboxes(container, entries, labelFn, checkedIds) {
+  container.innerHTML = "";
+  for (const e of entries || []) {
+    const lab = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.dataset.entryId = e.id;
+    cb.checked = checkedIds === null ? true : checkedIds.includes(e.id);
+    lab.append(cb, document.createTextNode(" " + labelFn(e)));
+    container.appendChild(lab);
+  }
+  if (!entries || entries.length === 0) {
+    const hint = document.createElement("p");
+    hint.innerHTML = "<small>Sin entradas en el historial maestro todavía.</small>";
+    container.appendChild(hint);
+  }
+}
+function renderCreateSelections(details) {
+  buildSelectionCheckboxes($("profile-employment-select"), details.employment || [], (e) => (e.title || "") + " @ " + (e.employer || ""), null);
+  buildSelectionCheckboxes($("profile-education-select"), details.education || [], (e) => (e.title || "") + " @ " + (e.institution || ""), null);
+}
+function checkedIdsIn(container) {
+  return [...container.querySelectorAll("input[type=checkbox]")].filter((cb) => cb.checked).map((cb) => cb.dataset.entryId);
+}
+function hasSelectionCheckboxes(container) {
+  return container.querySelectorAll("input[type=checkbox]").length > 0;
+}
+function salaryFromInputs(currencyEl, minEl, maxEl, periodEl) {
+  const salary = {};
+  const currency = currencyEl.value.trim();
+  const min = minEl.value.trim();
+  const max = maxEl.value.trim();
+  const period = periodEl.value.trim();
+  if (currency) salary.currency = currency;
+  if (min) salary.min = Number(min);
+  if (max) salary.max = Number(max);
+  if (period) salary.period = period;
+  return salary;
+}
 async function refreshProfiles() {
   if (!personId) { show($("profiles-out"), "guarda primero una persona"); return; }
+  // The edit areas select from the master history, so refresh the
+  // stored person details first (a page reload loses them otherwise).
+  try {
+    const personData = await call("/api/person", "GET");
+    if (personData.person) lastPersonDetails = personData.person.details || {};
+  } catch { /* keep whatever was loaded before */ }
   const confirmedCvs = await refreshProfileCvOptions();
   const data = await call("/api/profiles?personId=" + personId, "GET");
   show($("profiles-out"), data);
@@ -665,18 +743,85 @@ async function refreshProfiles() {
       cvSelect.appendChild(opt);
     }
     cvSelect.value = p.body.cv_import_id || "";
+    // Per-profile fields (redesign 2026-10-28), edited through the
+    // draft like focus/template/cv. Initial value: the profile's own
+    // value when the key exists; otherwise the person's stored value,
+    // so editing a legacy profile (created before these fields moved
+    // here) starts from what the user already had instead of blank.
+    const stored = lastPersonDetails || {};
+    const mkEditArea = (labelText, value, rows) => {
+      const lab = document.createElement("label");
+      lab.textContent = labelText;
+      const ta = document.createElement("textarea");
+      ta.rows = rows || 2;
+      ta.value = value || "";
+      return [lab, ta];
+    };
+    const listOrStored = (key) => (p.body[key] !== undefined ? (p.body[key] || []).join("\n") : (stored[key] || []).join("\n"));
+    const [drLab, drInput] = mkEditArea("Puestos deseados (uno por línea)", listOrStored("desired_roles"));
+    const [locLab, locInput] = mkEditArea("Ubicaciones (una por línea)", listOrStored("locations"));
+    const [skLab, skInput] = mkEditArea("Habilidades (una por línea)", listOrStored("skills"));
+    const [exLab, exInput] = mkEditArea("Exclusiones (una por línea)", listOrStored("exclusions"));
+    const editSalary = p.body.salary_expectations !== undefined ? (p.body.salary_expectations || {}) : (stored.salary_expectations || {});
+    const mkEditInput = (labelText, value) => {
+      const lab = document.createElement("label");
+      lab.textContent = labelText;
+      const input = document.createElement("input");
+      input.value = value === undefined || value === null ? "" : String(value);
+      return [lab, input];
+    };
+    const [salCurLab, salCurInput] = mkEditInput("Moneda de la expectativa salarial", editSalary.currency);
+    const [salMinLab, salMinInput] = mkEditInput("Salario mínimo esperado", editSalary.min);
+    const [salMaxLab, salMaxInput] = mkEditInput("Salario máximo esperado", editSalary.max);
+    const [salPerLab, salPerInput] = mkEditInput("Periodo salarial", editSalary.period);
+    // History selection for this profile. Absent key in the body
+    // means "present all" (checkedIds null), so a legacy profile
+    // opens with every entry ticked; unticking and saving stores an
+    // explicit list (possibly empty = present none).
+    const empSelLabel = document.createElement("label");
+    empSelLabel.textContent = "Empleo que presenta este perfil";
+    const empSel = document.createElement("div");
+    buildSelectionCheckboxes(empSel, stored.employment || [], (e) => (e.title || "") + " @ " + (e.employer || ""), p.body.employment_ids === undefined ? null : p.body.employment_ids);
+    const eduSelLabel = document.createElement("label");
+    eduSelLabel.textContent = "Estudios que presenta este perfil";
+    const eduSel = document.createElement("div");
+    buildSelectionCheckboxes(eduSel, stored.education || [], (e) => (e.title || "") + " @ " + (e.institution || ""), p.body.education_ids === undefined ? null : p.body.education_ids);
     const draftOut = document.createElement("p");
     draftOut.className = "status";
     const saveBtn = document.createElement("button");
     saveBtn.textContent = "Guardar borrador";
-    saveBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (!draftId) throw new Error("sin borrador"); const body = { focus: focusInput.value, template: templateInput.value, factRefs: p.body.factRefs || [] }; if (cvSelect.value) body.cv_import_id = cvSelect.value; await call("/api/drafts/" + draftId, "PUT", { body }); draftOut.textContent = "Borrador guardado"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
+    saveBtn.onclick = async () => { try {
+      const draftId = draftsByCard.get(p.id); if (!draftId) throw new Error("sin borrador");
+      // Start from the stored body so keys this edit area does not
+      // show (notes, etc.) survive a draft save instead of being
+      // dropped; then overwrite every field the area does edit.
+      const body = { ...p.body, focus: focusInput.value, template: templateInput.value, factRefs: p.body.factRefs || [] };
+      if (cvSelect.value) body.cv_import_id = cvSelect.value; else delete body.cv_import_id;
+      body.desired_roles = drInput.value.split("\n").map((l) => l.trim()).filter(Boolean);
+      body.locations = locInput.value.split("\n").map((l) => l.trim()).filter(Boolean);
+      body.skills = skInput.value.split("\n").map((l) => l.trim()).filter(Boolean);
+      body.exclusions = exInput.value.split("\n").map((l) => l.trim()).filter(Boolean);
+      body.salary_expectations = salaryFromInputs(salCurInput, salMinInput, salMaxInput, salPerInput);
+      // Selections: when the person has history, the ticked ids are
+      // stored explicitly. When there is no history to tick, carry
+      // over whatever the body already had (or nothing, preserving
+      // the absent-means-all rule) instead of storing an empty list.
+      if (hasSelectionCheckboxes(empSel)) body.employment_ids = checkedIdsIn(empSel);
+      else if (body.employment_ids === undefined) delete body.employment_ids;
+      if (hasSelectionCheckboxes(eduSel)) body.education_ids = checkedIdsIn(eduSel);
+      else if (body.education_ids === undefined) delete body.education_ids;
+      await call("/api/drafts/" + draftId, "PUT", { body }); draftOut.textContent = "Borrador guardado"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
     const confirmBtn = document.createElement("button");
     confirmBtn.textContent = "Confirmar borrador";
     confirmBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (!draftId) throw new Error("sin borrador"); await call("/api/drafts/" + draftId + "/confirm", "POST", {}); await refreshProfiles(); $("profiles-status").textContent = "Borrador confirmado"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
     const discardBtn = document.createElement("button");
     discardBtn.textContent = "Descartar borrador";
     discardBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (draftId) await call("/api/drafts/" + draftId + "/discard", "POST", {}); draftOut.textContent = "Borrador descartado"; editArea.style.display = "none"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
-    editArea.append(focusLabel, focusInput, templateLabel, templateInput, cvLabel, cvSelect, saveBtn, confirmBtn, discardBtn, draftOut);
+    editArea.append(focusLabel, focusInput, templateLabel, templateInput, cvLabel, cvSelect,
+      drLab, drInput, locLab, locInput, skLab, skInput, exLab, exInput,
+      salCurLab, salCurInput, salMinLab, salMinInput, salMaxLab, salMaxInput, salPerLab, salPerInput,
+      empSelLabel, empSel, eduSelLabel, eduSel,
+      saveBtn, confirmBtn, discardBtn, draftOut);
     editBtn.onclick = async () => { try { const d = await call("/api/profiles/" + p.id + "/drafts", "POST", {}); draftsByCard.set(p.id, d.id); editArea.style.display = "block"; } catch (e) { readinessOut.textContent = "Error: " + e.message; } };
     card.append(editBtn, editArea);
     list.appendChild(card);
@@ -684,7 +829,46 @@ async function refreshProfiles() {
 }
 $("person-save").onclick = async () => { try { const d = await call("/api/person", "POST", personDetailsFromForm()); personId = d.id; $("person-status").textContent = "Persona guardada: " + (d.person.details.full_name || ""); show($("person-out"), d); if (d.person && d.person.details) fillPersonForm(d.person.details); await refreshProfileCvOptions(); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
 $("person-load").onclick = async () => { try { const d = await call("/api/person", "GET"); if (d.person) { personId = d.person.id; fillPersonForm(d.person.details || {}); $("person-status").textContent = "Persona actual: " + (d.person.details.full_name || ""); await refreshProfileCvOptions(); } else { $("person-status").textContent = "Sin persona guardada"; } show($("person-out"), d); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
-$("profile-create").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); const body = { focus: $("profile-focus").value, template: $("profile-template").value }; if ($("profile-cv").value) body.cv_import_id = $("profile-cv").value; await call("/api/profiles", "POST", { personId, name: $("profile-name").value, body }); await refreshProfiles(); } catch (e) { show($("profiles-out"), "Error: " + e.message); } };
+$("profile-create").onclick = async () => { try {
+  if (!personId) throw new Error("guarda primero una persona");
+  // Seeding (redesign 2026-10-28): a per-profile field left empty in
+  // the create form is seeded from the person's stored values, so
+  // what the user already had (roles, skills, salary, locations)
+  // carries into their first new profile instead of vanishing with
+  // the move out of the person form. A typed value always wins over
+  // the seed; a field empty in both places is omitted, not stored
+  // as an empty value.
+  const personData = await call("/api/person", "GET");
+  const stored = personData.person ? personData.person.details || {} : {};
+  lastPersonDetails = stored;
+  const pickList = (fieldId, storedValue) => {
+    const typed = lines(fieldId);
+    if (typed.length) return typed;
+    if (storedValue && storedValue.length) return storedValue;
+    return undefined;
+  };
+  const body = { focus: $("profile-focus").value, template: $("profile-template").value };
+  const desiredRoles = pickList("profile-desired-roles", stored.desired_roles);
+  if (desiredRoles !== undefined) body.desired_roles = desiredRoles;
+  const locations = pickList("profile-locations", stored.locations);
+  if (locations !== undefined) body.locations = locations;
+  const skills = pickList("profile-skills", stored.skills);
+  if (skills !== undefined) body.skills = skills;
+  const exclusions = pickList("profile-exclusions", stored.exclusions);
+  if (exclusions !== undefined) body.exclusions = exclusions;
+  const typedSalary = salaryFromInputs($("profile-salary-currency"), $("profile-salary-min"), $("profile-salary-max"), $("profile-salary-period"));
+  if (Object.keys(typedSalary).length) body.salary_expectations = typedSalary;
+  else if (stored.salary_expectations && Object.keys(stored.salary_expectations).length) body.salary_expectations = stored.salary_expectations;
+  if ($("profile-cv").value) body.cv_import_id = $("profile-cv").value;
+  // Selections: stored only when the person actually has history to
+  // select from. Otherwise the keys are omitted, so the profile
+  // presents all entries — including ones added to the master
+  // history later — instead of an empty list frozen at creation.
+  if (hasSelectionCheckboxes($("profile-employment-select"))) body.employment_ids = checkedIdsIn($("profile-employment-select"));
+  if (hasSelectionCheckboxes($("profile-education-select"))) body.education_ids = checkedIdsIn($("profile-education-select"));
+  await call("/api/profiles", "POST", { personId, name: $("profile-name").value, body });
+  await refreshProfiles();
+} catch (e) { show($("profiles-out"), "Error: " + e.message); } };
 $("profiles-refresh").onclick = refreshProfiles;
 $("cv-preview").onclick = async () => { try {
   if (!personId) throw new Error("guarda primero una persona");
