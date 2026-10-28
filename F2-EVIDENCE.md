@@ -1063,3 +1063,101 @@ blocking, snapshots, ten-profile limit) remain green.
   parent verification does not close G2. The limitation recorded
   above (a legacy authorisation edited before its first adoption
   save becomes a second entry) is carried forward unchanged.
+
+## G2 re-review 4 corrections 2026-10-28 (293e250)
+
+Issue (user report ~/workspace/user/files/G2-REREVIEW-293e250.md;
+the zip with the user's reproducible scripts was NOT uploaded, only
+the .md, so cases were reproduced from the report's written steps
+and fixture): a legacy authorisation WITHOUT an id carrying EXTRA
+fields (country ES, status authorised, valid_until 2030-12,
+sponsorship_required false, plus valid_from 2025-01 and source_note
+"Synthetic user declaration") duplicated on unchanged save (1 -> 2
+-> 3) and could not be deleted from the screen. Cause: the backend
+matched id-less entries on full field identity, but the UI rebuilds
+only country/status/validity/sponsorship — it never sends the extra
+fields, not even in the delete marker — so no match was found: save
+added another entry (losing the extra fields), delete deleted
+nothing. The same root cause produced the previously declared
+limitation (editing a basic legacy entry before its first adoption
+save created a second entry); this fix closes that limitation too.
+Consecutive saves were already fixed and stay fixed.
+
+Fix, by the class solution the user required: legacy
+authorisations have PERSISTED identifiers BEFORE they are
+presented for editing, preserving all fields, so edit/delete
+resolve by id — never by deducing identity from mutable values.
+Concretely (`packages/shared/person.mjs`):
+- New `normaliseAuthorisationIds`: every authorisation entry
+  without a non-empty id gets a fresh stable UUID, all other fields
+  and order preserved, distinct entries never collapsed.
+- `createPersonFull` stores normalised details, so new persons
+  never contain id-less authorisations.
+- `getPerson`/`listPersons` normalise on read AND persist the
+  assignment immediately (a second read returns the same id, proven
+  by reading the stored row directly in tests). This covers legacy
+  rows inserted before this fix, since every load path for editing
+  goes through these reads — including GET /api/person, which is
+  what the form loads.
+- `mergeAuthorisations` keeps full-identity adoption, extended so
+  an identical id-less entry (or deletion marker) also adopts a
+  stored entry that already carries an id. Partial entries still
+  never match by identity: a stored entry with extra fields the
+  patch omits is left alone, and a partial id-less patch entry is
+  a new entry — identity now comes from the persisted id, not from
+  values. Merge by id preserves unedited nested properties
+  (including extra fields the screen never displays), and delete
+  by id deletes exactly that entry.
+- No new UI controls for the extra fields were needed: the form
+  receives normalised entries (with ids) from load, its cards carry
+  those ids, delete markers carry ids, and the existing
+  re-render-after-save adopts ids from the persisted response.
+  The id-less marker fallback is kept for safety but is no longer
+  reachable through normal flows.
+
+Tests (`tests/g2-rereview4.test.mjs`, module, plus 4 browser tests
+in `tests/ui-browser.test.mjs` driving real Chromium):
+- Legacy entry with the exact user fixture gains a persisted
+  stable id on read (proven against the stored row, not just the
+  response), with every field intact, across repeated reads.
+- Repeated saves by id (the screen's 4 visible fields only) keep
+  exactly one entry with both extra fields intact.
+- Editing the entry on first interaction (validity change) updates
+  it in place: same id, new validity, extras intact — no prior
+  adoption save required.
+- Deleting it from the screen really deletes it; the other entry
+  survives untouched.
+- Two distinct ES authorisations keep distinct ids and are
+  individually editable and deletable.
+- An id-less deletion marker with full identity including extras
+  still removes exactly that entry (old marker contract kept).
+- Two existing tests were updated to the new contract, with the
+  reason recorded in each: they asserted a legacy original "still
+  has no id" after a differing entry was added. Under re-review 4
+  that assertion contradicts the required behaviour — the original
+  now HAS a persisted id; what must stay untouched is its fields,
+  not its id-lessness. Counts and field assertions are unchanged.
+
+Verification:
+- Working copy, Node v24.22.1: `npm run typecheck` exit 0,
+  `npm test` 111 pass / 0 fail (was 101; +10: 6 module, 4 browser),
+  `npm run check` exit 0.
+- Fresh local clone of code commit `87c6806` (after cleaning old
+  scratch clones out of /tmp): Node v24.22.1, `npm ci` ok,
+  typecheck exit 0, tests 111/111, check exit 0, `.github`
+  correctly absent. Note, recorded honestly: the first fresh-clone
+  attempt failed environmentally, not on code — /tmp (a 512 MB
+  tmpfs) was 100% full with old scratch clones, so npm ci installed
+  incompletely (typescript platform package missing) and SQLite
+  reported "disk is full". After removing old scratch clones the
+  same clone verified clean; the scratch clone was removed again
+  afterwards.
+- Real xAI calls in this round: 0 (all xAI tests use mock fetches).
+- G2 closure is left to the user's re-review, as ordered; this
+  report does not close G2. A full F10 deployment (compose,
+  install, backup/restore) is still pending and is not claimed.
+- No honest limitation remains open from this issue: the
+  previously declared limitation (editing a legacy entry before
+  its first adoption save) is closed by load-time normalisation,
+  since the entry already carries its persisted id when the form
+  first presents it.
