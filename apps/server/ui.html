@@ -98,7 +98,7 @@ button:hover { border-color: #3A3E45; background: #22252C; }
 button:focus-visible { outline: 2px solid #CDFF3C; outline-offset: 2px; }
 button:disabled { opacity: 0.55; cursor: default; background: #23261C; color: #9AA1A6; }
 /* Primary actions: lime, near-black text, no visible border. */
-#person-save, #profile-create, #cv-confirm, #fact-save, #map-save,
+#person-save, #profile-create, #cv-confirm, #map-save,
 #consent-apply, #xai-save, #xai-model-save, #auto-policy-save,
 #auto-enable, #q-resolve {
   background: #CDFF3C;
@@ -108,10 +108,10 @@ button:disabled { opacity: 0.55; cursor: default; background: #23261C; color: #9
   padding: 12px 18px;
   border-radius: 12px;
 }
-#person-save:hover, #profile-create:hover, #cv-confirm:hover, #fact-save:hover,
+#person-save:hover, #profile-create:hover, #cv-confirm:hover,
 #map-save:hover, #consent-apply:hover, #xai-save:hover, #xai-model-save:hover,
 #auto-policy-save:hover, #auto-enable:hover, #q-resolve:hover { background: #D8FF66; border-color: transparent; }
-#person-save:disabled, #profile-create:disabled, #cv-confirm:disabled, #fact-save:disabled,
+#person-save:disabled, #profile-create:disabled, #cv-confirm:disabled,
 #map-save:disabled, #consent-apply:disabled, #xai-save:disabled, #xai-model-save:disabled,
 #auto-policy-save:disabled, #auto-enable:disabled, #q-resolve:disabled { background: #3A3F22; color: #7C838A; }
 /* Delete stays muted grey like the reference: no red is invented. */
@@ -236,20 +236,6 @@ en ese caso introduce los datos manualmente.</small></p>
 <p class="status" id="cv-status"></p>
 <button id="cv-refresh">Ver importaciones de CV</button>
 <pre id="cv-out"></pre>
-</section>
-
-<section id="facts-section">
-<h2>Hechos declarados</h2>
-<p><small>Un hecho tiene concepto, ámbito, valor y procedencia. La
-narrativa de un modelo nunca se guarda como hecho.</small></p>
-<label for="fact-concept">Concepto</label><input id="fact-concept" placeholder="work_authorisation">
-<label for="fact-scope">Ámbito</label><input id="fact-scope" placeholder="ES (vacío = sin ámbito)">
-<label for="fact-value">Valor</label><input id="fact-value" placeholder="yes">
-<label for="fact-provenance">Procedencia</label>
-<select id="fact-provenance"><option value="user">user</option><option value="cv-import">cv-import</option><option value="portal-form">portal-form</option><option value="manual">manual</option></select>
-<button id="fact-save">Guardar hecho</button>
-<button id="facts-refresh">Actualizar lista</button>
-<pre id="facts-out"></pre>
 </section>
 
 <section id="mappings-section">
@@ -752,8 +738,10 @@ function renderCvConflicts(result) {
 $("cv-confirm").onclick = async () => { try { if (!currentCvId) throw new Error("primero genera una vista previa"); const r = await call("/api/cv/" + currentCvId + "/confirm", "POST", {}); $("cv-status").textContent = r.status === "confirmed" ? "CV validado" : "CV confirmado con conflictos"; renderCvConflicts(r); } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
 $("cv-reject").onclick = async () => { try { if (!currentCvId) throw new Error("primero genera una vista previa"); await call("/api/cv/" + currentCvId + "/reject", "POST", {}); $("cv-status").textContent = "Importación rechazada"; } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
 $("cv-refresh").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("cv-out"), await call("/api/cv?personId=" + personId, "GET")); } catch (e) { show($("cv-out"), "Error: " + e.message); } };
-$("fact-save").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("facts-out"), await call("/api/facts", "POST", { personId, concept: $("fact-concept").value, scope: $("fact-scope").value, value: $("fact-value").value, provenance: $("fact-provenance").value })); } catch (e) { show($("facts-out"), "Error: " + e.message); } };
-$("facts-refresh").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("facts-out"), await call("/api/facts?personId=" + personId, "GET")); } catch (e) { show($("facts-out"), "Error: " + e.message); } };
+// NOTE (user order 2026-10-28): the declared-facts editor was removed
+// from this UI. Facts still exist in the backend (/api/facts, /api/resolve,
+// /api/questions) and already-stored facts still resolve; they can only be
+// added or edited via the API or scripts, not from this page.
 $("map-save").onclick = async () => { try { show($("maps-out"), await call("/api/mappings", "POST", { source: $("map-source").value, fieldKey: $("map-key").value, sourceField: $("map-field").value })); } catch (e) { show($("maps-out"), "Error: " + e.message); } };
 $("maps-refresh").onclick = async () => { try { show($("maps-out"), await call("/api/mappings", "GET")); } catch (e) { show($("maps-out"), "Error: " + e.message); } };
 $("q-resolve").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("q-out"), await call("/api/resolve", "POST", { personId, questions: [{ concept: $("q-concept").value, scope: $("q-scope").value }] })); } catch (e) { show($("q-out"), "Error: " + e.message); } };

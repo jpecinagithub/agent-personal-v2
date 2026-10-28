@@ -37,9 +37,17 @@ test("the UI page is served, covers all configuration areas, and never exposes s
   try {
     secrets.set("xai_api_key", "FAKE-UI-SECRET-ONLY");
     const html = await (await fetch(`${base}/`)).text();
-    for (const section of ["Persona", "Perfiles", "Currículum (CV)", "Hechos declarados", "Mapeos de campos", "Preguntas y respuestas", "Políticas y consentimientos", "Configuración de xAI", "Modo automático"]) {
+    // NOTE (user order 2026-10-28): the declared-facts editor was removed
+    // from the UI, so "Hechos declarados" is no longer a page section.
+    // The facts backend (/api/facts, /api/resolve, /api/questions) is
+    // untouched, and the questions/resolver section stays.
+    for (const section of ["Persona", "Perfiles", "Currículum (CV)", "Mapeos de campos", "Preguntas y respuestas", "Políticas y consentimientos", "Configuración de xAI", "Modo automático"]) {
       assert.ok(html.includes(section), `UI is missing section: ${section}`);
     }
+    assert.ok(!html.includes('id="facts-section"'), "facts editor section must be gone from the UI");
+    assert.ok(!html.includes('id="fact-save"'), "facts editor save button must be gone from the UI");
+    assert.ok(!html.includes('id="facts-out"'), "facts editor output must be gone from the UI");
+    assert.ok(html.includes('id="q-concept"'), "questions/resolver section must stay in the UI");
     // No JSON editing and no internal IDs to copy: the form uses named
     // fields, and the page must not print raw profile/person UUIDs.
     assert.ok(html.includes('id="person-full-name"'), "person form must have named fields");
@@ -120,6 +128,58 @@ test("configuration changes through the API take effect without restart, and for
     const factsAfter = await (await fetch(`${base}/api/facts?personId=${personId}`)).json();
     assert.equal(factsAfter.facts.length, factsBefore.facts.length, "foreign command must change nothing");
     assert.ok(!factsAfter.facts.some((/** @type {any} */ f) => f.concept === "evil"), "foreign command must not add a fact");
+  } finally {
+    server.close();
+  }
+});
+
+// Facts editor removed from the UI per user order 2026-10-28, but the
+// facts/resolver backend must keep working through the API: a fact
+// declared via /api/facts resolves as declared, a missing concept
+// creates exactly one pending question, and answering it stores the
+// fact so the same question resolves as declared afterwards.
+test("declared facts still resolve via the API without the UI editor", async () => {
+  const { server, base } = await startServer();
+  try {
+    const personRes = await post(base, "/api/person", {
+      full_name: "Test Person", email: "test.person@example.test",
+    });
+    assert.equal(personRes.status, 201);
+    const personId = (await personRes.json()).id;
+
+    const factRes = await post(base, "/api/facts", { personId, concept: "work_authorisation", scope: "ES", value: "yes", provenance: "user" });
+    assert.equal(factRes.status, 201);
+
+    const resolve = await post(base, "/api/resolve", {
+      personId,
+      questions: [
+        { concept: "work_authorisation", scope: "ES" },
+        { concept: "notice_period", questionText: "What is your notice period?" },
+      ],
+    });
+    const answers = (await resolve.json()).answers;
+    assert.equal(answers[0].kind, "declared");
+    assert.equal(answers[0].value, "yes");
+    assert.equal(answers[1].kind, "missing");
+    assert.ok(answers[1].pendingQuestionId, "missing concept must create a pending question");
+
+    const pending = await (await fetch(`${base}/api/questions?personId=${personId}`)).json();
+    assert.equal(pending.questions.filter((/** @type {any} */ q) => q.concept === "notice_period" && q.status === "pending").length, 1);
+
+    const resolveAgain = await post(base, "/api/resolve", {
+      personId,
+      questions: [{ concept: "notice_period", questionText: "What is your notice period?" }],
+    });
+    const again = (await resolveAgain.json()).answers[0];
+    assert.equal(again.kind, "missing", "re-asking must not duplicate the pending question");
+    assert.equal(again.pendingQuestionId, answers[1].pendingQuestionId);
+
+    const answerRes = await post(base, `/api/questions/${answers[1].pendingQuestionId}/answer`, { value: "1 month", provenance: "user" });
+    assert.equal(answerRes.status, 200);
+    const resolved = await post(base, "/api/resolve", { personId, questions: [{ concept: "notice_period" }] });
+    const final = (await resolved.json()).answers[0];
+    assert.equal(final.kind, "declared");
+    assert.equal(final.value, "1 month");
   } finally {
     server.close();
   }
