@@ -217,5 +217,16 @@ npm test
 npm run check
 ```
 
-Results: (filled below after the run; the tested commit is the code
-commit, and this evidence file is committed afterwards as docs-only).
+Results (2026-10-28, fresh clone of the code commit, run exactly as
+above):
+- `git rev-parse HEAD` → `ab3371a2f1cc0c54dbbe67e859c8aa79d74734ca`
+- `node --version` → v24.22.1
+- `npm ci` → added 4 packages in 1 s
+- `npm run typecheck` → exit 0 (zero tsc errors)
+- `npm test` → 45 tests, 45 pass, 0 fail (2.9 s)
+- `npm run check` → exit 0
+- `ls .github` → No such file or directory (no Actions, no runners,
+  as decided: GitHub is only for storage and versioning)
+
+Tested commit: `ab3371a`. This evidence file was committed afterwards
+as docs-only; the code it describes is unchanged from `ab3371a`.
