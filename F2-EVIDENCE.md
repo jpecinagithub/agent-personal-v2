@@ -785,9 +785,7 @@ re-review, as ordered; this report does not close G2.
   port and verified stopped. The deployed copy stays with the
   server stopped; it is not a service and does not start on boot.
 - G2 closure is left to the user's re-review, as ordered: this
-  parent verification does not close G2. A full F10 deployment
-  (compose, install, backup/restore) is still pending and is not
-  claimed.
+  parent verification does not close G2.
 
 ## G2 re-review 2 corrections 2026-10-28 (f9726ef)
 
@@ -920,3 +918,125 @@ Real xAI calls in this round: 0 (all xAI tests use mock fetches).
   server stopped; it is not a service and does not start on boot.
 - G2 closure is left to the user's re-review, as ordered: this
   parent verification does not close G2.
+
+## G2 re-review 3 corrections 2026-10-28 (8ca80ef)
+
+The user's re-review 3 of code commit `8ca80ef` (reviewed at evidence
+commit `c8f481c`, whose diff to the code commit only touches this
+file) found the CV/import issues fixed and two form failures left,
+both reproduced in real Chrome with synthetic data. The review
+scripts were not uploaded, so the cases were reproduced from the
+report's written steps. All behaviours the user verified as working
+in that report (CV conflict blocking, cross-import correction
+rejection, unchanged-save conservation, reorder, delete-card,
+per-profile CV, xAI invalidation, auto policy, deleted-profile
+blocking, snapshots, ten-profile limit) remain green.
+
+### 1. [P1] Saving did not update the form's reference state
+
+- Reproduction (user's): load a person with no links/skills/salary
+  and current=false, sponsorship=false; add a link, skills, salary,
+  job achievements/links, check "Empleo actual" and "Necesita
+  patrocinio", save (all persist); WITHOUT reloading, clear those
+  fields, uncheck both boxes, add an end date, save again. Observed
+  before the fix: links, skills, salary, achievements, job links
+  remained, current and sponsorship_required stayed true (only the
+  end date saved), because `formHad`, `formHadSalary` and the card
+  datasets (`currentWas`, `sponsorshipWas`, `hadAchievements`,
+  `hadLinks`) described the state at load or card creation and were
+  never updated after a successful save, so the second save omitted
+  empties/false values based on pre-first-save state and the
+  backend preserved what was just stored.
+- Fix by class (`apps/server/ui.html`, save handler): after every
+  successful person save, the form is re-rendered from the persisted
+  save response (`fillPersonForm(d.person.details)`). Reference
+  flags, card datasets AND card ids are therefore always the
+  persisted ones; no manual reload is ever required between edits.
+  The unchanged-save positive case is unaffected: re-rendering
+  from persisted values yields identical values.
+- Regression test (real browser):
+  "browser G2 re-review 3: consecutive saves without reload refresh
+  reference state" — absent/empty -> value/true -> empty/false in
+  the SAME screen, with saves between changes, asserted on screen
+  after a reload and through the API (links/skills [], salary {},
+  achievements/links [], current false, sponsorship false, end
+  date saved).
+
+### 2. [P2] Authorisations without an id duplicated on load+save
+
+- Reproduction (user's): save a person with a legacy authorisation
+  without an id (ES, authorised, 2030-12, sponsorship false);
+  load and save without editing, repeatedly. Observed before the
+  fix: 1 -> 2 -> 3 entries, the original never gaining an id,
+  because the browser invented an id for the legacy entry while
+  the backend keyed the stored entry by `country:ES` — different
+  keys, so each save added a new logical row and kept the original.
+  The existing module test sent an entry without an id and
+  therefore did not reproduce what the screen actually sends.
+- Fix by class, backend (`packages/shared/person.mjs`,
+  `mergeAuthorisations`, replacing the generic country-fallback
+  merge for authorisations): an entry WITH an id matches by id.
+  An entry WITHOUT an id matches a stored id-less entry ONLY on
+  full field identity — country, status, validity and sponsorship,
+  plus any extra stored field (empty normalises to absent, an
+  absent sponsorship flag reads as false, the form's checkbox
+  semantics). Country alone is NEVER enough. On a full-identity
+  match the stored entry is adopted and persists a stable id; with
+  no match the entry is new. An id-less deletion marker removes
+  only the fully matching stored entry. Stored entries are never
+  silently dropped.
+- Fix by class, form (`apps/server/ui.html`): legacy entries are
+  rendered WITHOUT an invented id (`dataset.id = ""`), and the
+  collector omits the id key for them, so the backend sees the
+  entry it can adopt. Deleting a legacy card records a deletion
+  marker with its current fields instead of an invented id. After
+  every save the form adopts the ids from the persisted response
+  (fix 1), so the next save addresses the entry by its stable id.
+- Regression tests: browser test "browser G2 re-review 3: legacy
+  authorisation without id gains a stable id and never duplicates"
+  — three load/save rounds through the screen, exactly one entry
+  after each, same stable id, validity and sponsorship intact.
+  Module tests (`tests/g2-rereview3.test.mjs`): identical id-less
+  entry adopts and gains an id; omitted sponsorship matches stored
+  false; different validity or sponsorship never adopts; an
+  id-less deletion marker removes only the fully matching entry
+  and a non-matching marker removes nothing.
+- Contract change, recorded with its reason: the old test "an
+  id-less stored authorisation merges by country instead of
+  duplicating" expected a country-only merge (adding a new
+  valid_until to the stored entry). That is exactly the ambiguous
+  matching the user forbade, so the test was rewritten to the new
+  contract: a differing id-less entry becomes a second entry with
+  the original untouched, while an identical id-less entry adopts
+  the legacy one.
+
+### Verification
+
+- Working copy, Node v24.22.1: `npm run typecheck` exit 0,
+  `npm test` 101 pass / 0 fail (was 95; +6: 4 module, 2 browser),
+  `npm run check` exit 0.
+- Fresh-clone verification (after pushing, so the clone is the new
+  code): `git clone` to `/tmp/agentv2-g2rr3-clean`, Node v24.22.1,
+  `npm ci` ok, `npm run typecheck` exit 0, `npm test` 101/101,
+  `npm run check` exit 0, `.github` correctly absent (no Actions,
+  no runners, as decided: GitHub is only for storage and
+  versioning). Tested commit: `293e250`. This evidence was
+  committed afterwards as docs-only; the code it describes is
+  unchanged from `293e250`.
+- Real xAI calls in this round: 0 (all xAI tests use mock fetches).
+- G2 closure is left to the user's re-review, as ordered: this
+  report does not close G2. A full F10 deployment (compose,
+  install, backup/restore) is still pending and is not claimed.
+
+### Honest limitation
+
+- A legacy authorisation that is EDITED before its first adoption
+  save (fields changed while it still has no id) does not match
+  the stored entry on full identity — without an id, an edited
+  legacy entry is indistinguishable from a new authorisation for
+  the same country — so it is stored as a second entry and the
+  original remains for the user to delete explicitly. After the
+  first adoption save the entry has a stable id and every later
+  edit is exact. The user's acceptance cases (repeated unchanged
+  load/save) do not hit this window, and no silent duplication
+  occurs on unchanged saves.
