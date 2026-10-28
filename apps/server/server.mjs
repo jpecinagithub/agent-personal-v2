@@ -39,6 +39,17 @@ import { listConnectors, getConnector, pauseConnector, resumeConnector } from ".
 import { addBoard, getBoard, listBoards, pauseBoard, verifyBoard } from "../../packages/shared/company-catalog.mjs";
 import { buildSearchUrl, importUrl, importCsv, importText } from "../../packages/shared/linkedin.mjs";
 import { extractOffer } from "../../packages/shared/offer-extract.mjs";
+// F4: analysis, plan and limits (T-V2-035..040).
+import { analyseRoute, capabilityMatrixFor, ROUTE_KINDS } from "../../packages/shared/route-classify.mjs";
+import { compareOfferProfiles, recordComparison, getComparison, questionsForAssessment } from "../../packages/shared/requirements.mjs";
+import { createPlan, getPlan, listPlans, createPlanVersion, listPlanVersions, proposeAdaptation, listAdaptations, runPlanDryRun, getExecution, listExecutions } from "../../packages/shared/application-plan.mjs";
+import { executeChatTool, askMissingFact, answerMissingFact, listFactQuestions, chatToolCatalogue, getSelectedProfile } from "../../packages/shared/chat-tools.mjs";
+import { scanAndRecord, listRejectedInstructions } from "../../packages/shared/untrusted.mjs";
+import { preflightCheck, decideAuto } from "../../packages/shared/preflight.mjs";
+import { runF4Flow } from "../../packages/shared/f4-flow.mjs";
+import { buildProfileView } from "../../packages/shared/search-run.mjs";
+import { getConfirmedFact } from "../../packages/shared/facts.mjs";
+import { profileCv } from "../../packages/shared/profiles.mjs";
 
 /**
  * @param {{dataDir: string, port?: number, recoverIntervalMs?: number, verifyFetchFn?: any, fetchFn?: any, xaiSearchFn?: any, xaiClassifyFn?: any}} opts
@@ -621,6 +632,209 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, ver
         if (!requireControlOrigin(req, res)) return;
         const fixture = JSON.parse(fs.readFileSync(new URL("../../tests/fixtures/search-benchmark.json", import.meta.url), "utf8"));
         return send(res, 200, { metrics: runSearchBenchmark(fixture) });
+      }
+      // F4: inspection, assessment, plans, execution, chat tools,
+      // untrusted-content scanning, preflight and the end-to-end flow.
+      // None of these routes creates an attempt, enqueues an
+      // application candidate or submits anything: preflight "pass"
+      // and the flow's auto decision are decisions only.
+      const f4ProfileViews = (profileIds) => profileIds.map((id) => buildProfileView(db, id));
+      const f4FactsByProfile = (views) => {
+        const out = {};
+        for (const view of views) {
+          const profile = getProfileFull(db, view.profileId);
+          out[view.profileId] = (profile?.body?.factRefs ?? []).map((ref) => {
+            const fact = getConfirmedFact(db, profile.person_id, ref.concept, ref.scope ?? "");
+            return fact ? { concept: fact.concept, scope: fact.scope, value: fact.value } : null;
+          }).filter(Boolean);
+        }
+        return out;
+      };
+      if (req.method === "GET" && url.pathname === "/api/route-matrix") {
+        return send(res, 200, {
+          routeKinds: ROUTE_KINDS,
+          matrices: {
+            greenhouse: capabilityMatrixFor("greenhouse"),
+            lever: capabilityMatrixFor("lever"),
+            ashby: capabilityMatrixFor("ashby"),
+            generic: capabilityMatrixFor("unknown"),
+          },
+        });
+      }
+      if (req.method === "POST" && url.pathname === "/api/offers/inspect") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        if (typeof body.url !== "string" || !body.url) throw new Error("url is required");
+        const extraction = await extractOffer(body.url, { fetchFn, classifyFn: xaiVerified() && xaiClassifyFn ? xaiClassifyFn : null });
+        const analysis = analyseRoute({ extraction, url: body.url, pageText: body.pageText ?? null, redirectChain: extraction.redirectChain ?? [] });
+        return send(res, 200, { analysis });
+      }
+      if (req.method === "POST" && url.pathname === "/api/offers/assess") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        if (!body.offer || typeof body.offer !== "object") throw new Error("offer is required");
+        if (!Array.isArray(body.profileIds) || body.profileIds.length === 0) throw new Error("profileIds must be a non-empty array");
+        const views = f4ProfileViews(body.profileIds);
+        const comparison = compareOfferProfiles(body.offer, views, { factsByProfile: f4FactsByProfile(views), criteria: body.criteria ?? {} });
+        let comparisonId = null;
+        let chosenProfileId = body.chosenProfileId ?? comparison.bestProfileId;
+        if (body.chosenProfileId) {
+          comparisonId = recordComparison(db, {
+            personId: body.personId, offerId: body.offerId ?? body.offer.canonicalUrl ?? body.offer.title ?? "offer",
+            chosenProfileId: body.chosenProfileId, assessments: comparison.assessments,
+          });
+        }
+        const chosenAssessment = comparison.assessments.find((a) => a.profileId === chosenProfileId) ?? null;
+        return send(res, 200, {
+          comparison, chosenProfileId, comparisonId,
+          questions: chosenAssessment ? questionsForAssessment(chosenAssessment) : [],
+        });
+      }
+      if (req.method === "POST" && url.pathname === "/api/plans") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const id = createPlan(db, body);
+        return send(res, 201, { id, plan: getPlan(db, id) });
+      }
+      if (req.method === "GET" && url.pathname === "/api/plans") {
+        return send(res, 200, { plans: listPlans(db, { personId: url.searchParams.get("personId") ?? undefined, offerId: url.searchParams.get("offerId") ?? undefined }) });
+      }
+      if (req.method === "GET" && url.pathname.startsWith("/api/plans/") && url.pathname.endsWith("/versions")) {
+        return send(res, 200, { versions: listPlanVersions(db, url.pathname.split("/")[3]) });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/plans/") && url.pathname.endsWith("/versions")) {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const version = createPlanVersion(db, url.pathname.split("/")[3], body);
+        return send(res, 200, { version, plan: getPlan(db, url.pathname.split("/")[3]) });
+      }
+      if (req.method === "GET" && url.pathname.startsWith("/api/plans/") && url.pathname.endsWith("/adaptations")) {
+        return send(res, 200, { adaptations: listAdaptations(db, url.pathname.split("/")[3]) });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/plans/") && url.pathname.endsWith("/adaptations")) {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const id = proposeAdaptation(db, { planId: url.pathname.split("/")[3], executionId: body.executionId ?? null, reason: body.reason, changes: body.changes ?? {}, policyViolation: body.policyViolation ?? null });
+        const row = db.prepare("SELECT * FROM plan_adaptations WHERE id = ?").get(id);
+        return send(res, 201, { id, adaptation: row });
+      }
+      if (req.method === "GET" && url.pathname.startsWith("/api/plans/") && url.pathname.endsWith("/executions")) {
+        return send(res, 200, { executions: listExecutions(db, url.pathname.split("/")[3]) });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/plans/") && url.pathname.endsWith("/execute")) {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const observedByStepId = body.observedByStepId ?? null;
+        const execution = runPlanDryRun(db, url.pathname.split("/")[3], {
+          limits: body.limits,
+          activeMsPerStep: body.activeMsPerStep ?? 0,
+          llmTokensPerStep: body.llmTokensPerStep ?? 0,
+          llmCostPerStep: body.llmCostPerStep ?? 0,
+          initialUsage: body.initialUsage,
+          observeFn: observedByStepId ? ((step) => (step.id in observedByStepId ? observedByStepId[step.id] : (step.observableInput ?? null))) : undefined,
+        });
+        return send(res, 200, { execution });
+      }
+      if (req.method === "GET" && url.pathname.startsWith("/api/plans/")) {
+        const plan = getPlan(db, url.pathname.split("/")[3]);
+        if (!plan) return send(res, 404, { error: "plan not found" });
+        return send(res, 200, { plan });
+      }
+      if (req.method === "GET" && url.pathname === "/api/chat-tools") {
+        return send(res, 200, { tools: chatToolCatalogue() });
+      }
+      if (req.method === "POST" && url.pathname === "/api/chat-tools") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const result = await executeChatTool(db, body.tool, body.args ?? {}, {
+          runSearch: async (definitionId) => runSearchDefinition(db, definitionId, {
+            fetchFn,
+            xaiSearchFn: xaiVerified() && xaiSearchFn ? xaiSearchFn : null,
+            xaiClassifyFn: xaiVerified() && xaiClassifyFn ? xaiClassifyFn : null,
+          }),
+          analyseUrl: async (link) => {
+            const extraction = await extractOffer(link, { fetchFn, classifyFn: xaiVerified() && xaiClassifyFn ? xaiClassifyFn : null });
+            return analyseRoute({ extraction, url: link, redirectChain: extraction.redirectChain ?? [] });
+          },
+        });
+        return send(res, 200, result);
+      }
+      if (req.method === "POST" && url.pathname === "/api/fact-questions") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        return send(res, 201, askMissingFact(db, body.personId, body));
+      }
+      if (req.method === "GET" && url.pathname === "/api/fact-questions") {
+        return send(res, 200, { questions: listFactQuestions(db, url.searchParams.get("personId") ?? "") });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/fact-questions/") && url.pathname.endsWith("/answer")) {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const factId = answerMissingFact(db, url.pathname.split("/")[3], body.value, body.provenance ?? "user");
+        return send(res, 200, { factId });
+      }
+      if (req.method === "POST" && url.pathname === "/api/untrusted/scan") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        return send(res, 200, scanAndRecord(db, { sourceKind: body.sourceKind, sourceRef: body.sourceRef ?? null, text: body.text ?? "" }));
+      }
+      if (req.method === "GET" && url.pathname === "/api/untrusted/rejected") {
+        return send(res, 200, { rejected: listRejectedInstructions(db, { sourceKind: url.searchParams.get("sourceKind") ?? undefined }) });
+      }
+      if (req.method === "POST" && url.pathname === "/api/preflight") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        if (!body.offer || typeof body.offer !== "object") throw new Error("offer is required");
+        let readiness = body.readiness;
+        let cvValidated = body.documents?.cvValidated;
+        if (body.profileId && (readiness === undefined || cvValidated === undefined)) {
+          const profile = getProfileFull(db, body.profileId);
+          if (!profile) throw new Error("profile not found");
+          if (readiness === undefined) readiness = profileReadiness(db, body.profileId, { xaiVerified: xaiVerified() });
+          if (cvValidated === undefined) cvValidated = Boolean(profileCv(db, profile));
+        }
+        const preflight = preflightCheck({
+          offer: body.offer, readiness: readiness ?? { ready: false, missing: ["readiness_not_supplied"] },
+          documents: { cvValidated: Boolean(cvValidated) },
+          policy: body.policy ?? { accepted: false }, account: body.account ?? { status: "unknown" },
+          mode: body.mode ?? "manual", autoPolicy: body.autoPolicy, profileId: body.profileId,
+          profileDeleted: body.profileDeleted ?? false,
+          sentCanonicalIds: body.sentCanonicalIds ?? [], pendingCanonicalIds: body.pendingCanonicalIds ?? [],
+        });
+        const autoDecision = decideAuto({
+          score: body.score ?? null, hardFailed: body.hardFailed ?? [],
+          preflight, autoEnabled: body.autoEnabled ?? false,
+        });
+        return send(res, 200, { preflight, autoDecision });
+      }
+      if (req.method === "POST" && url.pathname === "/api/f4-flow") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        if (!body.offer || typeof body.offer !== "object") throw new Error("offer is required");
+        if (!Array.isArray(body.profileIds) || body.profileIds.length === 0) throw new Error("profileIds must be a non-empty array");
+        const views = f4ProfileViews(body.profileIds);
+        let extraction = null;
+        if (body.url) {
+          extraction = await extractOffer(body.url, { fetchFn, classifyFn: xaiVerified() && xaiClassifyFn ? xaiClassifyFn : null });
+        }
+        const flow = runF4Flow(db, {
+          personId: body.personId, offer: body.offer, profileViews: views,
+          chosenProfileId: body.chosenProfileId ?? null,
+          offerId: body.offerId ?? body.offer.canonicalUrl ?? body.offer.title ?? "offer",
+          extraction, url: body.url ?? null, pageText: body.pageText ?? null,
+          applyUrl: body.applyUrl ?? null, redirectChain: extraction?.redirectChain ?? body.redirectChain ?? [],
+          planSteps: body.planSteps, planDocuments: body.planDocuments ?? [],
+          planRationale: body.planRationale, planContingencies: body.planContingencies ?? [],
+          criteria: body.criteria ?? {}, factsByProfile: f4FactsByProfile(views), preflightInput: body.preflightInput ?? {},
+        }, {
+          limits: body.limits, activeMsPerStep: body.activeMsPerStep ?? 0,
+          llmTokensPerStep: body.llmTokensPerStep ?? 0, llmCostPerStep: body.llmCostPerStep ?? 0,
+          initialUsage: body.initialUsage,
+          observeFn: body.observedByStepId ? ((step) => (step.id in body.observedByStepId ? body.observedByStepId[step.id] : (step.observableInput ?? null))) : undefined,
+        });
+        // Flow facts: questions were asked against the chosen profile's
+        // assessment; surface the chosen profile's selected state too.
+        return send(res, 200, { flow, selectedProfile: body.personId ? getSelectedProfile(db, body.personId) : null });
       }
       if (req.method === "GET" && url.pathname.startsWith("/queue/")) {
         const job = getJob(db, url.pathname.split("/")[2]);

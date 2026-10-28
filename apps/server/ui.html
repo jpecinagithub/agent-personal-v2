@@ -494,6 +494,34 @@ desactivar inmediatamente en cualquier momento.</small></p>
 <label for="extract-url">URL de la oferta (https)</label><input id="extract-url" placeholder="https://empresa.example/oferta">
 <button id="extract-run" type="button">Analizar oferta</button>
 <div id="extract-out"></div>
+<section id="f4-section">
+<h2>Análisis y plan</h2>
+<p><small>Inspección, assessment, plan versionado y ejecución observable. La ejecución es solo observación: nunca rellena formularios, nunca envía nada y nunca crea candidaturas. Un preflight «apto» solo significa «estaría permitido», no ejecuta ninguna acción final. La autoaplicación sigue desactivada.</small></p>
+<h3>Inspeccionar oferta y ruta</h3>
+<label for="f4-url">URL de la oferta (https)</label><input id="f4-url" placeholder="https://empresa.example/oferta">
+<button id="f4-inspect" type="button">Inspeccionar</button>
+<p class="status" id="f4-inspect-out"></p>
+<h3>Assessment por perfil</h3>
+<label for="f4-offer-title">Título de la oferta</label><input id="f4-offer-title" placeholder="Finance Manager">
+<label for="f4-offer-description">Descripción y requisitos</label><textarea id="f4-offer-description" rows="4" placeholder="Must have accounting experience. Must have 5 years of experience."></textarea>
+<label for="f4-profile-id">ID del perfil</label><input id="f4-profile-id" placeholder="ID de un perfil existente">
+<button id="f4-assess" type="button">Evaluar oferta</button>
+<p class="status" id="f4-assess-out"></p>
+<h3>Plan versionado y ejecución observable</h3>
+<label for="f4-plan-offer">ID de la oferta (texto libre, p. ej. la URL)</label><input id="f4-plan-offer" placeholder="https://empresa.example/oferta">
+<label for="f4-plan-route">Ruta</label><input id="f4-plan-route" placeholder="direct_form">
+<label for="f4-plan-rationale">Motivo de la ruta elegida</label><input id="f4-plan-rationale" placeholder="Formulario directo visible en la página de la empresa">
+<button id="f4-plan-create" type="button">Crear plan (versión 1)</button>
+<button id="f4-plan-execute" type="button">Ejecutar en modo observación</button>
+<button id="f4-plan-version" type="button">Nueva versión (motivo: revisión del usuario)</button>
+<p class="status" id="f4-plan-out"></p>
+<h3>Preflight (sin ejecutar nada)</h3>
+<button id="f4-preflight" type="button">Comprobar preflight</button>
+<p class="status" id="f4-preflight-out"></p>
+<h3>Comandos de chat</h3>
+<button id="f4-chat-tools" type="button">Ver comandos disponibles</button>
+<p class="status" id="f4-chat-tools-out"></p>
+</section>
 <h3>Benchmark de búsqueda</h3>
 <p><small>Métricas calculadas sobre el corpus anotado local (nunca una cobertura de todo Internet): exclusiones duras con pase falso, duplicados, fechas desconocidas marcadas y precisión top-20.</small></p>
 <button id="search-benchmark-run" type="button">Ejecutar benchmark</button>
@@ -1684,6 +1712,50 @@ $("extract-run").onclick = async () => { try {
     + (a.publishedAt ? " — publicada: " + a.publishedAt : " — fecha de publicación desconocida")
     + (a.reason && a.status !== "ok" ? " (" + a.reason + ")" : "");
 } catch (e) { $("extract-out").textContent = "Error: " + e.message; } };
+let f4PlanId = null;
+$("f4-inspect").onclick = async () => { try {
+  const r = await call("/api/offers/inspect", "POST", { url: $("f4-url").value });
+  const a = r.analysis;
+  $("f4-inspect-out").textContent = "Inspección: " + a.inspection.status + (a.inspection.reason ? " (" + a.inspection.reason + ")" : "")
+    + " · Ruta: " + a.route.route + " · ATS: " + a.ats.ats + " (" + a.ats.engine + ")"
+    + " · Evidencia: " + (a.route.evidence || []).join("; ");
+} catch (e) { $("f4-inspect-out").textContent = "Error: " + e.message; } };
+$("f4-assess").onclick = async () => { try {
+  const offer = { title: $("f4-offer-title").value, description: $("f4-offer-description").value, language: "en", canonicalUrl: $("f4-plan-offer").value || null };
+  const r = await call("/api/offers/assess", "POST", { personId: personId, offer: offer, profileIds: [$("f4-profile-id").value] });
+  const c = r.comparison;
+  $("f4-assess-out").textContent = "Mejor perfil: " + (c.bestProfileId || "ninguno")
+    + " · Evaluaciones: " + c.assessments.map((a) => "perfil " + a.profileId + ": obligatorios " + a.mandatory.met + "/" + a.mandatory.total + ", brechas " + a.gaps.length + ", preguntas " + (r.questions || []).length).join(" | ");
+} catch (e) { $("f4-assess-out").textContent = "Error: " + e.message; } };
+$("f4-plan-create").onclick = async () => { try {
+  const steps = [
+    { id: "step-1", title: "Observar la página de la oferta", kind: "observe_page", observableInput: "página de la oferta", observableOutput: "título y formulario visibles", postconditions: [] },
+    { id: "step-2", title: "Comprobar los campos del formulario", kind: "check_field", dependsOn: ["step-1"], observableInput: "formulario", observableOutput: "campos listados", postconditions: [] },
+  ];
+  const r = await call("/api/plans", "POST", { personId: personId, offerId: $("f4-plan-offer").value || "oferta", profileId: $("f4-profile-id").value, routeKind: $("f4-plan-route").value || "direct_form", rationale: $("f4-plan-rationale").value || "Ruta elegida desde la inspección", steps: steps, documents: [{ kind: "cv" }, { kind: "cover_letter" }] });
+  f4PlanId = r.id;
+  $("f4-plan-out").textContent = "Plan creado (versión 1): " + r.id;
+} catch (e) { $("f4-plan-out").textContent = "Error: " + e.message; } };
+$("f4-plan-execute").onclick = async () => { try {
+  if (!f4PlanId) throw new Error("crea primero un plan");
+  const r = await call("/api/plans/" + f4PlanId + "/execute", "POST", {});
+  $("f4-plan-out").textContent = "Ejecución (solo observación): estado " + r.execution.state + " · pasos: " + r.execution.stepResults.map((s) => s.stepId + "=" + s.status).join(", ");
+} catch (e) { $("f4-plan-out").textContent = "Error: " + e.message; } };
+$("f4-plan-version").onclick = async () => { try {
+  if (!f4PlanId) throw new Error("crea primero un plan");
+  const r = await call("/api/plans/" + f4PlanId + "/versions", "POST", { reason: "revisión del usuario" });
+  $("f4-plan-out").textContent = "Nueva versión del plan: " + r.version;
+} catch (e) { $("f4-plan-out").textContent = "Error: " + e.message; } };
+$("f4-preflight").onclick = async () => { try {
+  const offer = { title: $("f4-offer-title").value, description: $("f4-offer-description").value, language: "en", canonicalUrl: $("f4-plan-offer").value || null };
+  const r = await call("/api/preflight", "POST", { offer: offer, profileId: $("f4-profile-id").value || undefined, mode: "manual", policy: { accepted: true }, account: { status: "confirmed" }, score: 95, hardFailed: [], autoEnabled: false });
+  $("f4-preflight-out").textContent = "Preflight: " + (r.preflight.pass ? "apto (solo significa «estaría permitido», no ejecuta nada)" : "bloqueado: " + r.preflight.failedConditions.join(", "))
+    + " · Auto: " + (r.autoDecision.allowed ? "permitido" : "denegado: " + r.autoDecision.reasons.join("; "));
+} catch (e) { $("f4-preflight-out").textContent = "Error: " + e.message; } };
+$("f4-chat-tools").onclick = async () => { try {
+  const r = await call("/api/chat-tools", "GET");
+  $("f4-chat-tools-out").textContent = "Comandos: " + r.tools.map((t) => t.tool + "(" + t.required.join(", ") + ")").join(" · ");
+} catch (e) { $("f4-chat-tools-out").textContent = "Error: " + e.message; } };
 $("search-benchmark-run").onclick = async () => { try {
   const r = await call("/api/search-benchmark", "POST", {});
   const m = r.metrics;
