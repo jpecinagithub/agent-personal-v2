@@ -161,13 +161,6 @@ declares queda pendiente y se te pedirá cuando haga falta.</small></p>
 <input id="person-availability" placeholder="Ej.: inmediata">
 <label for="person-languages">Idiomas (una línea por idioma: idioma, nivel)</label>
 <textarea id="person-languages" rows="3" placeholder="English, C1"></textarea>
-<h3>Autorizaciones de trabajo</h3>
-<p><small>Cada autorización tiene su propio formulario y conserva su
-identidad: país, estado, vigencia y necesidad de patrocinio. Borrar
-una autorización es explícito; vaciar un campo lo borra, no lo
-conserva en silencio.</small></p>
-<div id="person-authorisations-list"></div>
-<button id="authorisations-add" type="button">Añadir autorización</button>
 <label for="person-desired-roles">Puestos deseados (uno por línea)</label>
 <textarea id="person-desired-roles" rows="3" placeholder="Finance Manager"></textarea>
 <label for="person-locations">Ubicaciones (una por línea)</label>
@@ -374,10 +367,12 @@ function personDetailsFromForm() {
   // them, so an unchanged save stays identical.
   const sendList = (key, arr) => { if (arr.length > 0 || formHad[key]) d[key] = arr; };
   sendList("languages", pairs("person-languages").map(([language, level]) => ({ language, level: level || "" })));
-  const auths = collectAuthorisations();
-  for (const id of deletedAuthorisationIds) auths.push({ id, deleted: true });
-  for (const m of deletedAuthorisationMarkers) auths.push({ ...m, deleted: true });
-  if (auths.length > 0 || formHad.authorisations) d.authorisations = auths;
+  // NOTE (user order 2026-10-28): the person form no longer edits
+  // work authorisations at all, so it never sends an authorisations
+  // field. The backend merge preserves entries absent from the patch,
+  // so saving from this form leaves stored authorisations exactly as
+  // they were (ids and extra fields intact). Authorisations still
+  // exist in the backend model and in the declared-facts system.
   sendList("desired_roles", lines("person-desired-roles"));
   sendList("locations", lines("person-locations"));
   sendList("skills", lines("person-skills"));
@@ -413,7 +408,7 @@ function personDetailsFromForm() {
 let deletedEmploymentIds = new Set();
 let deletedEducationIds = new Set();
 let formHadSalary = false;
-let formHad = { languages: false, authorisations: false, desired_roles: false, locations: false, skills: false, exclusions: false, links: false };
+let formHad = { languages: false, desired_roles: false, locations: false, skills: false, exclusions: false, links: false };
 function newEntryId(prefix) {
   try {
     if (typeof crypto !== "undefined" && crypto.randomUUID) return prefix + "-" + crypto.randomUUID();
@@ -552,93 +547,6 @@ function renderEntries(containerId, kind, entries, deletedSet) {
   container.innerHTML = "";
   for (const e of entries || []) container.appendChild(entryCard(kind, e, deletedSet));
 }
-let deletedAuthorisationIds = new Set();
-let deletedAuthorisationMarkers = [];
-function authCard(entry, deletedSet) {
-  const card = document.createElement("div");
-  card.className = "auth-card profile-card";
-  card.dataset.id = entry.id || "";
-  const mk = (label, cls, value, placeholder) => {
-    const lab = document.createElement("label");
-    lab.textContent = label;
-    const input = document.createElement("input");
-    input.className = cls;
-    input.value = value || "";
-    input.placeholder = placeholder || "";
-    card.append(lab, input);
-  };
-  mk("País", "auth-country", entry.country, "ES");
-  mk("Estado", "auth-status", entry.status, "autorizado");
-  mk("Vigencia (YYYY o YYYY-MM)", "auth-valid-until", entry.valid_until, "2030-12");
-  const spLab = document.createElement("label");
-  const sp = document.createElement("input");
-  sp.type = "checkbox";
-  sp.className = "auth-sponsorship";
-  sp.checked = Boolean(entry.sponsorship_required);
-  card.dataset.sponsorshipWas = entry.sponsorship_required === undefined ? "" : String(Boolean(entry.sponsorship_required));
-  spLab.append(sp, document.createTextNode(" Necesita patrocinio"));
-  card.appendChild(spLab);
-  const up = document.createElement("button");
-  up.type = "button";
-  up.textContent = "Subir";
-  up.onclick = () => moveCard(card, -1);
-  const down = document.createElement("button");
-  down.type = "button";
-  down.textContent = "Bajar";
-  down.onclick = () => moveCard(card, 1);
-  const del = document.createElement("button");
-  del.type = "button";
-  del.textContent = "Eliminar";
-  del.onclick = () => {
-    // An id-less (legacy) card has no id to delete by: record its
-    // current fields as a deletion marker instead, so the backend
-    // can remove exactly the fully matching stored entry. Inventing
-    // an id here would make the backend see a different key than the
-    // stored entry and duplicate it on save.
-    if (entry.id) deletedSet.add(entry.id);
-    else deletedAuthorisationMarkers.push(authCardFields(card));
-    card.remove();
-  };
-  card.append(up, down, del);
-  return card;
-}
-function renderAuthorisations(entries) {
-  const container = $("person-authorisations-list");
-  container.innerHTML = "";
-  // Entries stored before ids existed are rendered WITHOUT an id:
-  // inventing one here would make the backend see a different key
-  // than the stored entry and duplicate it on save. The backend
-  // adopts such an entry by full field identity on save and persists
-  // a stable id, which the form then adopts from the save response
-  // (see the save handler), so the next save addresses it by id.
-  for (const e of entries || []) container.appendChild(authCard(e, deletedAuthorisationIds));
-}
-function authCardFields(card) {
-  const field = (cls) => { const el = card.querySelector("." + cls); return el ? el.value.trim() : ""; };
-  const entry = {
-    country: field("auth-country"),
-    status: field("auth-status"),
-    valid_until: field("auth-valid-until") || null,
-  };
-  // No id key at all for a legacy card: an empty id would be a
-  // different key than the stored entry, not an identity for it.
-  if (card.dataset.id) entry.id = card.dataset.id;
-  // Same rule as the current-job flag: an unchecked box stores
-  // false only when the entry previously had true; otherwise the
-  // flag is omitted so an unchanged save stays identical.
-  const spChecked = card.querySelector(".auth-sponsorship")?.checked ?? false;
-  if (spChecked) entry.sponsorship_required = true;
-  else if (card.dataset.sponsorshipWas === "true") entry.sponsorship_required = false;
-  return entry;
-}
-function collectAuthorisations() {
-  const out = [];
-  for (const card of document.querySelectorAll("#person-authorisations-list .auth-card")) out.push(authCardFields(card));
-  return out;
-}
-$("authorisations-add").onclick = () => {
-  $("person-authorisations-list").appendChild(authCard({ id: newEntryId("auth"), country: "", status: "" }, deletedAuthorisationIds));
-};
 $("employment-add").onclick = () => {
   $("person-employment-list").appendChild(entryCard("employment", { id: newEntryId("job"), employer: "", title: "" }, deletedEmploymentIds));
 };
@@ -654,16 +562,15 @@ function fillPersonForm(details) {
   $("person-languages").value = (details.languages || []).map((l) => l.language + ", " + l.level).join("\n");
   formHad = {
     languages: (details.languages || []).length > 0,
-    authorisations: (details.authorisations || []).length > 0,
     desired_roles: (details.desired_roles || []).length > 0,
     locations: (details.locations || []).length > 0,
     skills: (details.skills || []).length > 0,
     exclusions: (details.exclusions || []).length > 0,
     links: (details.links || []).length > 0,
   };
-  deletedAuthorisationIds = new Set();
-  deletedAuthorisationMarkers = [];
-  renderAuthorisations(details.authorisations || []);
+  // NOTE (user order 2026-10-28): stored authorisations are
+  // deliberately not rendered here; the form never sends them, so a
+  // save preserves them exactly (see personDetailsFromForm).
   $("person-desired-roles").value = (details.desired_roles || []).join("\n");
   $("person-locations").value = (details.locations || []).join("\n");
   $("person-skills").value = (details.skills || []).join("\n");
