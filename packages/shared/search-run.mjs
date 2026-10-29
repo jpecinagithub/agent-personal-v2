@@ -27,7 +27,7 @@ import { fetchGreenhouseJobs, fetchLeverPostings, fetchAshbyJobs } from "./ats-c
 import { extractOffer, detectLanguage } from "./offer-extract.mjs";
 import { generateQueries, validateDiscovery } from "./xai-discovery.mjs";
 import { importUrl, importCsv, importText } from "./linkedin.mjs";
-import { presentedHistory, getProfileFull } from "./profiles.mjs";
+import { presentedHistory, getProfileFull, assertProfileBelongsToPerson } from "./profiles.mjs";
 import { getPerson } from "./person.mjs";
 import {
   claimRunLock, markSlotRun, recordSourceFailure, recordSourceSuccess,
@@ -85,6 +85,14 @@ function mapDefinition(row) {
 export function createSearchDefinition(db, input) {
   const { fields, personId, paused } = definitionFields(input);
   const validated = validateSearchDefinition(fields);
+  // A definition's profiles must belong to its person: otherwise one
+  // person's searches would run with another person's presented
+  // history and fields.
+  if (personId) {
+    for (const profileId of validated.profileIds ?? []) {
+      assertProfileBelongsToPerson(db, personId, profileId);
+    }
+  }
   const id = randomUUID();
   db.prepare(`INSERT INTO search_definitions
     (id, person_id, name, profile_ids_json, criteria_json, sources_json, schedule_json, action, limits_json, paused)
@@ -119,6 +127,12 @@ export function updateSearchDefinition(db, id, patch) {
   const { fields, personId, paused } = definitionFields(patch);
   const merged = { ...current.criteria, ...fields };
   const validated = validateSearchDefinition(merged);
+  const effectivePersonId = personId ?? current.personId;
+  if (effectivePersonId) {
+    for (const profileId of validated.profileIds ?? []) {
+      assertProfileBelongsToPerson(db, effectivePersonId, profileId);
+    }
+  }
   db.prepare(`UPDATE search_definitions SET person_id = ?, name = ?, profile_ids_json = ?,
     criteria_json = ?, sources_json = ?, schedule_json = ?, action = ?, limits_json = ?,
     paused = ?, version = version + 1,

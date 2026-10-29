@@ -18,7 +18,9 @@
 //    profile, person or offer.
 
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { assertNoAttempt, getComparison } from "./requirements.mjs";
+import { assertProfileBelongsToPerson } from "./profiles.mjs";
 import { validateLimits, freshUsage, checkLimits, recordObservation, recordPlanChange, recordLlmCall, recordActiveMs } from "./limits.mjs";
 
 export const OBSERVATION_STEP_KINDS = ["observe_page", "check_field", "review_document", "wait_user", "check_account", "verify_preflight"];
@@ -128,8 +130,7 @@ export function createPlan(db, input = {}) {
   if (!personId || !offerId || !profileId) throw new Error("personId, offerId and profileId are required");
   if (!routeKind) throw new Error("routeKind is required");
   if (typeof rationale !== "string" || !rationale.trim()) throw new Error("plan rationale is required: the user must see why this route was chosen");
-  const profile = db.prepare("SELECT id FROM profiles WHERE id = ? AND deleted = 0").get(profileId);
-  if (!profile) throw new Error("profile not found or deleted");
+  assertProfileBelongsToPerson(db, personId, profileId);
   assertNoAttempt(db, personId, offerId);
   const comparison = getComparison(db, personId, offerId);
   if (comparison && comparison.chosen_profile_id !== profileId) {
@@ -216,6 +217,13 @@ export function proposeAdaptation(db, input = {}) {
   if (typeof reason !== "string" || !reason.trim()) throw new Error("an adaptation proposal needs a reason");
   const plan = getPlan(db, planId);
   if (!plan) throw new Error("plan not found");
+  // An adaptation may only reference an execution of THIS plan: an
+  // execution of another plan must never be attached here.
+  if (executionId !== null && executionId !== undefined) {
+    const execution = db.prepare("SELECT * FROM plan_executions WHERE id = ?").get(executionId);
+    if (!execution) throw new Error("execution not found");
+    if (execution.plan_id !== planId) throw new Error("execution does not belong to this plan");
+  }
   const changesObj = changes ?? {};
   const forbidden = Object.keys(changesObj).filter((k) => FORBIDDEN_ADAPTATION_KEYS.includes(k));
   const refusalReason = policyViolation
@@ -367,8 +375,16 @@ export function runPlanDryRun(db, planId, opts = {}) {
       stoppedReason = `precondition failed at step ${step.id}: ${pre.failed.join(", ")}`;
       break;
     }
-    // Observe.
+    // Observe, measuring REAL elapsed time around the observation
+    // with a monotonic clock. The caller-supplied activeMsPerStep is
+    // only a floor for additionally declared consumption: it can
+    // never reduce the measured value, so claiming 0 ms cannot
+    // defeat the budget (a 1 ms budget with a real ~57 ms
+    // observation exhausts it). Genuine user-wait time is never
+    // inside this measurement: only the executor's own observation
+    // work is timed.
     let observed = null;
+    const observeStarted = performance.now();
     try {
       observed = opts.observeFn ? opts.observeFn(step, index) : (step.observableInput ?? null);
     } catch (err) {
@@ -377,11 +393,13 @@ export function runPlanDryRun(db, planId, opts = {}) {
       stoppedReason = `observation failed at step ${step.id}`;
       break;
     }
+    const measuredMs = performance.now() - observeStarted;
+    const declaredMs = typeof opts.activeMsPerStep === "number" && opts.activeMsPerStep > 0 ? opts.activeMsPerStep : 0;
     // Decide: the step is the next action (no model re-planning here).
     // Check progress: a repeated fingerprint at the same index with
     // no advance is a repetition without progress.
     usage = recordObservation(usage, observed, index);
-    usage = recordActiveMs(usage, opts.activeMsPerStep ?? 0);
+    usage = recordActiveMs(usage, Math.max(measuredMs, declaredMs));
     if ((opts.llmTokensPerStep ?? 0) > 0 || (opts.llmCostPerStep ?? 0) > 0) {
       usage = recordLlmCall(usage, { tokens: opts.llmTokensPerStep ?? 0, costUsd: opts.llmCostPerStep ?? 0 });
     }

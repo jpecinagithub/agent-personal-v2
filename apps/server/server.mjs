@@ -13,7 +13,7 @@ import { isAllowedControlOrigin } from "../../packages/shared/guard.mjs";
 // F2: person, profiles, drafts, facts, resolution, mappings, UI config.
 import fs from "node:fs";
 import { createPersonFull, updatePersonDetails, getPerson, listPersons } from "../../packages/shared/person.mjs";
-import { createProfileFull, listProfiles, getProfileFull, archiveProfile, unarchiveProfile, deleteProfile, duplicateProfile, profileReadiness, createAttempt, getAttempt } from "../../packages/shared/profiles.mjs";
+import { createProfileFull, listProfiles, getProfileFull, assertProfileBelongsToPerson, archiveProfile, unarchiveProfile, deleteProfile, duplicateProfile, profileReadiness, createAttempt, getAttempt } from "../../packages/shared/profiles.mjs";
 import { createDraft, getDraft, listDrafts, updateDraft, discardDraft, confirmDraft } from "../../packages/shared/drafts.mjs";
 import { declareFact, listFacts, deleteFact } from "../../packages/shared/facts.mjs";
 import { resolveScreening, answerPendingQuestion, listPendingQuestions } from "../../packages/shared/resolve.mjs";
@@ -674,6 +674,15 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, ver
         const body = await readJson(req);
         if (!body.offer || typeof body.offer !== "object") throw new Error("offer is required");
         if (!Array.isArray(body.profileIds) || body.profileIds.length === 0) throw new Error("profileIds must be a non-empty array");
+        // Ownership before any view is built or anything computed:
+        // when a person is claimed, every assessed profile must be
+        // theirs (recordComparison re-checks the chosen one, but the
+        // unchosen views must not be mixed in either).
+        if (body.personId) {
+          for (const profileId of body.profileIds) {
+            assertProfileBelongsToPerson(db, body.personId, profileId);
+          }
+        }
         const views = f4ProfileViews(body.profileIds);
         const comparison = compareOfferProfiles(body.offer, views, { factsByProfile: f4FactsByProfile(views), criteria: body.criteria ?? {} });
         let comparisonId = null;
@@ -785,6 +794,11 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, ver
         if (!requireControlOrigin(req, res)) return;
         const body = await readJson(req);
         if (!body.offer || typeof body.offer !== "object") throw new Error("offer is required");
+        // A preflight naming both a person and a profile must use
+        // that person's profile, never another person's.
+        if (body.personId && body.profileId) {
+          assertProfileBelongsToPerson(db, body.personId, body.profileId);
+        }
         let readiness = body.readiness;
         let cvValidated = body.documents?.cvValidated;
         if (body.profileId && (readiness === undefined || cvValidated === undefined)) {
@@ -812,6 +826,14 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, ver
         const body = await readJson(req);
         if (!body.offer || typeof body.offer !== "object") throw new Error("offer is required");
         if (!Array.isArray(body.profileIds) || body.profileIds.length === 0) throw new Error("profileIds must be a non-empty array");
+        // Ownership BEFORE any network fetch or view is built (the
+        // flow itself re-checks, but a mismatched call must not even
+        // fetch or compute for another person's profiles).
+        if (body.personId) {
+          for (const profileId of body.profileIds) {
+            assertProfileBelongsToPerson(db, body.personId, profileId);
+          }
+        }
         const views = f4ProfileViews(body.profileIds);
         let extraction = null;
         if (body.url) {

@@ -14,6 +14,7 @@
 import { randomUUID } from "node:crypto";
 import { wholeWordMatch } from "./search-presets.mjs";
 import { scoreOffer } from "./search-rank.mjs";
+import { assertProfileBelongsToPerson } from "./profiles.mjs";
 
 const MANDATORY_MARKERS = [
   /\bmust\b/i, /\brequired\b/i, /\bessential\b/i, /\bmandatory\b/i,
@@ -282,6 +283,7 @@ export function getComparison(db, personId, offerId) {
  */
 export function recordComparison(db, { personId, offerId, chosenProfileId, assessments }) {
   if (!personId || !offerId || !chosenProfileId) throw new Error("personId, offerId and chosenProfileId are required");
+  assertProfileBelongsToPerson(db, personId, chosenProfileId);
   const attempt = db.prepare("SELECT id FROM attempts WHERE person_id = ? AND offer_id = ?").get(personId, offerId);
   if (attempt) throw new Error("an attempt already exists for this person and offer: one attempt per person per offer");
   const existing = getComparison(db, personId, offerId);

@@ -82,7 +82,20 @@ export async function executeChatTool(db, tool, args, handlers = {}) {
       return { tool, result: { personId: valid.personId, profileId: valid.profileId, selected: true } };
     }
     case "start_job": {
-      const id = enqueue(db, valid.kind, valid.payload ?? {});
+      // Allowlist + per-type payload validation BEFORE any queue
+      // write: the chat tool is reachable from untrusted input, so
+      // an arbitrary kind (e.g. "submit_application" with an external
+      // target and a smuggled approval flag) must never reach the
+      // queue. Inventory (2026-10-29): "search" is the only kind
+      // produced or consumed anywhere in the codebase or tests, and
+      // no worker dispatches by kind; anything else is rejected.
+      if (valid.kind !== "search") throw new Error(`job kind not allowed: ${valid.kind}`);
+      const payload = valid.payload ?? {};
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("search job payload must be an object");
+      if (typeof payload.definitionId !== "string" || !payload.definitionId.trim()) throw new Error("search job requires definitionId");
+      const extraKeys = Object.keys(payload).filter((k) => k !== "definitionId");
+      if (extraKeys.length > 0) throw new Error(`search job payload rejects unknown keys: ${extraKeys.join(", ")}`);
+      const id = enqueue(db, valid.kind, { definitionId: payload.definitionId });
       return { tool, result: { jobId: id, kind: valid.kind } };
     }
     case "pause_job": {

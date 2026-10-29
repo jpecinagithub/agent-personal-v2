@@ -186,6 +186,21 @@ export function getProfileFull(db, profileId) {
   return { ...row, body: JSON.parse(row.body_json), archived: row.archived === 1, deleted: row.deleted === 1 };
 }
 
+/**
+ * Ownership guard: a profile may only ever be used with its own
+ * person. Every endpoint/domain function that takes both a personId
+ * and a profileId must call this BEFORE persisting or computing
+ * anything, or persons' facts, presented history and documents can
+ * be mixed. Returns the profile row.
+ */
+export function assertProfileBelongsToPerson(db, personId, profileId) {
+  const profile = getProfileFull(db, profileId);
+  if (!profile) throw new Error("profile not found");
+  if (profile.deleted) throw new Error("profile is deleted");
+  if (profile.person_id !== personId) throw new Error("profile does not belong to this person");
+  return profile;
+}
+
 function requireLiveProfile(db, profileId) {
   const profile = getProfileFull(db, profileId);
   if (!profile) throw new Error("profile not found");
@@ -337,6 +352,7 @@ export function createAttempt(db, personId, profileId, offerId, opts = {}) {
   const profile = getProfileFull(db, profileId);
   if (!profile) throw new Error("profile not found");
   if (profile.deleted) throw new Error("profile is deleted: a deleted profile cannot create a new attempt");
+  if (profile.person_id !== personId) throw new Error("profile does not belong to this person");
   const readiness = profileReadiness(db, profileId, opts);
   if (!readiness.ready) throw new Error(`profile is not ready: missing ${readiness.missing.join(", ")}`);
   db.exec("BEGIN IMMEDIATE");

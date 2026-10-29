@@ -25,6 +25,7 @@ import { scanAndRecord } from "./untrusted.mjs";
 import { compareOfferProfiles, recordComparison, questionsForAssessment } from "./requirements.mjs";
 import { askMissingFact } from "./chat-tools.mjs";
 import { createPlan, runPlanDryRun } from "./application-plan.mjs";
+import { assertProfileBelongsToPerson } from "./profiles.mjs";
 import { preflightCheck, decideAuto } from "./preflight.mjs";
 
 /**
@@ -45,6 +46,12 @@ export function runF4Flow(db, input, opts = {}) {
   if (!personId || !offer) throw new Error("personId and offer are required");
   if (!Array.isArray(profileViews) || profileViews.length === 0) throw new Error("profileViews must be a non-empty array");
   if (!Array.isArray(planSteps) || planSteps.length === 0) throw new Error("planSteps must be a non-empty array");
+  // Ownership FIRST, before any persistence (including the untrusted
+  // scan records below): no view of another person's profile may
+  // enter this person's flow.
+  for (const view of profileViews) {
+    assertProfileBelongsToPerson(db, personId, view.profileId);
+  }
   const traceId = randomUUID();
 
   const attemptsBefore = db.prepare("SELECT COUNT(*) AS n FROM attempts WHERE person_id = ?").get(personId).n;

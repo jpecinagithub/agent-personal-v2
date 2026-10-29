@@ -146,8 +146,9 @@ export function capabilityMatrixFor(ats) {
 
 /**
  * Recognise ATS/tenant from several signals. Title text is never a
- * signal. A certified ATS needs a strong signal; anything weaker is
- * "unknown" with the generic engine.
+ * signal. Page text is never a strong signal either: it is remote,
+ * manipulable content. A certified ATS needs a strong HOST/API
+ * signal; anything weaker is "unknown" with the generic engine.
  * @param {{url?: string|null, applyUrl?: string|null, redirectChain?: string[], pageText?: string|null, formActionUrl?: string|null}} input
  * @returns {{ats: string, tenant: string|null, signals: string[], strongSignals: number, engine: string, capabilityMatrix: any}}
  */
@@ -171,8 +172,12 @@ export function recogniseAts(input = {}) {
   }
   const text = lower(input.pageText ?? "");
   if (text) {
+    // Page text is NEVER a strong signal: it is remote, manipulable
+    // content, and a foreign page merely mentioning an ATS hostname
+    // must not certify that ATS. Text mentions are weak votes only;
+    // certification needs a host/API signal (the URL hosts above).
     for (const sig of ATS_TEXT_SIGNALS) {
-      if (sig.test(text)) addVote(sig.ats, sig.label, true);
+      if (sig.test(text)) addVote(sig.ats, sig.label, false);
     }
   }
   // Tenant: the board/site slug, when a known ATS host carries one.
