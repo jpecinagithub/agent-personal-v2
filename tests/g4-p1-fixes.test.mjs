@@ -412,3 +412,91 @@ test("P1 initialUsage via API: user's exact request (budget 20, {}, reset false)
     await new Promise((r) => server.close(() => r(undefined)));
   }
 });
+
+// --- P2 (user reproduction on cc69b53, 2026-10-29): non-finite usage
+// counters must be rejected before anything is persisted, and a
+// stored-invalid counter must never silently restart the budget.
+test("P2: API rejects initialUsage {activeMs: 1e309} with 400 and alters nothing", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agentv2-g4p2-http-"));
+  const { server } = createServer({ dataDir: dir });
+  await new Promise((r) => server.listen(0, "127.0.0.1", () => r(undefined)));
+  const base = `http://127.0.0.1:${/** @type {import("node:net").AddressInfo} */ (server.address()).port}`;
+  try {
+    const seeded = openDatabase(path.join(dir, "agentv2.db"));
+    const personId = createPersonFull(seeded, FIXTURE_PERSON);
+    const profileId = createProfileFull(seeded, personId, "Finance", { focus: "Finance" });
+    const planId = createPlan(seeded, { personId, offerId: "https://example.test/jobs/1", profileId, routeKind: "company_careers", rationale: "p2", steps: STEPS });
+    runPlanDryRun(seeded, planId, { activeMsPerStep: 100, limits: { activeTimeBudgetMs: 1000 } });
+    assert.equal(listExecutions(seeded, planId).length, 1);
+    assert.equal(listExecutions(seeded, planId)[0].usage.activeMs, 100);
+    // Raw body: JSON.stringify(Infinity) would emit null and would NOT
+    // reproduce the user's case — the client literally sends 1e309,
+    // which JSON parses to Infinity.
+    const raw = await fetch(`${base}/api/plans/${planId}/execute`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: `{"limits":{"activeTimeBudgetMs":20},"initialUsage":{"activeMs":1e309},"resetBudget":false}`,
+    });
+    assert.equal(raw.status, 400, `non-finite counter must be a 400, got ${raw.status}`);
+    assert.match((await raw.json()).error ?? "", /finite/);
+    assert.equal(listExecutions(seeded, planId).length, 1, "rejected request must create no execution");
+    assert.equal(listExecutions(seeded, planId)[0].usage.activeMs, 100, "previous consumption untouched");
+    // And a plain retry still sees the intact consumption and blocks.
+    const retry = await fetch(`${base}/api/plans/${planId}/execute`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ limits: { activeTimeBudgetMs: 20 }, initialUsage: {}, resetBudget: false }),
+    });
+    const retryJson = await retry.json();
+    assert.equal(retryJson.execution.state, "stuck");
+    assert.equal(retryJson.execution.stepResults.length, 0, "blocked before observing");
+    assert.ok(retryJson.execution.usage.activeMs >= 100);
+  } finally {
+    await new Promise((r) => server.close(() => r(undefined)));
+  }
+});
+
+test("P2: NaN, negative and Infinity initialUsage are rejected with no execution created", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p2-invalid-");
+  const planId = createPlan(db, { personId: personA, offerId: "https://example.test/jobs/1", profileId: profileA, routeKind: "company_careers", rationale: "p2", steps: STEPS });
+  for (const bad of [{ activeMs: Number.NaN }, { activeMs: -5 }, { activeMs: Infinity }, { costUsd: -Infinity }]) {
+    assert.throws(() => runPlanDryRun(db, planId, { initialUsage: bad }), /finite non-negative/);
+  }
+  assert.equal(listExecutions(db, planId).length, 0, "no rejected run may create an execution");
+  // Even the explicit reset path validates: reset authorises a fresh
+  // start, not an invalid counter.
+  assert.throws(() => runPlanDryRun(db, planId, { initialUsage: { activeMs: Infinity }, resetBudget: true }), /finite non-negative/);
+  assert.equal(listExecutions(db, planId).length, 0);
+});
+
+test("P2: corrupt latest execution (null activeMs) falls back to the earlier valid one", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p2-recover-");
+  const planId = createPlan(db, { personId: personA, offerId: "https://example.test/jobs/1", profileId: profileA, routeKind: "company_careers", rationale: "p2", steps: STEPS });
+  runPlanDryRun(db, planId, { activeMsPerStep: 100, limits: { activeTimeBudgetMs: 1000 } });
+  runPlanDryRun(db, planId, { activeMsPerStep: 0, limits: { activeTimeBudgetMs: 1000 } });
+  assert.equal(listExecutions(db, planId).length, 2);
+  const corrupt = { activeMs: null, waitMs: 0, llmCalls: 0, llmTokens: 0, costUsd: 0, planChanges: 0, noProgressRepetitions: 0, lastFingerprint: null, lastStepIndex: null };
+  db.prepare("UPDATE plan_executions SET usage_json = ? WHERE rowid = (SELECT MAX(rowid) FROM plan_executions WHERE plan_id = ?)").run(JSON.stringify(corrupt), planId);
+  const execution = runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 20 }, initialUsage: {}, resetBudget: false });
+  assert.equal(execution.state, "stuck", "recovered 100 ms must block against a 20 ms budget");
+  assert.equal(execution.stepResults.length, 0, "blocked before observing");
+  assert.ok(execution.usage.activeMs >= 100, `must recover the earlier valid consumption, got ${execution.usage.activeMs}`);
+});
+
+test("P2: corrupt latest execution with no earlier valid one fails and creates no row", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p2-novalid-");
+  const planId = createPlan(db, { personId: personA, offerId: "https://example.test/jobs/1", profileId: profileA, routeKind: "company_careers", rationale: "p2", steps: STEPS });
+  runPlanDryRun(db, planId, { activeMsPerStep: 100, limits: { activeTimeBudgetMs: 1000 } });
+  const corrupt = { activeMs: null, waitMs: 0, llmCalls: 0, llmTokens: 0, costUsd: 0, planChanges: 0, noProgressRepetitions: 0, lastFingerprint: null, lastStepIndex: null };
+  db.prepare("UPDATE plan_executions SET usage_json = ? WHERE plan_id = ?").run(JSON.stringify(corrupt), planId);
+  assert.throws(() => runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 20 }, initialUsage: {}, resetBudget: false }), /no earlier valid execution/);
+  assert.equal(listExecutions(db, planId).length, 1, "failed recovery must create no execution row");
+});
+
+test("P2 regression: valid finite initialUsage still merges by max (cc69b53 semantics)", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p2-max-");
+  const planId = createPlan(db, { personId: personA, offerId: "https://example.test/jobs/1", profileId: profileA, routeKind: "company_careers", rationale: "p2", steps: STEPS });
+  runPlanDryRun(db, planId, { activeMsPerStep: 100, limits: { activeTimeBudgetMs: 1000 } });
+  const execution = runPlanDryRun(db, planId, { activeMsPerStep: 0, limits: { activeTimeBudgetMs: 1000 }, initialUsage: { activeMs: 50, llmCalls: 3 } });
+  assert.ok(execution.usage.activeMs >= 100, `lower supplied activeMs must lose to the stored 100 (plus real measured time), got ${execution.usage.activeMs}`);
+  assert.equal(execution.usage.llmCalls, 3, "higher supplied llmCalls must win");
+  assert.equal(execution.state, "observed_only");
+});

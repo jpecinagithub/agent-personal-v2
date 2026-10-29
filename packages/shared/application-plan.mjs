@@ -358,28 +358,65 @@ export function runPlanDryRun(db, planId, opts = {}) {
   const plan = getPlan(db, planId);
   if (!plan) throw new Error("plan not found");
   const limits = validateLimits(opts.limits);
+  // P2 validation (2026-10-29): a supplied usage counter must be a
+  // finite non-negative number. JSON parses 1e309 as Infinity, and
+  // JSON.stringify(Infinity) is null — without this check an invalid
+  // counter was accepted, persisted as null, and the next retry
+  // silently started from zero, smuggling a budget reset past the
+  // max-per-counter merge. Validation runs BEFORE any seeding,
+  // merging or execution insert, on both the reset and the
+  // no-reset paths, so no invalid counter can ever reach
+  // persistence through this function (runF4Flow forwards here, and
+  // both HTTP routes surface thrown errors as 400).
+  const CUMULATIVE_KEYS = ["activeMs", "waitMs", "llmCalls", "llmTokens", "costUsd", "planChanges", "noProgressRepetitions"];
+  if (opts.initialUsage !== undefined && opts.initialUsage !== null) {
+    if (typeof opts.initialUsage !== "object" || Array.isArray(opts.initialUsage)) {
+      throw new Error("initialUsage must be an object of finite non-negative counters");
+    }
+    for (const key of CUMULATIVE_KEYS) {
+      if (key in opts.initialUsage) {
+        const supplied = opts.initialUsage[key];
+        if (typeof supplied !== "number" || !Number.isFinite(supplied) || supplied < 0) {
+          throw new Error(`invalid usage counter ${key}: must be a finite non-negative number`);
+        }
+      }
+    }
+  }
   // Seed the starting usage. Cumulative counters only — fingerprint
   // tracking (lastFingerprint/lastStepIndex) belongs to a single
   // run's progress detection and is never carried across runs.
-  const CUMULATIVE_KEYS = ["activeMs", "waitMs", "llmCalls", "llmTokens", "costUsd", "planChanges", "noProgressRepetitions"];
   let usage;
   if (opts.resetBudget === true) {
     // The ONLY authorised reset path: initialUsage (or fresh usage)
-    // applies as-is.
+    // applies as-is (already validated above).
     usage = { ...freshUsage(), ...(opts.initialUsage ?? {}) };
   } else {
     usage = freshUsage();
-    const prev = db.prepare("SELECT usage_json FROM plan_executions WHERE plan_id = ? AND plan_version = ? ORDER BY rowid DESC LIMIT 1").get(planId, plan.version);
-    if (prev) {
+    // Stored-invalid recovery: scan prior executions newest-first
+    // and take the first whose usage is FULLY valid (every
+    // cumulative counter present, finite and non-negative). A row
+    // carrying an invalid counter (e.g. null activeMs from a
+    // persisted Infinity) is skipped, never treated as 0. If prior
+    // rows exist but none is valid, fail loudly and create no
+    // execution row — never silently restart the budget.
+    const rows = db.prepare("SELECT usage_json FROM plan_executions WHERE plan_id = ? AND plan_version = ? ORDER BY rowid DESC").all(planId, plan.version);
+    let seeded = false;
+    for (const row of rows) {
       let prevUsage;
       try {
-        prevUsage = JSON.parse(prev.usage_json);
+        prevUsage = JSON.parse(row.usage_json);
       } catch {
-        throw new Error("previous execution usage is unreadable; refusing to restart the budget silently");
+        continue;
       }
-      for (const key of CUMULATIVE_KEYS) {
-        if (typeof prevUsage[key] === "number" && prevUsage[key] >= 0) usage[key] = prevUsage[key];
-      }
+      if (!prevUsage || typeof prevUsage !== "object") continue;
+      const invalid = CUMULATIVE_KEYS.some((key) => !(key in prevUsage) || typeof prevUsage[key] !== "number" || !Number.isFinite(prevUsage[key]) || prevUsage[key] < 0);
+      if (invalid) continue;
+      for (const key of CUMULATIVE_KEYS) usage[key] = prevUsage[key];
+      seeded = true;
+      break;
+    }
+    if (rows.length > 0 && !seeded) {
+      throw new Error("previous execution usage is invalid and no earlier valid execution exists; refusing to restart the budget silently");
     }
     // Without a reset, a supplied initialUsage must NEVER reduce an
     // accumulated counter: element-wise maximum over every cumulative
