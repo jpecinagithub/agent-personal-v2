@@ -135,7 +135,9 @@ test("T-V2-042: history anchors use stable ids and held date precision, never an
   assert.equal(formatDateAtPrecision("2020-01"), "January 2020");
   assert.equal(formatDateAtPrecision("2024-06-15"), "June 15, 2024");
   assert.equal(formatDateRange({ start: "2020-01", end: "2024-06" }), "January 2020 – June 2024");
-  assert.equal(formatDateRange({ start: "2016", end: null }), "2016 – Present");
+  assert.equal(formatDateRange({ start: "2016", end: null }), "2016 – Unknown", "an unknown end date is unknown, never Present");
+  assert.equal(formatDateRange({ start: "2016", end: null, current: false }), "2016 – Unknown", "current:false never implies ongoing employment");
+  assert.equal(formatDateRange({ start: "2016", end: null, current: true }), "2016 – Present", "Present requires explicit currency evidence");
   const entries = FIXTURE_PERSON.employment;
   const linked = resolveHistoryEntry(entries, "job-1");
   assert.equal(linked.kind, "linked");

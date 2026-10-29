@@ -171,6 +171,102 @@ export function buildCoverLetterContent(db, personId, profileId, { company = "",
 
 // --- Revalidation (T-V2-046 / RF-V2-059) --------------------------------
 
+/**
+ * Genuine system template furniture (cover-letter greeting, generic
+ * interest/closing sentences, target-company line). ONLY text matching
+ * one of these patterns may skip reference validation via the
+ * template flag. A client-supplied line flagged `template: true` with
+ * any other text is treated as an ordinary claim: the flag never
+ * exempts arbitrary client content from validation.
+ */
+const SYSTEM_TEMPLATE_PATTERNS = [
+  /^Dear .* Hiring Team,$/,
+  /^I am writing to express my interest in /,
+  /^I would welcome the opportunity to discuss /,
+  /^Sincerely, /,
+  /^Target company: /,
+];
+
+function isSystemTemplate(text) {
+  return SYSTEM_TEMPLATE_PATTERNS.some((re) => re.test(String(text ?? "").trim()));
+}
+
+const EDUCATION_LEVEL_KEYS = ["phd", "doctorate", "doctoral", "master", "masters", "mba", "msc", "bachelor", "bachelors", "bsc", "ba", "degree", "diploma"];
+
+function claimWords(text) {
+  return String(text ?? "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
+}
+
+function claimLevels(text) {
+  const words = new Set(claimWords(text));
+  return new Set(EDUCATION_LEVEL_KEYS.filter((k) => words.has(k)));
+}
+
+function isEducationClaim(text) {
+  const words = new Set(claimWords(text));
+  if (EDUCATION_LEVEL_KEYS.some((k) => words.has(k))) return true;
+  return ["university", "college", "institute", "school"].some((w) => words.has(w));
+}
+
+function significantTokens(text) {
+  const stop = new Set(["university", "college", "institute", "school", "of", "the", "and", "de", "la"]);
+  return new Set(claimWords(text).filter((w) => w.length >= 4 && !stop.has(w)));
+}
+
+/**
+ * Does one reference actually SUPPORT an education claim (not merely
+ * exist)? A history education entry supports it when its level matches
+ * the claimed level, or its title/institution shares a significant
+ * token with the claim. A highest_education fact supports it when its
+ * value shares a level or a significant token. A skills ref, an
+ * employment ref, or any unrelated fact never supports an education
+ * claim, however the client flags the line.
+ */
+function educationRefSupports(db, personId, ref, claimText) {
+  const levels = claimLevels(claimText);
+  const tokens = significantTokens(claimText);
+  const overlaps = (a, b) => [...a].some((t) => b.has(t));
+  if (ref.kind === "history" && ref.entryKind === "education") {
+    const entry = ref.value ?? (() => {
+      const person = getPerson(db, personId);
+      return (person?.details?.education ?? []).find((e) => e.id === ref.id);
+    })();
+    if (!entry) return false;
+    if (overlaps(claimLevels(entry.title ?? ""), levels)) return true;
+    if (overlaps(significantTokens(entry.title ?? ""), tokens)) return true;
+    if (overlaps(significantTokens(entry.institution ?? ""), tokens)) return true;
+    return false;
+  }
+  if (ref.kind === "fact") {
+    const row = db.prepare("SELECT * FROM declared_facts WHERE id = ? AND person_id = ? AND confirmation_state = 'confirmed'").get(ref.id, personId);
+    if (!row || row.concept !== "highest_education") return false;
+    let value;
+    try { value = JSON.parse(row.value_json); } catch { return false; }
+    const valueText = typeof value === "string" ? value : JSON.stringify(value);
+    if (overlaps(claimLevels(valueText), levels)) return true;
+    if (overlaps(significantTokens(valueText), tokens)) return true;
+    return false;
+  }
+  return false;
+}
+
+/**
+ * Does one history reference's entry actually appear in the claim
+ * text (title, employer or institution)? Generated lines always name
+ * the entry; a line that names none of them is not backed by that ref.
+ */
+function historyRefMatchesText(db, personId, ref, claimText) {
+  const entry = ref.value ?? (() => {
+    const person = getPerson(db, personId);
+    const list = ref.entryKind === "education" ? (person?.details?.education ?? []) : (person?.details?.employment ?? []);
+    return list.find((e) => e.id === ref.id);
+  })();
+  if (!entry) return false;
+  const text = String(claimText ?? "").toLowerCase();
+  const fields = ref.entryKind === "education" ? [entry.title, entry.institution] : [entry.title, entry.employer];
+  return fields.some((f) => isNonEmptyString(f) && text.includes(String(f).toLowerCase()));
+}
+
 /** Check one stored reference against the current retained set. */
 export function checkRef(db, personId, profileId, ref) {
   if (!ref || typeof ref !== "object") return "reference is not an object";
@@ -224,10 +320,31 @@ export function revalidateContent(db, personId, profileId, content) {
   if (content.language !== "en") conflicts.push("document language must be English (en)");
   if (!Array.isArray(content.sections)) conflicts.push("content.sections must be an array");
   else {
+    const person = getPerson(db, personId);
     for (const section of content.sections) {
+      // A heading carries no references, so a heading that itself
+      // STATES a claim can never validate — but a plain label
+      // ("Extra", "Skills") is not a claim. Only claim-like headings
+      // (an education claim, or a history entry's title + employer /
+      // institution) are conflicts.
+      if (typeof section.heading === "string" && section.heading.trim() !== "") {
+        const heading = section.heading;
+        const historyEntries = [
+          ...(person?.details?.employment ?? []).map((e) => ({ title: e.title, org: e.employer })),
+          ...(person?.details?.education ?? []).map((e) => ({ title: e.title, org: e.institution })),
+        ];
+        const headingStatesHistory = historyEntries.some((e) => isNonEmptyString(e.title) && isNonEmptyString(e.org)
+          && heading.toLowerCase().includes(String(e.title).toLowerCase())
+          && heading.toLowerCase().includes(String(e.org).toLowerCase()));
+        if (isEducationClaim(heading) || headingStatesHistory) {
+          conflicts.push(`section heading states a claim but carries no references: "${String(heading).slice(0, 80)}"`);
+        }
+      }
       if (!Array.isArray(section.lines)) { conflicts.push("section lines must be an array"); continue; }
       for (const l of section.lines) {
-        if (l.template) continue;
+        // Template exemption applies ONLY to genuine system furniture.
+        // Any other template-flagged line is validated as a claim.
+        if (l.template && isSystemTemplate(l.text)) continue;
         if (!Array.isArray(l.refs) || l.refs.length === 0) {
           conflicts.push(`unreferenced claim: "${String(l.text ?? "").slice(0, 80)}"`);
           continue;
@@ -235,6 +352,19 @@ export function revalidateContent(db, personId, profileId, content) {
         for (const ref of l.refs) {
           const problem = checkRef(db, personId, profileId, ref);
           if (problem) conflicts.push(problem);
+        }
+        // Claim-to-support: a reference must actually support the
+        // claim, not merely exist. An education claim needs an
+        // education reference matching its level/institution/title;
+        // an unrelated skill (or any other fact type) never supports
+        // it. A history-backed line must name its entry.
+        if (isEducationClaim(l.text)) {
+          const supported = l.refs.some((ref) => educationRefSupports(db, personId, ref, l.text));
+          if (!supported) conflicts.push(`education claim not supported by its references: "${String(l.text).slice(0, 80)}"`);
+        }
+        const historyRefs = l.refs.filter((ref) => ref.kind === "history");
+        if (historyRefs.length > 0 && !historyRefs.some((ref) => historyRefMatchesText(db, personId, ref, l.text))) {
+          conflicts.push(`claim text does not match its history reference: "${String(l.text).slice(0, 80)}"`);
         }
       }
     }
@@ -326,9 +456,39 @@ export function auditDocumentVersion(db, personId, profileId, content) {
 }
 
 // --- PDF rendering (stdlib only, valid PDF with pagination) ---------------
+// Text is encoded as WinAnsi (single-byte) and the file is assembled
+// from Buffers throughout: every xref offset and stream Length is
+// computed from the BYTES actually emitted, never from JS string
+// lengths. (The old writer built a JS string, measured it as UTF-8,
+// then emitted it as Latin-1: every non-ASCII character shifted all
+// later offsets — e.g. each em dash by 2 bytes — and characters
+// outside Latin-1 collapsed into control bytes.)
 
-function pdfEscape(s) {
-  return String(s).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+/** WinAnsi bytes for characters outside Latin-1 (0x80–0x9F range). */
+const WINANSI_EXTRA = {
+  "€": 0x80, "‚": 0x82, "ƒ": 0x83, "„": 0x84, "…": 0x85, "†": 0x86, "‡": 0x87,
+  "ˆ": 0x88, "‰": 0x89, "Š": 0x8a, "‹": 0x8b, "Œ": 0x8c, "Ž": 0x8e,
+  "‘": 0x91, "’": 0x92, "“": 0x93, "”": 0x94, "•": 0x95, "–": 0x96, "—": 0x97,
+  "˜": 0x98, "™": 0x99, "š": 0x9a, "›": 0x9b, "œ": 0x9c, "ž": 0x9e, "Ÿ": 0x9f,
+};
+
+/**
+ * Encode text for a PDF literal string in WinAnsi, escaping (, ) and
+ * backslash. Accented Latin characters (á, é, ñ, ü, ç, …) and dashes
+ * (–, —) map to their WinAnsi bytes; a character with no WinAnsi
+ * mapping becomes "?" rather than a control byte.
+ */
+export function pdfEncodeText(s) {
+  const bytes = [];
+  for (const ch of String(s)) {
+    if (ch === "(" || ch === ")" || ch === "\\") { bytes.push(0x5c, ch.codePointAt(0)); continue; }
+    const code = ch.codePointAt(0);
+    if (code >= 0x20 && code <= 0x7e) { bytes.push(code); continue; }
+    if (code >= 0xa0 && code <= 0xff) { bytes.push(code); continue; }
+    if (WINANSI_EXTRA[ch] !== undefined) { bytes.push(WINANSI_EXTRA[ch]); continue; }
+    bytes.push(0x3f); // "?" — never a control byte
+  }
+  return Buffer.from(bytes);
 }
 
 function wrapText(text, maxChars) {
@@ -344,9 +504,9 @@ function wrapText(text, maxChars) {
 }
 
 /**
- * Render canonical content to a valid PDF Buffer (Helvetica, A4,
- * margins, wrapped lines, "Page N of M" footer). Short and long
- * contents paginate the same way.
+ * Render canonical content to a valid PDF Buffer (Helvetica with
+ * WinAnsiEncoding, A4, margins, wrapped lines, "Page N of M" footer).
+ * Short and long contents paginate the same way.
  */
 export function renderPdf(content) {
   const fontSize = 11, headingSize = 14, leading = 15, margin = 54;
@@ -368,42 +528,52 @@ export function renderPdf(content) {
     }
   }
   const totalPages = pages.length;
+  const fontId = 3 + totalPages * 2;
+  // Objects in id order: 1 catalog, 2 pages, then per page a page
+  // object + content stream, then the two fonts.
   const objects = [];
-  // 1: catalog, 2: pages, then per page: page object + content stream.
+  objects[1] = Buffer.from("<< /Type /Catalog /Pages 2 0 R >>", "latin1");
   const pageObjIds = pages.map((_, i) => 3 + i * 2);
   const contentIds = pages.map((_, i) => 4 + i * 2);
-  objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
-  objects[2] = `<< /Type /Pages /Kids [${pageObjIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${totalPages} >>`;
-  const fontId = 3 + totalPages * 2;
+  objects[2] = Buffer.from(`<< /Type /Pages /Kids [${pageObjIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${totalPages} >>`, "latin1");
   pages.forEach((pageLines, i) => {
-    let stream = "BT /F1 11 Tf 54 788 Td 15 TL\n";
+    const parts = [Buffer.from("BT /F1 11 Tf 54 788 Td 15 TL\n", "latin1")];
     let first = true;
     for (const item of pageLines) {
-      if (!first) stream += "T*\n";
+      if (!first) parts.push(Buffer.from("T*\n", "latin1"));
       first = false;
-      stream += `/${item.size === headingSize ? "F2" : "F1"} ${item.size} Tf (${pdfEscape(item.text)}) Tj\n`;
+      parts.push(Buffer.from(`/${item.size === headingSize ? "F2" : "F1"} ${item.size} Tf (`, "latin1"));
+      parts.push(pdfEncodeText(item.text));
+      parts.push(Buffer.from(") Tj\n", "latin1"));
     }
-    stream += `ET\nBT /F1 9 Tf 54 40 Td (Page ${i + 1} of ${totalPages}) Tj ET`;
-    objects[pageObjIds[i]] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${fontId + 1} 0 R >> >> /Contents ${contentIds[i]} 0 R >>`;
-    objects[contentIds[i]] = `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`;
+    parts.push(Buffer.from(`ET\nBT /F1 9 Tf 54 40 Td (Page ${i + 1} of ${totalPages}) Tj ET`, "latin1"));
+    const stream = Buffer.concat(parts);
+    objects[pageObjIds[i]] = Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${fontId + 1} 0 R >> >> /Contents ${contentIds[i]} 0 R >>`, "latin1");
+    objects[contentIds[i]] = Buffer.concat([
+      Buffer.from(`<< /Length ${stream.length} >>\nstream\n`, "latin1"), stream, Buffer.from("\nendstream", "latin1"),
+    ]);
   });
-  objects[fontId] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
-  objects[fontId + 1] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>";
-  let pdf = "%PDF-1.4\n";
+  objects[fontId] = Buffer.from("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>", "latin1");
+  objects[fontId + 1] = Buffer.from("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>", "latin1");
+  const chunks = [Buffer.from("%PDF-1.4\n", "latin1")];
+  let length = chunks[0].length;
   const offsets = [0];
-  for (let i = 1; i < objects.length; i++) {
-    if (objects[i] === undefined) continue;
-    offsets[i] = Buffer.byteLength(pdf);
-    pdf += `${i} 0 obj\n${objects[i]}\nendobj\n`;
-  }
-  const xrefPos = Buffer.byteLength(pdf);
   const maxId = objects.length - 1;
-  pdf += `xref\n0 ${maxId + 1}\n0000000000 65535 f \n`;
   for (let i = 1; i <= maxId; i++) {
-    pdf += `${String(offsets[i] ?? 0).padStart(10, "0")} 00000 n \n`;
+    offsets[i] = length;
+    const head = Buffer.from(`${i} 0 obj\n`, "latin1");
+    const tail = Buffer.from("\nendobj\n", "latin1");
+    chunks.push(head, objects[i], tail);
+    length += head.length + objects[i].length + tail.length;
   }
-  pdf += `trailer\n<< /Size ${maxId + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`;
-  return Buffer.from(pdf, "latin1");
+  const xrefPos = length;
+  let xref = `xref\n0 ${maxId + 1}\n0000000000 65535 f \n`;
+  for (let i = 1; i <= maxId; i++) {
+    xref += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+  }
+  xref += `trailer\n<< /Size ${maxId + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`;
+  chunks.push(Buffer.from(xref, "latin1"));
+  return Buffer.concat(chunks);
 }
 
 // --- DOCX rendering (stdlib only: ZIP with CRC32 + deflate) ---------------

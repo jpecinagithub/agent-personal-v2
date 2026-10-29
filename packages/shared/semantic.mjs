@@ -74,6 +74,51 @@ const COUNTRY_NAMES = {
   estonia: "EE", cyprus: "CY", malta: "MT", luxembourg: "LU",
 };
 
+/**
+ * Split a conditional question into premise clause and main clause.
+ * "If you do not require sponsorship, are you authorized to work in
+ * Spain?" → premise "you do not require sponsorship", main "are you
+ * authorized to work in Spain?". Returns null when there is no
+ * if-clause. Concept, negation and scope are read from the MAIN clause
+ * only, so a premise's "not" can never leak into the main question
+ * (and vice versa).
+ */
+export function splitConditional(text) {
+  const s = String(text ?? "").trim();
+  const m = s.match(/^if\s+(.+?),\s*(?:then\s+)?(.+)$/i);
+  if (!m) return null;
+  return { premiseClause: m[1].trim(), mainClause: m[2].trim() };
+}
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Detect a scope hint in a text fragment. Country NAMES win over codes,
+ * and a code counts only when it is unambiguously a scope: a fully
+ * uppercase 2-letter token in the original text (e.g. "BE", "ES"), or
+ * a token after an explicit scope marker. A lowercase function word
+ * such as "be", "to", "in" or "no" is NEVER a country code, however
+ * the text is cased.
+ */
+function detectScope(fragment) {
+  if (!fragment) return "";
+  const lower = fragment.toLowerCase();
+  const names = Object.keys(COUNTRY_NAMES).sort((a, b) => b.length - a.length);
+  for (const name of names) {
+    if (new RegExp(`\\b${escapeRegExp(name)}\\b`).test(lower)) return COUNTRY_NAMES[name];
+  }
+  const codes = new Set(Object.values(COUNTRY_NAMES));
+  const marked = fragment.match(/(?:scope|country)\s*[:=]\s*([A-Za-z]{2})\b/);
+  if (marked && codes.has(marked[1].toUpperCase())) return marked[1].toUpperCase();
+  const tokens = fragment.match(/\b[A-Za-z]{2}\b/g) || [];
+  for (const token of tokens) {
+    if (/^[A-Z]{2}$/.test(token) && codes.has(token)) return token;
+  }
+  return "";
+}
+
 /** Normalize a question variant into an alias key (case, punctuation, spacing). */
 export function normalizeVariant(text) {
   return String(text ?? "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
@@ -83,25 +128,24 @@ export function normalizeVariant(text) {
  * Identify concept, negation polarity and scope hint from free text.
  * Returns { concept: string|null, negated: boolean, scope: string }.
  * Scope is a hint only: an explicit scope argument always wins.
+ * For conditional questions, concept and negation come from the main
+ * clause only; scope prefers the main clause and falls back to the
+ * premise clause.
  */
 export function parseQuestionText(text) {
-  const lower = String(text ?? "").toLowerCase();
+  const raw = String(text ?? "");
+  const conditional = splitConditional(raw);
+  const mainText = conditional ? conditional.mainClause : raw;
+  const mainLower = mainText.toLowerCase();
   let concept = null;
   for (const entry of CONCEPT_PATTERNS) {
-    if (entry.patterns.some((re) => re.test(lower))) { concept = entry.concept; break; }
+    if (entry.patterns.some((re) => re.test(mainLower))) { concept = entry.concept; break; }
   }
-  const negated = NEGATION_PATTERNS.some((re) => re.test(lower));
-  let scope = "";
-  const codes = lower.match(/\b[a-z]{2}\b/g) || [];
-  const countryCodes = new Set(Object.values(COUNTRY_NAMES));
-  for (const token of codes) {
-    if (countryCodes.has(token.toUpperCase())) { scope = token.toUpperCase(); break; }
-  }
-  if (!scope) {
-    for (const [name, c] of Object.entries(COUNTRY_NAMES)) {
-      if (lower.includes(name)) { scope = c; break; }
-    }
-  }
+  // No fallback to the premise clause: a main clause with no
+  // identifiable concept is a human question, never the premise's concept.
+  const negated = NEGATION_PATTERNS.some((re) => re.test(mainLower));
+  let scope = detectScope(mainText);
+  if (!scope && conditional) scope = detectScope(conditional.premiseClause);
   return { concept, negated, scope };
 }
 
@@ -201,7 +245,10 @@ export function resolveSemantic(db, personId, { text = "", concept = "", scope =
     const fact = getConfirmedFact(db, personId, normConcept, effScope);
     const disclosed = fact && (fact.provenance === "user" || hasConsent(db, personId, `disclose_${normConcept}`));
     if (disclosed) {
-      return { kind: "declared", concept: normConcept, scope: effScope, value: fact.value, origin: "declared_sensitive", references: [fact.id] };
+      // Same negation semantics as the ordinary branch: a negated
+      // question flips a yes/no value. Consent to answer does not
+      // excuse a polarity error.
+      return applyPolarity({ kind: "declared", concept: normConcept, scope: effScope, value: fact.value, origin: "declared_sensitive", references: [fact.id] }, negated);
     }
     return { kind: "voluntary_omitted", concept: normConcept, scope: effScope, reason: "sensitive/voluntary concept without an explicit user declaration: omitted, never invented" };
   }
@@ -214,7 +261,18 @@ export function resolveSemantic(db, personId, { text = "", concept = "", scope =
   if (alias && alias.concept === normConcept && alias.negated === negated && (!scope || alias.scope === scope)) {
     const base = resolveAnswer(db, personId, { concept: alias.concept, scope: alias.scope });
     if (base.kind === "declared") {
-      return applyPolarity({ ...base, origin: "alias", aliasId: alias.id, references: [alias.evidence_fact_id] }, negated);
+      // The alias's evidence fact may have been deleted and replaced
+      // since the alias was stored: never mix a new fact's value with
+      // a deleted fact's reference. Renew the reference from the LIVE
+      // fact backing this resolution (or go stale if there is none).
+      const live = getConfirmedFact(db, personId, alias.concept, base.scope ?? alias.scope);
+      if (!live || String(live.value) !== String(base.value)) {
+        return { kind: "alias_stale", concept: normConcept, scope: effScope, aliasId: alias.id, reason: "alias evidence fact no longer resolves as declared" };
+      }
+      if (live.id !== alias.evidence_fact_id) {
+        db.prepare("UPDATE semantic_aliases SET evidence_fact_id = ? WHERE id = ?").run(live.id, alias.id);
+      }
+      return applyPolarity({ ...base, origin: "alias", aliasId: alias.id, references: [live.id] }, negated);
     }
     // Alias evidence no longer resolves: do not answer from it.
     return { kind: "alias_stale", concept: normConcept, scope: effScope, aliasId: alias.id, reason: "alias evidence fact no longer resolves as declared" };
@@ -270,10 +328,21 @@ export function formatDateAtPrecision(dateStr) {
   return s;
 }
 
-/** Render a stored entry's range at held precision ("Present" for open ends). */
+/** Render a stored entry's range at held precision.
+ * An unknown end date is UNKNOWN, never "Present": "Present" requires
+ * explicit currency evidence (entry.current === true). A missing end
+ * date — including one explicitly marked current:false — must never
+ * imply ongoing employment. */
 export function formatDateRange(entry) {
   const start = entry?.start ? formatDateAtPrecision(entry.start) : "";
-  const end = entry?.end ? formatDateAtPrecision(entry.end) : "Present";
+  let end;
+  if (entry?.end && datePrecision(entry.end) !== "unknown") {
+    end = formatDateAtPrecision(entry.end);
+  } else if (entry?.current === true) {
+    end = "Present";
+  } else {
+    end = "Unknown";
+  }
   return start ? `${start} – ${end}` : end;
 }
 
