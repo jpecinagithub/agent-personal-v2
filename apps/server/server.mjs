@@ -740,6 +740,7 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, ver
           llmTokensPerStep: body.llmTokensPerStep ?? 0,
           llmCostPerStep: body.llmCostPerStep ?? 0,
           initialUsage: body.initialUsage,
+          resetBudget: body.resetBudget === true,
           observeFn: observedByStepId ? ((step) => (step.id in observedByStepId ? observedByStepId[step.id] : (step.observableInput ?? null))) : undefined,
         });
         return send(res, 200, { execution });
@@ -851,7 +852,7 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, ver
         }, {
           limits: body.limits, activeMsPerStep: body.activeMsPerStep ?? 0,
           llmTokensPerStep: body.llmTokensPerStep ?? 0, llmCostPerStep: body.llmCostPerStep ?? 0,
-          initialUsage: body.initialUsage,
+          initialUsage: body.initialUsage, resetBudget: body.resetBudget === true,
           observeFn: body.observedByStepId ? ((step) => (step.id in body.observedByStepId ? body.observedByStepId[step.id] : (step.observableInput ?? null))) : undefined,
         });
         // Flow facts: questions were asked against the chosen profile's

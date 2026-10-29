@@ -339,21 +339,62 @@ export function orderSteps(steps) {
  * records "observed_only") → persist (execution row + step results).
  * No browser, no form filling, no submission, no attempt, no policy
  * or fact write happens anywhere in this function.
+ * Budget retry semantics (G4 P1 fix, 2026-10-29): a retry of the same
+ * plan + version resumes from the latest execution's cumulative
+ * counters by default — saving consumption does not imply forgetting
+ * it. Only an explicit opts.resetBudget === true starts fresh, and
+ * an explicitly supplied opts.initialUsage wins over both. An
+ * already-exhausted starting usage blocks BEFORE any observation
+ * (limit pre-check below); it never buys one more observation.
  * @param {any} db
  * @param {string} planId
- * @param {{limits?: any, observeFn?: (step: any, index: number) => any, activeMsPerStep?: number, llmTokensPerStep?: number, llmCostPerStep?: number, initialUsage?: any}} [opts]
+ * @param {{limits?: any, observeFn?: (step: any, index: number) => any, activeMsPerStep?: number, llmTokensPerStep?: number, llmCostPerStep?: number, initialUsage?: any, resetBudget?: boolean}} [opts]
  */
 export function runPlanDryRun(db, planId, opts = {}) {
   const plan = getPlan(db, planId);
   if (!plan) throw new Error("plan not found");
   const limits = validateLimits(opts.limits);
-  let usage = { ...freshUsage(), ...(opts.initialUsage ?? {}) };
+  // Seed the starting usage. Cumulative counters only — fingerprint
+  // tracking (lastFingerprint/lastStepIndex) belongs to a single
+  // run's progress detection and is never carried across runs.
+  const CUMULATIVE_KEYS = ["activeMs", "waitMs", "llmCalls", "llmTokens", "costUsd", "planChanges", "noProgressRepetitions"];
+  let usage;
+  if (opts.initialUsage !== undefined && opts.initialUsage !== null) {
+    usage = { ...freshUsage(), ...opts.initialUsage };
+  } else if (opts.resetBudget === true) {
+    usage = freshUsage();
+  } else {
+    usage = freshUsage();
+    const prev = db.prepare("SELECT usage_json FROM plan_executions WHERE plan_id = ? AND plan_version = ? ORDER BY rowid DESC LIMIT 1").get(planId, plan.version);
+    if (prev) {
+      let prevUsage;
+      try {
+        prevUsage = JSON.parse(prev.usage_json);
+      } catch {
+        throw new Error("previous execution usage is unreadable; refusing to restart the budget silently");
+      }
+      for (const key of CUMULATIVE_KEYS) {
+        if (typeof prevUsage[key] === "number" && prevUsage[key] >= 0) usage[key] = prevUsage[key];
+      }
+    }
+  }
   const ordered = orderSteps(plan.steps);
   const stepResults = [];
   let state = "observed_only";
   let stoppedReason = null;
-  for (let index = 0; index < ordered.length; index += 1) {
-    const step = ordered[index];
+  // Limit pre-check: an already-exhausted starting usage blocks
+  // BEFORE the first observation, whether it came from a prior
+  // execution or an explicit initialUsage. The blocked run is still
+  // persisted below (with the seeded usage) so the attempt is
+  // recorded and the consumption is not lost.
+  const preCheck = checkLimits(limits, usage);
+  const stepsToRun = preCheck.state === "stuck" ? [] : ordered;
+  if (preCheck.state === "stuck") {
+    state = "stuck";
+    stoppedReason = preCheck.reason;
+  }
+  for (let index = 0; index < stepsToRun.length; index += 1) {
+    const step = stepsToRun[index];
     // Validate tool/policy BEFORE acting: deferred kinds are never acted on.
     if (DEFERRED_STEP_KINDS.includes(step.kind)) {
       stepResults.push({

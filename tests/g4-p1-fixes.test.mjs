@@ -14,7 +14,7 @@ import { createProfileFull } from "../packages/shared/profiles.mjs";
 import { FIXTURE_PERSON } from "./fixtures.mjs";
 import { recogniseAts } from "../packages/shared/route-classify.mjs";
 import { executeChatTool } from "../packages/shared/chat-tools.mjs";
-import { createPlan, runPlanDryRun, listExecutions, proposeAdaptation, listAdaptations } from "../packages/shared/application-plan.mjs";
+import { createPlan, runPlanDryRun, listExecutions, getExecution, proposeAdaptation, listAdaptations } from "../packages/shared/application-plan.mjs";
 import { recordComparison } from "../packages/shared/requirements.mjs";
 import { createAttempt } from "../packages/shared/profiles.mjs";
 import { buildProfileView, createSearchDefinition, updateSearchDefinition } from "../packages/shared/search-run.mjs";
@@ -222,4 +222,89 @@ test("P1 residual: a failed observation after ~60 ms of real work records its ti
   const persisted = listExecutions(db, planId).at(-1);
   assert.ok(persisted.usage.activeMs >= 50, `persisted activeMs must reflect the failed observation, got ${persisted.usage.activeMs}`);
   assert.equal(persisted.state, "stuck");
+});
+
+// --- Retry budget (G4 P1, user reproduction on 043a3c5, 2026-10-29):
+// saving consumption must imply loading it on retry. A retry of the
+// same plan + version resumes cumulative counters by default; an
+// exhausted starting usage blocks BEFORE observing; only an explicit
+// resetBudget restarts the budget.
+test("P1 retry: second run without reset recovers prior consumption and blocks before observing", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p1-retry-");
+  const planId = createPlan(db, { personId: personA, offerId: "https://example.test/jobs/1", profileId: profileA, routeKind: "company_careers", rationale: "retry", steps: STEPS });
+  const failAfterWork = () => {
+    const start = performance.now();
+    while (performance.now() - start < 60) { /* real work, then an error */ }
+    throw new Error("network timeout while observing");
+  };
+  const first = runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 1 }, activeMsPerStep: 0, observeFn: () => failAfterWork() });
+  assert.equal(first.state, "stuck", "first run fails after real work");
+  assert.ok(first.usage.activeMs >= 50, `first run must persist real time, got ${first.usage.activeMs}`);
+  let observedCalls = 0;
+  const second = runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 1 }, observeFn: () => { observedCalls += 1; return "x"; } });
+  assert.equal(second.state, "stuck", "retry must block on recovered consumption");
+  assert.equal(observedCalls, 0, "blocked retry must not observe");
+  assert.equal(second.stepResults.length, 0, "blocked retry has zero steps");
+  assert.ok(second.usage.activeMs >= first.usage.activeMs, "persisted usage must not shrink across retries");
+  const persisted = listExecutions(db, planId).at(-1);
+  assert.ok(persisted.usage.activeMs >= first.usage.activeMs, "latest execution row keeps the recovered consumption");
+  assert.equal(getExecution(db, second.executionId).state, "stuck");
+});
+
+test("P1 retry: exhausted initialUsage blocks before observing", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p1-retry-init-");
+  const planId = createPlan(db, { personId: personA, offerId: "https://example.test/jobs/1", profileId: profileA, routeKind: "company_careers", rationale: "retry-init", steps: STEPS });
+  let observedCalls = 0;
+  const execution = runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 1 }, initialUsage: { activeMs: 1000 }, observeFn: () => { observedCalls += 1; return "x"; } });
+  assert.equal(execution.state, "stuck", "exhausted starting usage must block");
+  assert.equal(observedCalls, 0, "exhausted start must not buy one more observation");
+  assert.equal(execution.stepResults.length, 0, "blocked run has zero steps");
+  assert.match(execution.stoppedReason ?? "", /active_time/);
+});
+
+test("P1 retry: explicit resetBudget restarts fresh and observes normally", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p1-retry-reset-");
+  const planId = createPlan(db, { personId: personA, offerId: "https://example.test/jobs/1", profileId: profileA, routeKind: "company_careers", rationale: "retry-reset", steps: STEPS });
+  const failAfterWork = () => {
+    const start = performance.now();
+    while (performance.now() - start < 60) { /* real work, then an error */ }
+    throw new Error("network timeout while observing");
+  };
+  const first = runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 1 }, activeMsPerStep: 0, observeFn: () => failAfterWork() });
+  assert.equal(first.state, "stuck");
+  const reset = runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 1 }, resetBudget: true });
+  assert.equal(reset.state, "observed_only", "explicit reset restarts the budget");
+  assert.equal(reset.stepResults[0].status, "observed");
+  assert.ok(reset.usage.activeMs < 1, `reset run starts from zero, got ${reset.usage.activeMs}`);
+});
+
+test("P1 retry via API: repeat /execute without reset blocks, with reset it proceeds", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agentv2-g4p1-retry-http-"));
+  const { server } = createServer({ dataDir: dir });
+  await new Promise((r) => server.listen(0, "127.0.0.1", () => r(undefined)));
+  const base = `http://127.0.0.1:${/** @type {import("node:net").AddressInfo} */ (server.address()).port}`;
+  const post = async (p, body) => {
+    const r = await fetch(`${base}${p}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    return { status: r.status, json: await r.json().catch(() => ({})) };
+  };
+  try {
+    const seeded = openDatabase(path.join(dir, "agentv2.db"));
+    const personId = createPersonFull(seeded, { full_name: "Retry Person", email: "retry@example.test" });
+    const profileId = createProfileFull(seeded, personId, "Finance", { focus: "Finance" });
+    const plan = await post("/api/plans", { personId, offerId: "https://example.test/jobs/1", profileId, routeKind: "company_careers", rationale: "retry", steps: STEPS });
+    assert.equal(plan.status, 201);
+    const planId = plan.json.id;
+    const first = await post(`/api/plans/${planId}/execute`, { limits: { activeTimeBudgetMs: 1 }, activeMsPerStep: 100 });
+    assert.equal(first.json.execution.state, "stuck", "first run exhausts the budget");
+    assert.ok(first.json.execution.usage.activeMs >= 100);
+    const second = await post(`/api/plans/${planId}/execute`, { limits: { activeTimeBudgetMs: 1 } });
+    assert.equal(second.json.execution.state, "stuck", "repeat /execute without reset must block");
+    assert.equal(second.json.execution.stepResults.length, 0, "repeat /execute must observe nothing");
+    assert.ok(second.json.execution.usage.activeMs >= 100, "repeat /execute keeps the recovered consumption");
+    const reset = await post(`/api/plans/${planId}/execute`, { limits: { activeTimeBudgetMs: 1 }, resetBudget: true });
+    assert.equal(reset.json.execution.state, "observed_only", "explicit resetBudget via API restarts the budget");
+    assert.equal(reset.json.execution.stepResults[0].status, "observed");
+  } finally {
+    await new Promise((r) => server.close(() => r(undefined)));
+  }
 });

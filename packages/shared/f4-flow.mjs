@@ -34,7 +34,7 @@ import { preflightCheck, decideAuto } from "./preflight.mjs";
  * result normalised by the caller into offer shape).
  * @param {any} db
  * @param {any} input
- * @param {{observeFn?: any, limits?: any, activeMsPerStep?: number, llmTokensPerStep?: number, llmCostPerStep?: number, initialUsage?: any}} [opts]
+ * @param {{observeFn?: any, limits?: any, activeMsPerStep?: number, llmTokensPerStep?: number, llmCostPerStep?: number, initialUsage?: any, resetBudget?: boolean}} [opts]
  */
 export function runF4Flow(db, input, opts = {}) {
   const {
@@ -120,6 +120,7 @@ export function runF4Flow(db, input, opts = {}) {
     llmTokensPerStep: opts.llmTokensPerStep ?? 0,
     llmCostPerStep: opts.llmCostPerStep ?? 0,
     initialUsage: opts.initialUsage,
+    resetBudget: opts.resetBudget === true,
   });
 
   // Stage 6 — preflight + auto decision. Both are decisions only.
