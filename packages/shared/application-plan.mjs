@@ -382,6 +382,18 @@ export function runPlanDryRun(db, planId, opts = {}) {
       }
     }
   }
+  // P2 validation, extended (2026-10-29): the per-step consumption
+  // knobs feed the same counters, so they need the same check.
+  // Without it, 1e309 in activeMsPerStep / llmTokensPerStep /
+  // llmCostPerStep was accepted, added as Infinity, and persisted
+  // as null — the same silent-reset hole as initialUsage.
+  for (const [key, value] of [["activeMsPerStep", opts.activeMsPerStep], ["llmTokensPerStep", opts.llmTokensPerStep], ["llmCostPerStep", opts.llmCostPerStep]]) {
+    if (value !== undefined && value !== null) {
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+        throw new Error(`invalid ${key}: must be a finite non-negative number`);
+      }
+    }
+  }
   // Seed the starting usage. Cumulative counters only — fingerprint
   // tracking (lastFingerprint/lastStepIndex) belongs to a single
   // run's progress detection and is never carried across runs.
@@ -392,15 +404,19 @@ export function runPlanDryRun(db, planId, opts = {}) {
     usage = { ...freshUsage(), ...(opts.initialUsage ?? {}) };
   } else {
     usage = freshUsage();
-    // Stored-invalid recovery: scan prior executions newest-first
-    // and take the first whose usage is FULLY valid (every
-    // cumulative counter present, finite and non-negative). A row
-    // carrying an invalid counter (e.g. null activeMs from a
-    // persisted Infinity) is skipped, never treated as 0. If prior
-    // rows exist but none is valid, fail loudly and create no
-    // execution row — never silently restart the budget.
+    // Stored-invalid recovery, PER COUNTER (2026-10-29): scan prior
+    // executions newest-first and take, for EACH cumulative counter
+    // separately, the value from the newest row in which THAT
+    // counter is valid (finite, non-negative). The previous
+    // row-level fallback discarded a whole row for one bad counter
+    // and lost that row's other valid counters (e.g. cost 2 lost
+    // because the same row's time was null). A reset run's valid
+    // counters are the newest, so they still win even when lower
+    // than older ones — but no counter ever silently restarts.
+    // If some counter has no valid value in ANY prior row, fail
+    // loudly and create no execution row — never treat it as 0.
     const rows = db.prepare("SELECT usage_json FROM plan_executions WHERE plan_id = ? AND plan_version = ? ORDER BY rowid DESC").all(planId, plan.version);
-    let seeded = false;
+    const recovered = new Set();
     for (const row of rows) {
       let prevUsage;
       try {
@@ -409,14 +425,19 @@ export function runPlanDryRun(db, planId, opts = {}) {
         continue;
       }
       if (!prevUsage || typeof prevUsage !== "object") continue;
-      const invalid = CUMULATIVE_KEYS.some((key) => !(key in prevUsage) || typeof prevUsage[key] !== "number" || !Number.isFinite(prevUsage[key]) || prevUsage[key] < 0);
-      if (invalid) continue;
-      for (const key of CUMULATIVE_KEYS) usage[key] = prevUsage[key];
-      seeded = true;
-      break;
+      for (const key of CUMULATIVE_KEYS) {
+        if (recovered.has(key)) continue;
+        const value = prevUsage[key];
+        if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+          usage[key] = value;
+          recovered.add(key);
+        }
+      }
+      if (recovered.size === CUMULATIVE_KEYS.length) break;
     }
-    if (rows.length > 0 && !seeded) {
-      throw new Error("previous execution usage is invalid and no earlier valid execution exists; refusing to restart the budget silently");
+    if (rows.length > 0 && recovered.size < CUMULATIVE_KEYS.length) {
+      const missing = CUMULATIVE_KEYS.filter((key) => !recovered.has(key));
+      throw new Error(`previous execution usage is invalid for counter(s) ${missing.join(", ")} and no earlier valid execution exists for them; refusing to restart the budget silently`);
     }
     // Without a reset, a supplied initialUsage must NEVER reduce an
     // accumulated counter: element-wise maximum over every cumulative

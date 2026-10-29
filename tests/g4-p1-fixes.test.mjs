@@ -500,3 +500,105 @@ test("P2 regression: valid finite initialUsage still merges by max (cc69b53 sema
   assert.equal(execution.usage.llmCalls, 3, "higher supplied llmCalls must win");
   assert.equal(execution.state, "observed_only");
 });
+
+// --- P2 (user reproductions on 7c802cb, 2026-10-29): per-step
+// consumption knobs must be validated like initialUsage, and
+// stored-invalid recovery must work per counter, not per row.
+test("P2: API rejects 1e309 in each per-step knob with 400 and alters nothing", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agentv2-g4p2-step-"));
+  const { server } = createServer({ dataDir: dir });
+  await new Promise((r) => server.listen(0, "127.0.0.1", () => r(undefined)));
+  const base = `http://127.0.0.1:${/** @type {import("node:net").AddressInfo} */ (server.address()).port}`;
+  try {
+    const seeded = openDatabase(path.join(dir, "agentv2.db"));
+    const personId = createPersonFull(seeded, FIXTURE_PERSON);
+    const profileId = createProfileFull(seeded, personId, "Finance", { focus: "Finance" });
+    const planId = createPlan(seeded, { personId, offerId: "https://example.test/jobs/1", profileId, routeKind: "company_careers", rationale: "p2step", steps: STEPS });
+    runPlanDryRun(seeded, planId, { activeMsPerStep: 100, limits: { activeTimeBudgetMs: 1000 } });
+    assert.equal(listExecutions(seeded, planId).length, 1);
+    for (const knob of ["activeMsPerStep", "llmTokensPerStep", "llmCostPerStep"]) {
+      const raw = await fetch(`${base}/api/plans/${planId}/execute`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: `{"limits":{"activeTimeBudgetMs":1000},"${knob}":1e309,"resetBudget":false}`,
+      });
+      assert.equal(raw.status, 400, `${knob}=1e309 must be a 400, got ${raw.status}`);
+      assert.match((await raw.json()).error ?? "", /finite/);
+      assert.equal(listExecutions(seeded, planId).length, 1, `rejected ${knob} request must create no execution`);
+      assert.equal(listExecutions(seeded, planId)[0].usage.activeMs, 100, "previous consumption untouched");
+      assert.equal(listExecutions(seeded, planId)[0].usage.costUsd, 0, "previous cost untouched");
+    }
+  } finally {
+    await new Promise((r) => server.close(() => r(undefined)));
+  }
+});
+
+test("P2: NaN, negative and Infinity per-step values are rejected, even with resetBudget", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p2-stepbad-");
+  const planId = createPlan(db, { personId: personA, offerId: "https://example.test/jobs/1", profileId: profileA, routeKind: "company_careers", rationale: "p2step", steps: STEPS });
+  for (const bad of [{ activeMsPerStep: Number.NaN }, { activeMsPerStep: -1 }, { llmTokensPerStep: Infinity }, { llmCostPerStep: -Infinity }]) {
+    assert.throws(() => runPlanDryRun(db, planId, bad), /finite non-negative/);
+  }
+  assert.throws(() => runPlanDryRun(db, planId, { activeMsPerStep: Infinity, resetBudget: true }), /finite non-negative/, "reset authorises a fresh start, not an invalid counter");
+  assert.equal(listExecutions(db, planId).length, 0, "no rejected run may create an execution");
+});
+
+test("P2: per-counter recovery keeps row2 cost 2 when row2 time is null (user loss case)", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p2-percounter-");
+  const planId = createPlan(db, { personId: personA, offerId: "https://example.test/jobs/1", profileId: profileA, routeKind: "company_careers", rationale: "p2counter", steps: STEPS });
+  runPlanDryRun(db, planId, { activeMsPerStep: 100, limits: { activeTimeBudgetMs: 100000 } });
+  runPlanDryRun(db, planId, { activeMsPerStep: 0, limits: { activeTimeBudgetMs: 100000 } });
+  assert.equal(listExecutions(db, planId).length, 2);
+  // Legacy corrupt residue: row2 recorded cost 2 correctly but its
+  // time persisted as null (an Infinity that was stored pre-fix).
+  const row2 = { activeMs: null, waitMs: 0, llmCalls: 0, llmTokens: 0, costUsd: 2, planChanges: 0, noProgressRepetitions: 0, lastFingerprint: null, lastStepIndex: null };
+  db.prepare("UPDATE plan_executions SET usage_json = ? WHERE rowid = (SELECT MAX(rowid) FROM plan_executions WHERE plan_id = ?)").run(JSON.stringify(row2), planId);
+  const execution = runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 100000, maxCostUsd: 2 }, initialUsage: {}, resetBudget: false });
+  assert.equal(execution.state, "stuck", "recovered cost 2 must exhaust the cost limit 2");
+  assert.equal(execution.stepResults.length, 0, "blocked before observing");
+  assert.ok(execution.usage.activeMs >= 100, `time must come from row1, got ${execution.usage.activeMs}`);
+  assert.equal(execution.usage.costUsd, 2, "cost must come from row2, not be lost by the row fallback");
+});
+
+test("P2: wholly-invalid latest row still recovers the earlier valid row (7c802cb regression)", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p2-wholly-");
+  const planId = createPlan(db, { personId: personA, offerId: "https://example.test/jobs/1", profileId: profileA, routeKind: "company_careers", rationale: "p2wholly", steps: STEPS });
+  runPlanDryRun(db, planId, { activeMsPerStep: 100, limits: { activeTimeBudgetMs: 1000 } });
+  runPlanDryRun(db, planId, { activeMsPerStep: 0, limits: { activeTimeBudgetMs: 1000 } });
+  const allNull = { activeMs: null, waitMs: null, llmCalls: null, llmTokens: null, costUsd: null, planChanges: null, noProgressRepetitions: null, lastFingerprint: null, lastStepIndex: null };
+  db.prepare("UPDATE plan_executions SET usage_json = ? WHERE rowid = (SELECT MAX(rowid) FROM plan_executions WHERE plan_id = ?)").run(JSON.stringify(allNull), planId);
+  const execution = runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 20 }, initialUsage: {}, resetBudget: false });
+  assert.equal(execution.state, "stuck");
+  assert.equal(execution.stepResults.length, 0, "blocked before observing");
+  assert.ok(execution.usage.activeMs >= 100, `must recover the earlier valid row, got ${execution.usage.activeMs}`);
+});
+
+test("P2: no valid value for a counter in any row fails per counter with no row created", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p2-nocounter-");
+  const planId = createPlan(db, { personId: personA, offerId: "https://example.test/jobs/1", profileId: profileA, routeKind: "company_careers", rationale: "p2nocounter", steps: STEPS });
+  runPlanDryRun(db, planId, { activeMsPerStep: 100, limits: { activeTimeBudgetMs: 1000 } });
+  runPlanDryRun(db, planId, { activeMsPerStep: 0, limits: { activeTimeBudgetMs: 1000 } });
+  const noTime = { activeMs: null, waitMs: 0, llmCalls: 0, llmTokens: 0, costUsd: 0, planChanges: 0, noProgressRepetitions: 0, lastFingerprint: null, lastStepIndex: null };
+  db.prepare("UPDATE plan_executions SET usage_json = ? WHERE plan_id = ?").run(JSON.stringify(noTime), planId);
+  assert.throws(() => runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 1000 }, initialUsage: {}, resetBudget: false }), /activeMs.*no earlier valid execution|no earlier valid execution/);
+  assert.equal(listExecutions(db, planId).length, 2, "failed recovery must create no execution row");
+});
+
+test("P2: explicit resetBudget still produces a genuinely fresh start (regression)", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p2-reset-");
+  const planId = createPlan(db, { personId: personA, offerId: "https://example.test/jobs/1", profileId: profileA, routeKind: "company_careers", rationale: "p2reset", steps: STEPS });
+  runPlanDryRun(db, planId, { activeMsPerStep: 100, limits: { activeTimeBudgetMs: 1000 } });
+  const execution = runPlanDryRun(db, planId, { activeMsPerStep: 0, limits: { activeTimeBudgetMs: 1000 }, resetBudget: true });
+  assert.equal(execution.state, "observed_only");
+  assert.ok(execution.usage.activeMs < 100, `reset must start fresh, got ${execution.usage.activeMs}`);
+});
+
+test("P2: valid finite per-step values still accumulate as before (regression)", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p2-finite-");
+  const planId = createPlan(db, { personId: personA, offerId: "https://example.test/jobs/1", profileId: profileA, routeKind: "company_careers", rationale: "p2finite", steps: STEPS });
+  const execution = runPlanDryRun(db, planId, { activeMsPerStep: 100, llmTokensPerStep: 5, llmCostPerStep: 0.5, limits: { activeTimeBudgetMs: 1000 } });
+  assert.equal(execution.state, "observed_only");
+  assert.ok(execution.usage.activeMs >= 100);
+  assert.equal(execution.usage.llmTokens, 5);
+  assert.equal(execution.usage.costUsd, 0.5);
+  assert.equal(execution.usage.llmCalls, 1);
+});
