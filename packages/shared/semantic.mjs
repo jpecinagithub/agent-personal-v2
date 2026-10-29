@@ -82,12 +82,39 @@ const COUNTRY_NAMES = {
  * if-clause. Concept, negation and scope are read from the MAIN clause
  * only, so a premise's "not" can never leak into the main question
  * (and vice versa).
+ *
+ * Shapes handled (all share the same contract: main clause only;
+ * premise gating still needs an EXPLICIT premise argument, never a
+ * leftover answer): leading "If …, …" (with optional "then"),
+ * leading "provided that/as long as …, …", trailing ", if …",
+ * trailing ", provided that/as long as …", "… unless …", and trailing
+ * "… provided that/as long as …". A trailing bare "if" without a
+ * comma splits only when the trailing clause itself identifies a
+ * premise concept, so a main clause that merely mentions "if" is
+ * never torn apart.
  */
+function identifiesConcept(text) {
+  const lower = String(text ?? "").toLowerCase();
+  return CONCEPT_PATTERNS.some((entry) => entry.patterns.some((re) => re.test(lower)));
+}
+
 export function splitConditional(text) {
   const s = String(text ?? "").trim();
-  const m = s.match(/^if\s+(.+?),\s*(?:then\s+)?(.+)$/i);
-  if (!m) return null;
-  return { premiseClause: m[1].trim(), mainClause: m[2].trim() };
+  let m = s.match(/^if\s+(.+?),\s*(?:then\s+)?(.+)$/i);
+  if (m) return { premiseClause: m[1].trim(), mainClause: m[2].trim() };
+  m = s.match(/^(?:provided that|as long as)\s+(.+?),\s*(.+)$/i);
+  if (m) return { premiseClause: m[1].trim(), mainClause: m[2].trim() };
+  m = s.match(/^(.+?),\s*if\s+(.+?)\??$/i);
+  if (m) return { premiseClause: m[2].trim(), mainClause: m[1].trim() };
+  m = s.match(/^(.+?),\s*(?:provided that|as long as)\s+(.+?)\??$/i);
+  if (m) return { premiseClause: m[2].trim(), mainClause: m[1].trim() };
+  m = s.match(/^(.+?)\s+unless\s+(.+?)\??$/i);
+  if (m) return { premiseClause: m[2].trim(), mainClause: m[1].trim() };
+  m = s.match(/^(.+?)\s+(?:provided that|as long as)\s+(.+?)\??$/i);
+  if (m) return { premiseClause: m[2].trim(), mainClause: m[1].trim() };
+  m = s.match(/^(.+?)\s+if\s+(.+?)\??$/i);
+  if (m && identifiesConcept(m[2])) return { premiseClause: m[2].trim(), mainClause: m[1].trim() };
+  return null;
 }
 
 function escapeRegExp(s) {
@@ -96,12 +123,18 @@ function escapeRegExp(s) {
 
 /**
  * Detect a scope hint in a text fragment. Country NAMES win over codes,
- * and a code counts only when it is unambiguously a scope: a fully
- * uppercase 2-letter token in the original text (e.g. "BE", "ES"), or
- * a token after an explicit scope marker. A lowercase function word
- * such as "be", "to", "in" or "no" is NEVER a country code, however
- * the text is cased.
+ * and a code counts only when it is unambiguously a scope: an explicit
+ * scope/country marker, a code after a scope preposition ("in BE",
+ * "at BE") at the end of the fragment (or before punctuation, so "in
+ * no way" never becomes Norway), or a fully uppercase 2-letter token
+ * that is NOT an English function word. Lowercase function words
+ * ("be", "to", "in", "no") are never codes, and neither are their
+ * fully uppercased forms in ALL-CAPS questions ("WOULD YOU BE …"
+ * must not become Belgium, "WORK AT …" must not become Austria,
+ * "CONTACT US" must not become the United States).
  */
+const FUNCTION_WORD_CODES = new Set(["BE", "AT", "NO", "US", "IT"]);
+
 function detectScope(fragment) {
   if (!fragment) return "";
   const lower = fragment.toLowerCase();
@@ -110,11 +143,13 @@ function detectScope(fragment) {
     if (new RegExp(`\\b${escapeRegExp(name)}\\b`).test(lower)) return COUNTRY_NAMES[name];
   }
   const codes = new Set(Object.values(COUNTRY_NAMES));
-  const marked = fragment.match(/(?:scope|country)\s*[:=]\s*([A-Za-z]{2})\b/);
+  const marked = fragment.match(/(?:scope|country)\s*[:=]\s*([A-Za-z]{2})\b/i);
   if (marked && codes.has(marked[1].toUpperCase())) return marked[1].toUpperCase();
+  const prepped = fragment.match(/\b(?:in|at)\s+([A-Za-z]{2})\b(?!\s+[A-Za-z])/i);
+  if (prepped && codes.has(prepped[1].toUpperCase())) return prepped[1].toUpperCase();
   const tokens = fragment.match(/\b[A-Za-z]{2}\b/g) || [];
   for (const token of tokens) {
-    if (/^[A-Z]{2}$/.test(token) && codes.has(token)) return token;
+    if (/^[A-Z]{2}$/.test(token) && codes.has(token) && !FUNCTION_WORD_CODES.has(token)) return token;
   }
   return "";
 }
@@ -256,9 +291,18 @@ export function resolveSemantic(db, personId, { text = "", concept = "", scope =
   // literal question. The variant text itself is the identity, and
   // polarity is part of it; the alias carries its resolved scope, so
   // a missing scope hint does not defeat the hit. An explicitly
-  // supplied scope that conflicts with the alias still wins.
+  // supplied scope that conflicts with the alias still wins — and so
+  // does a scope freshly parsed from the CURRENT question: an alias
+  // applies only when its stored scope matches the freshly parsed
+  // scope, or when the current question parses no scope at all. On a
+  // scope mismatch the alias is ignored for scope purposes and the
+  // question re-resolves from the parsed scope; the stale alias row
+  // is never re-saved under the wrong scope (recordAlias leaves an
+  // existing key untouched).
   const alias = aliasFor(db, personId, text);
-  if (alias && alias.concept === normConcept && alias.negated === negated && (!scope || alias.scope === scope)) {
+  if (alias && alias.concept === normConcept && alias.negated === negated
+    && (effScope === "" || alias.scope === effScope)
+    && (!scope || alias.scope === scope)) {
     const base = resolveAnswer(db, personId, { concept: alias.concept, scope: alias.scope });
     if (base.kind === "declared") {
       // The alias's evidence fact may have been deleted and replaced

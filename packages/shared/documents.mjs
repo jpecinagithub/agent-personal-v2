@@ -27,7 +27,7 @@ import {
   getProfileFull, assertProfileBelongsToPerson, presentedHistory, pinSnapshot,
 } from "./profiles.mjs";
 import { listFacts } from "./facts.mjs";
-import { formatDateRange } from "./semantic.mjs";
+import { formatDateRange, parseQuestionText } from "./semantic.mjs";
 
 const MAX_ATTACHMENT_BYTES_DEFAULT = 5_000_000;
 const FORMAT_MIME = {
@@ -173,25 +173,64 @@ export function buildCoverLetterContent(db, personId, profileId, { company = "",
 
 /**
  * Genuine system template furniture (cover-letter greeting, generic
- * interest/closing sentences, target-company line). ONLY text matching
- * one of these patterns may skip reference validation via the
- * template flag. A client-supplied line flagged `template: true` with
- * any other text is treated as an ordinary claim: the flag never
- * exempts arbitrary client content from validation.
+ * interest/closing sentences, target-company line). ONLY a line that
+ * is ENTIRELY template furniture may skip reference validation via
+ * the template flag: every pattern below is anchored end-to-end, so
+ * a claim smuggled after a template prefix ("…position. I have a PhD
+ * from MIT") is validated as an ordinary claim. The two lines whose
+ * tail is user-supplied (greeting sign-off, target company) reject
+ * any tail carrying claim content (degree/language/employment
+ * wording or an em-dash claim separator) instead of trusting the
+ * prefix.
  */
 const SYSTEM_TEMPLATE_PATTERNS = [
-  /^Dear .* Hiring Team,$/,
-  /^I am writing to express my interest in /,
-  /^I would welcome the opportunity to discuss /,
-  /^Sincerely, /,
-  /^Target company: /,
+  /^Dear (.* )?Hiring Team,$/,
+  /^I am writing to express my interest in (the .+ position( at .+)?|a position matching my profile)\.$/,
+  /^I would welcome the opportunity to discuss how my background fits this position\.$/,
 ];
 
+function templateTailHasClaim(tail) {
+  return /(i (have|speak|worked|am|hold)|my (experience|education|degree|skills)|degree|phd|doctorate|university|college|institute|school|fluent|hablo|speak)/i.test(tail)
+    || /\s[–—-]\s/.test(tail);
+}
+
 function isSystemTemplate(text) {
-  return SYSTEM_TEMPLATE_PATTERNS.some((re) => re.test(String(text ?? "").trim()));
+  const t = String(text ?? "").trim();
+  if (SYSTEM_TEMPLATE_PATTERNS.some((re) => re.test(t))) return true;
+  if (t.startsWith("Sincerely,")) {
+    const rest = t.slice("Sincerely,".length).trim();
+    return rest !== "" && !templateTailHasClaim(rest);
+  }
+  if (t.startsWith("Target company:")) {
+    const rest = t.slice("Target company:".length).trim();
+    return rest !== "" && !templateTailHasClaim(rest);
+  }
+  return false;
 }
 
 const EDUCATION_LEVEL_KEYS = ["phd", "doctorate", "doctoral", "master", "masters", "mba", "msc", "bachelor", "bachelors", "bsc", "ba", "degree", "diploma"];
+
+/** Education levels grouped so aliases of one level match each other
+ * (PhD = doctorate = doctoral; MSc/MBA = master) but never upgrade
+ * one level into another: a BSc entry can never support a PhD claim,
+ * however many institution tokens they share. "degree"/"diploma" are
+ * generic: they claim no specific level, so token overlap decides. */
+const LEVEL_GROUPS = {
+  doctorate: new Set(["phd", "doctorate", "doctoral"]),
+  master: new Set(["master", "masters", "msc", "mba"]),
+  bachelor: new Set(["bachelor", "bachelors", "bsc", "ba"]),
+  generic: new Set(["degree", "diploma"]),
+};
+
+function levelGroups(text) {
+  const groups = new Set();
+  for (const level of claimLevels(text)) {
+    for (const [group, members] of Object.entries(LEVEL_GROUPS)) {
+      if (members.has(level)) groups.add(group);
+    }
+  }
+  return groups;
+}
 
 function claimWords(text) {
   return String(text ?? "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
@@ -215,27 +254,42 @@ function significantTokens(text) {
 
 /**
  * Does one reference actually SUPPORT an education claim (not merely
- * exist)? A history education entry supports it when its level matches
- * the claimed level, or its title/institution shares a significant
- * token with the claim. A highest_education fact supports it when its
- * value shares a level or a significant token. A skills ref, an
- * employment ref, or any unrelated fact never supports an education
- * claim, however the client flags the line.
+ * exist)? A history education entry supports it only when its level
+ * group matches the claimed level group (exact level rule: a BSc
+ * entry never supports a PhD claim, even with shared institution
+ * tokens) AND, when the claim names subject tokens, one of them
+ * overlaps the entry's title/institution. A claim naming no subject
+ * ("PhD") is supported by any same-level entry. A generic claim
+ * ("degree in …") claims no specific level, so token overlap decides.
+ * A highest_education fact follows the same rule on its value text.
+ * A skills ref, an employment ref, or any unrelated fact never
+ * supports an education claim, however the client flags the line.
  */
 function educationRefSupports(db, personId, ref, claimText) {
   const levels = claimLevels(claimText);
   const tokens = significantTokens(claimText);
   const overlaps = (a, b) => [...a].some((t) => b.has(t));
+  const specificClaim = new Set([...levelGroups(claimText)].filter((g) => g !== "generic"));
+  // True when the supporting text is at the claimed level AND (the
+  // claim names no subject, or a subject token overlaps the support).
+  const levelAndSubjectOk = (supportText, supportTokens) => {
+    if (specificClaim.size > 0) {
+      const supportGroups = levelGroups(supportText);
+      if (![...specificClaim].some((g) => supportGroups.has(g))) return false;
+      if (tokens.size === 0) return true;
+      return overlaps(tokens, supportTokens);
+    }
+    if (overlaps(levels, claimLevels(supportText))) return true;
+    return overlaps(tokens, supportTokens);
+  };
   if (ref.kind === "history" && ref.entryKind === "education") {
     const entry = ref.value ?? (() => {
       const person = getPerson(db, personId);
       return (person?.details?.education ?? []).find((e) => e.id === ref.id);
     })();
     if (!entry) return false;
-    if (overlaps(claimLevels(entry.title ?? ""), levels)) return true;
-    if (overlaps(significantTokens(entry.title ?? ""), tokens)) return true;
-    if (overlaps(significantTokens(entry.institution ?? ""), tokens)) return true;
-    return false;
+    const supportTokens = new Set([...significantTokens(entry.title ?? ""), ...significantTokens(entry.institution ?? "")]);
+    return levelAndSubjectOk(`${entry.title ?? ""} ${entry.institution ?? ""}`, supportTokens);
   }
   if (ref.kind === "fact") {
     const row = db.prepare("SELECT * FROM declared_facts WHERE id = ? AND person_id = ? AND confirmation_state = 'confirmed'").get(ref.id, personId);
@@ -243,9 +297,7 @@ function educationRefSupports(db, personId, ref, claimText) {
     let value;
     try { value = JSON.parse(row.value_json); } catch { return false; }
     const valueText = typeof value === "string" ? value : JSON.stringify(value);
-    if (overlaps(claimLevels(valueText), levels)) return true;
-    if (overlaps(significantTokens(valueText), tokens)) return true;
-    return false;
+    return levelAndSubjectOk(valueText, significantTokens(valueText));
   }
   return false;
 }
@@ -265,6 +317,95 @@ function historyRefMatchesText(db, personId, ref, claimText) {
   const text = String(claimText ?? "").toLowerCase();
   const fields = ref.entryKind === "education" ? [entry.title, entry.institution] : [entry.title, entry.employer];
   return fields.some((f) => isNonEmptyString(f) && text.includes(String(f).toLowerCase()));
+}
+
+// --- Content matching per claim type (generalised claim-to-support) ---
+// A reference must support the claim's CONTENT, not merely exist or
+// share a broad category: a language claim needs a language source
+// naming that language (a skill fact about another skill never
+// supports it), a listed skill must be held, an authorisation claim
+// needs a matching authorisation fact, and an employment claim needs
+// a history employment entry. Same-category-but-different-content is
+// a conflict.
+
+const LANGUAGE_NAMES = [
+  "mandarin", "chinese", "cantonese", "english", "spanish", "french", "german",
+  "italian", "portuguese", "dutch", "polish", "russian", "arabic", "japanese",
+  "korean", "hindi", "bengali", "turkish", "swedish", "norwegian", "danish",
+  "finnish", "greek", "czech", "slovak", "hungarian", "romanian", "ukrainian",
+  "thai", "vietnamese", "indonesian", "malay", "hebrew", "persian", "farsi",
+  "urdu", "punjabi", "tamil", "telugu", "marathi", "gujarati", "basque",
+  "catalan", "galician", "welsh", "irish", "latin",
+];
+const LANGUAGE_VERBS = [
+  "speak", "speaks", "speaking", "fluent", "fluency", "proficiency",
+  "hablo", "habla", "hablas", "idioma", "language",
+  "native", "beginner", "intermediate", "advanced",
+];
+
+/** Languages a line actually claims (verb/level context, or a bare "X: Level" line). */
+function languagesClaimed(text) {
+  const words = new Set(claimWords(text));
+  const lower = String(text ?? "").toLowerCase();
+  const hasVerb = LANGUAGE_VERBS.some((v) => words.has(v));
+  const found = [];
+  for (const lang of LANGUAGE_NAMES) {
+    if (!words.has(lang)) continue;
+    if (hasVerb) found.push(lang);
+    else if (new RegExp(`^\\s*${lang}\\s*:`).test(lower) || /^\s*language\s*:/.test(lower)) found.push(lang);
+  }
+  return found;
+}
+
+function languageNameMatches(entryLang, claimed) {
+  const e = String(entryLang ?? "").toLowerCase().trim();
+  return e === claimed || (e.includes(claimed) && claimed.length >= 4) || (claimed.includes(e) && e.length >= 4);
+}
+
+function languageRefSupports(db, personId, ref, lang) {
+  if (ref.kind === "person" && ref.field === "languages") {
+    const value = ref.value ?? getPerson(db, personId)?.details?.languages;
+    return Array.isArray(value) && value.some((l) => languageNameMatches(l.language, lang));
+  }
+  if (ref.kind === "fact") {
+    const row = db.prepare("SELECT * FROM declared_facts WHERE id = ? AND person_id = ? AND confirmation_state = 'confirmed'").get(ref.id, personId);
+    if (!row) return false;
+    let value;
+    try { value = JSON.parse(row.value_json); } catch { return false; }
+    const valueText = typeof value === "string" ? value : JSON.stringify(value);
+    if (!new RegExp(`\\b${lang}\\b`, "i").test(valueText)) return false;
+    return /language/i.test(row.concept) || /language|level|proficiency/i.test(row.concept);
+  }
+  return false;
+}
+
+/** Skills a "My skills include A, B and C" line actually lists (null when it lists none). */
+function skillListClaimed(text) {
+  const m = String(text ?? "").match(/skills?\s+include\s+(.+)/i);
+  if (!m) return null;
+  return m[1].replace(/[.。]\s*$/, "").split(/\s*,\s*|\s+and\s+/).map((s) => s.trim()).filter(Boolean);
+}
+
+function skillMatches(item, skill) {
+  const a = claimWords(item);
+  const b = claimWords(skill);
+  if (a.length === 0 || b.length === 0) return false;
+  return a.every((w) => b.includes(w)) || b.every((w) => a.includes(w));
+}
+
+function heldSkills(db, personId, profileId, skillsRefs) {
+  for (const ref of skillsRefs) {
+    if (Array.isArray(ref.value)) return ref.value;
+  }
+  const profile = getProfileFull(db, profileId);
+  return Array.isArray(profile?.body?.skills) ? profile.body.skills : [];
+}
+
+function authorisationRefSupports(db, personId, ref, parsedScope) {
+  if (ref.kind !== "fact") return false;
+  const row = db.prepare("SELECT * FROM declared_facts WHERE id = ? AND person_id = ? AND confirmation_state = 'confirmed'").get(ref.id, personId);
+  if (!row || row.concept !== "work_authorisation") return false;
+  return !parsedScope || row.scope === parsedScope;
 }
 
 /** Check one stored reference against the current retained set. */
@@ -342,8 +483,9 @@ export function revalidateContent(db, personId, profileId, content) {
       }
       if (!Array.isArray(section.lines)) { conflicts.push("section lines must be an array"); continue; }
       for (const l of section.lines) {
-        // Template exemption applies ONLY to genuine system furniture.
-        // Any other template-flagged line is validated as a claim.
+        // Template exemption applies ONLY to a line that is ENTIRELY
+        // genuine system furniture. Any other template-flagged line
+        // is validated as a claim.
         if (l.template && isSystemTemplate(l.text)) continue;
         if (!Array.isArray(l.refs) || l.refs.length === 0) {
           conflicts.push(`unreferenced claim: "${String(l.text ?? "").slice(0, 80)}"`);
@@ -353,16 +495,63 @@ export function revalidateContent(db, personId, profileId, content) {
           const problem = checkRef(db, personId, profileId, ref);
           if (problem) conflicts.push(problem);
         }
-        // Claim-to-support: a reference must actually support the
-        // claim, not merely exist. An education claim needs an
-        // education reference matching its level/institution/title;
-        // an unrelated skill (or any other fact type) never supports
-        // it. A history-backed line must name its entry.
-        if (isEducationClaim(l.text)) {
-          const supported = l.refs.some((ref) => educationRefSupports(db, personId, ref, l.text));
-          if (!supported) conflicts.push(`education claim not supported by its references: "${String(l.text).slice(0, 80)}"`);
-        }
         const historyRefs = l.refs.filter((ref) => ref.kind === "history");
+        // Claim-to-support: a reference must actually support the
+        // claim's CONTENT, not merely exist.
+        // Education: exact level group + subject overlap — except a
+        // line backed by a MATCHING employment entry is employment,
+        // never reclassified as an education claim because its
+        // employer happens to be a school/college.
+        if (isEducationClaim(l.text)) {
+          const employmentBacked = historyRefs.some((ref) => ref.entryKind === "employment" && historyRefMatchesText(db, personId, ref, l.text));
+          const levelClaimed = claimLevels(l.text).size > 0;
+          if (levelClaimed || !employmentBacked) {
+            const supported = l.refs.some((ref) => educationRefSupports(db, personId, ref, l.text));
+            if (!supported) conflicts.push(`education claim not supported by its references: "${String(l.text).slice(0, 80)}"`);
+          }
+        }
+        // Language: every claimed language needs a language source
+        // naming it; a skill fact about another skill never supports it.
+        for (const lang of languagesClaimed(l.text)) {
+          const supported = l.refs.some((ref) => languageRefSupports(db, personId, ref, lang));
+          if (!supported) conflicts.push(`language claim not supported by its references: "${String(l.text).slice(0, 80)}"`);
+        }
+        // Skills: a listed skill must be held; a single-phrase line
+        // backed by the skills field must name a held skill.
+        const skillsRefs = l.refs.filter((ref) => ref.kind === "profile" && ref.field === "skills");
+        if (skillsRefs.length > 0) {
+          const held = heldSkills(db, personId, profileId, skillsRefs);
+          const listed = skillListClaimed(l.text);
+          if (listed) {
+            for (const item of listed) {
+              if (!held.some((s) => skillMatches(item, s))) conflicts.push(`skill "${item}" is not held on the profile: "${String(l.text).slice(0, 80)}"`);
+            }
+          } else {
+            const stripped = String(l.text ?? "").trim().replace(/[.。]\s*$/, "");
+            const items = stripped.includes(",")
+              ? stripped.split(/\s*,\s*|\s+and\s+/).map((s) => s.trim()).filter(Boolean)
+              : [stripped];
+            for (const item of items) {
+              const words = claimWords(item);
+              if (words.length > 0 && words.length <= 5 && !/^(my|i|we|the|a|an)\b/i.test(item) && !/[.!?]\s+\S/.test(item)) {
+                if (!held.some((s) => skillMatches(item, s))) conflicts.push(`skill "${item}" is not held on the profile: "${String(l.text).slice(0, 80)}"`);
+              }
+            }
+          }
+        }
+        // Authorisation: needs a work_authorisation fact for the
+        // claimed scope (any scope when the claim names no country).
+        const parsedClaim = parseQuestionText(l.text);
+        if (parsedClaim.concept === "work_authorisation") {
+          const supported = l.refs.some((ref) => authorisationRefSupports(db, personId, ref, parsedClaim.scope));
+          if (!supported) conflicts.push(`authorisation claim not supported by its references: "${String(l.text).slice(0, 80)}"`);
+        }
+        // Employment: a line claiming employment experience without
+        // any history employment reference is not backed.
+        if (!historyRefs.some((ref) => ref.entryKind === "employment")
+          && /\b(experience as|worked\s+(as|at|for)|employed\s+(as|at|by))\b/i.test(l.text)) {
+          conflicts.push(`employment claim not supported by a history reference: "${String(l.text).slice(0, 80)}"`);
+        }
         if (historyRefs.length > 0 && !historyRefs.some((ref) => historyRefMatchesText(db, personId, ref, l.text))) {
           conflicts.push(`claim text does not match its history reference: "${String(l.text).slice(0, 80)}"`);
         }
@@ -462,7 +651,10 @@ export function auditDocumentVersion(db, personId, profileId, content) {
 // lengths. (The old writer built a JS string, measured it as UTF-8,
 // then emitted it as Latin-1: every non-ASCII character shifted all
 // later offsets — e.g. each em dash by 2 bytes — and characters
-// outside Latin-1 collapsed into control bytes.)
+// outside Latin-1 collapsed into control bytes.) Central European
+// glyphs outside WinAnsi ride a /Differences encoding (see
+// POLISH_MAP); anything still unrepresentable fails fast via
+// assertPdfRepresentable instead of mangling a name into "?".
 
 /** WinAnsi bytes for characters outside Latin-1 (0x80–0x9F range). */
 const WINANSI_EXTRA = {
@@ -475,8 +667,14 @@ const WINANSI_EXTRA = {
 /**
  * Encode text for a PDF literal string in WinAnsi, escaping (, ) and
  * backslash. Accented Latin characters (á, é, ñ, ü, ç, …) and dashes
- * (–, —) map to their WinAnsi bytes; a character with no WinAnsi
- * mapping becomes "?" rather than a control byte.
+ * (–, —) map to their WinAnsi bytes. Central European characters
+ * outside WinAnsi (Ł, ż, Ć, …) map to rarely-used WinAnsi codes whose
+ * glyphs are renamed through the font's /Differences array (see
+ * pdfFontObject), so pdf.js and strict readers extract them exactly.
+ * A character with no mapping at all becomes "?" rather than a
+ * control byte — but renderPdf refuses to emit such a document at
+ * all (see assertPdfRepresentable): a PDF must never silently mangle
+ * an official name.
  */
 export function pdfEncodeText(s) {
   const bytes = [];
@@ -486,9 +684,91 @@ export function pdfEncodeText(s) {
     if (code >= 0x20 && code <= 0x7e) { bytes.push(code); continue; }
     if (code >= 0xa0 && code <= 0xff) { bytes.push(code); continue; }
     if (WINANSI_EXTRA[ch] !== undefined) { bytes.push(WINANSI_EXTRA[ch]); continue; }
+    if (POLISH_MAP[ch] !== undefined) { bytes.push(POLISH_MAP[ch][0]); continue; }
     bytes.push(0x3f); // "?" — never a control byte
   }
   return Buffer.from(bytes);
+}
+
+/**
+ * Central European glyphs outside WinAnsi, mapped to rarely-used
+ * WinAnsi codes (superscripts, fractions, inverted marks — characters
+ * that do not occur in resumes and cover letters) with their standard
+ * AFM glyph names. The font's /Differences array renames those codes
+ * to the glyphs, so extraction returns the real characters. A
+ * document containing BOTH a Polish character and the Latin-1
+ * character that owns its code is a collision and is unrepresentable
+ * (see assertPdfRepresentable).
+ */
+const POLISH_MAP = {
+  "Ł": [0xb3, "Lslash"], "ł": [0xb2, "lslash"],
+  "Ż": [0xb9, "Zdotaccent"], "ż": [0xbc, "zdotaccent"],
+  "Ć": [0xbd, "Cacute"], "ć": [0xbe, "cacute"],
+  "Ń": [0xa6, "Nacute"], "ń": [0xa8, "nacute"],
+  "Ś": [0xaf, "Sacute"], "ś": [0xb4, "sacute"],
+  "Ą": [0xb8, "Aogonek"], "ą": [0xa1, "aogonek"],
+  "Ę": [0xbf, "Eogonek"], "ę": [0xa7, "eogonek"],
+};
+
+/** Characters in text that no PDF mapping in this writer can represent. */
+export function pdfUnrepresentableChars(text) {
+  const bad = [];
+  for (const ch of String(text ?? "")) {
+    const code = ch.codePointAt(0);
+    if (ch === "(" || ch === ")" || ch === "\\") continue;
+    // Whitespace separators never reach a PDF literal string (layout
+    // splits on whitespace first); any other control byte is refused.
+    if (ch === "\n" || ch === "\r" || ch === "\t") continue;
+    if (code >= 0x20 && code <= 0x7e) continue;
+    if (code >= 0xa0 && code <= 0xff) continue;
+    if (WINANSI_EXTRA[ch] !== undefined) continue;
+    if (POLISH_MAP[ch] !== undefined) continue;
+    if (!bad.includes(ch)) bad.push(ch);
+  }
+  return bad;
+}
+
+/**
+ * Render-fidelity guard: a document whose canonical text contains a
+ * character the PDF writer cannot represent exactly (or a Polish /
+ * Latin-1 code collision) must never validate as a PDF or be
+ * prepared as a PDF attachment. Throws naming the characters and
+ * pointing at DOCX, which is UTF-8 and renders them exactly. The
+ * document itself stays valid — only its PDF rendering is refused.
+ */
+export function assertPdfRepresentable(content) {
+  const texts = [content.title || ""];
+  for (const section of content.sections || []) {
+    if (section.heading) texts.push(section.heading);
+    for (const l of section.lines || []) texts.push(l.text || "");
+  }
+  const all = texts.join("\n");
+  const bad = pdfUnrepresentableChars(all);
+  for (const [ch, [code]] of Object.entries(POLISH_MAP)) {
+    if (all.includes(ch) && all.includes(String.fromCodePoint(Number(code))) && !bad.includes(ch)) bad.push(ch);
+  }
+  if (bad.length > 0) {
+    const names = bad.map((ch) => `${ch} (U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")})`).join(", ");
+    throw new Error(`PDF cannot represent character(s): ${names}. The PDF attachment cannot be prepared with mangled text; the same content renders exactly in DOCX.`);
+  }
+}
+
+/** Font object for a base font, with /Differences for the Polish glyphs actually used. */
+function pdfFontObject(baseFont, usedPolish) {
+  if (usedPolish.size === 0) {
+    return Buffer.from(`<< /Type /Font /Subtype /Type1 /BaseFont /${baseFont} /Encoding /WinAnsiEncoding >>`, "latin1");
+  }
+  const entries = [...usedPolish].map((ch) => POLISH_MAP[ch]).sort((a, b) => a[0] - b[0]);
+  let diff = "";
+  let i = 0;
+  while (i < entries.length) {
+    let j = i;
+    const names = [entries[i][1]];
+    while (j + 1 < entries.length && entries[j + 1][0] === entries[j][0] + 1) { j++; names.push(entries[j][1]); }
+    diff += `${entries[i][0]} ${names.map((n) => `/${n}`).join(" ")} `;
+    i = j + 1;
+  }
+  return Buffer.from(`<< /Type /Font /Subtype /Type1 /BaseFont /${baseFont} /Encoding << /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [${diff.trim()}] >> >>`, "latin1");
 }
 
 function wrapText(text, maxChars) {
@@ -509,6 +789,10 @@ function wrapText(text, maxChars) {
  * Short and long contents paginate the same way.
  */
 export function renderPdf(content) {
+  // Fail fast, never silently mangle: an unrepresentable name
+  // (or a Polish/Latin-1 code collision) is an explainable error,
+  // not a prepared "?" file.
+  assertPdfRepresentable(content);
   const fontSize = 11, headingSize = 14, leading = 15, margin = 54;
   const pageHeight = 842, usable = pageHeight - margin * 2 - 20;
   // First pass: lay out text lines into pages.
@@ -553,8 +837,18 @@ export function renderPdf(content) {
       Buffer.from(`<< /Length ${stream.length} >>\nstream\n`, "latin1"), stream, Buffer.from("\nendstream", "latin1"),
     ]);
   });
-  objects[fontId] = Buffer.from("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>", "latin1");
-  objects[fontId + 1] = Buffer.from("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>", "latin1");
+  // Polish glyphs actually present, for the fonts' /Differences.
+  const usedPolish = new Set();
+  const collectPolish = (text) => {
+    for (const ch of String(text ?? "")) if (POLISH_MAP[ch] !== undefined) usedPolish.add(ch);
+  };
+  collectPolish(content.title);
+  for (const section of content.sections || []) {
+    collectPolish(section.heading);
+    for (const l of section.lines || []) collectPolish(l.text);
+  }
+  objects[fontId] = pdfFontObject("Helvetica", usedPolish);
+  objects[fontId + 1] = pdfFontObject("Helvetica-Bold", usedPolish);
   const chunks = [Buffer.from("%PDF-1.4\n", "latin1")];
   let length = chunks[0].length;
   const offsets = [0];
