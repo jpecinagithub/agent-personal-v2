@@ -159,3 +159,28 @@ test("split: API rejects person search fields and lists entries for the top sele
     server.close();
   }
 });
+
+test("split: stored authorisations and sponsorship facts still feed criteria after the person-form removal", () => {
+  // User order 2026-10-29 removed authorisation/sponsorship editing
+  // AND display from the Person screen (UI only). The backend data
+  // and the criteria engine are untouched: a profile view built from
+  // stored authorisations must still carry them into search criteria.
+  const db = setup("agentv2-split-criteria-");
+  const personId = createPersonFull(db, {
+    ...PERSON_ONLY,
+    authorisations: [
+      { country: "ES", status: "authorised", sponsorship_required: false },
+      { country: "FR", status: "authorised", sponsorship_required: true },
+      { country: "DE", status: "pending", sponsorship_required: false },
+    ],
+  });
+  const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance" });
+  const view = buildProfileView(db, profileId);
+  assert.equal(view.authorisationByCountry.ES, "yes");
+  assert.equal(view.authorisationByCountry.FR, "yes");
+  assert.equal(view.authorisationByCountry.DE, "unknown", "unknown status is never inferred towards yes");
+  assert.equal(view.sponsorshipRequiredByCountry.FR, true);
+  assert.equal(view.sponsorshipRequiredByCountry.ES, false);
+  assert.equal(view.sponsorshipRequired, true, "one sponsoring country makes sponsorship required");
+  assert.equal(getPerson(db, personId).details.authorisations.length, 3, "stored authorisations untouched");
+});

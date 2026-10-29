@@ -77,7 +77,13 @@ async function post(base, url, body) {
   });
 }
 
-test("reviewer: a non-binary authorisation state is never promoted to authorised by a UI save", async () => {
+test("reviewer: a non-binary authorisation state is never promoted to authorised by a form-equivalent save", async () => {
+  // Reworked 2026-10-29: the authorisation editor was removed from
+  // the person form by user order, so the reviewer's UI-card steps
+  // cannot run any more. The guarantee itself is proven at the
+  // form-equivalent level: a person save that never mentions
+  // authorisations (exactly what the form sends) preserves the
+  // "pending" status literally.
   const app = await startApp();
   try {
     await post(app.base, "/api/person", {
@@ -86,9 +92,10 @@ test("reviewer: a non-binary authorisation state is never promoted to authorised
       authorisations: [{ country: "ES", status: "pending", sponsorship_required: false, source_note: "synthetic" }],
     });
     await app.page.click("#person-load");
-    await app.page.waitForFunction(() => document.querySelectorAll("#person-authorisations-list .auth-card").length === 1);
-    await app.page.click("#authorisations-save");
-    await app.page.waitForFunction(() => document.querySelector("#authorisations-status")?.textContent?.includes("guardadas"));
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    await app.page.fill("#person-links", "https://example.test/profile");
+    await app.page.click("#person-save");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
     const person = (await (await fetch(app.base + "/api/person")).json()).person;
     assert.equal(person.details.authorisations[0].status, "pending");
   } finally {

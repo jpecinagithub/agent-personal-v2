@@ -42,13 +42,22 @@ test("the UI page is served, covers all configuration areas, and never exposes s
     // from the UI, so "Hechos declarados" is no longer a page section.
     // The facts backend (/api/facts, /api/resolve, /api/questions) is
     // untouched, and the questions/resolver section stays.
-    for (const section of ["Persona", "Perfiles", "Currículum (CV)", "Mapeos de campos", "Preguntas y respuestas", "Políticas y consentimientos", "Configuración de xAI", "Modo automático"]) {
+    // NOTE (user order 2026-10-29): the CV import block moved into the
+    // profile edit view ("Currículum de este perfil") and the field
+    // mappings section was removed from the user-visible UI entirely.
+    // Both backends (/api/cv, /api/mappings) are untouched.
+    for (const section of ["Persona", "Perfiles", "Currículum de este perfil", "Preguntas y respuestas", "Políticas y consentimientos", "Configuración de xAI", "Modo automático"]) {
       assert.ok(html.includes(section), `UI is missing section: ${section}`);
     }
     assert.ok(!html.includes('id="facts-section"'), "facts editor section must be gone from the UI");
     assert.ok(!html.includes('id="fact-save"'), "facts editor save button must be gone from the UI");
     assert.ok(!html.includes('id="facts-out"'), "facts editor output must be gone from the UI");
     assert.ok(html.includes('id="q-concept"'), "questions/resolver section must stay in the UI");
+    assert.ok(!html.includes('id="cv-section"'), "standalone CV section must be gone from the UI");
+    assert.ok(!html.includes('id="mappings-section"'), "mappings section must be gone from the UI");
+    assert.ok(!html.includes('id="map-save"'), "mappings save control must be gone from the UI");
+    assert.ok(!html.includes('id="maps-refresh"'), "mappings refresh control must be gone from the UI");
+    assert.ok(!html.includes('id="map-source"'), "mappings source control must be gone from the UI");
     // No JSON editing and no internal IDs to copy: the form uses named
     // fields, and the page must not print raw profile/person UUIDs.
     assert.ok(html.includes('id="person-full-name"'), "person form must have named fields");

@@ -153,7 +153,13 @@ test("browser: CV import preview and confirm, CV assignment, policies, consent, 
     await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
     await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
-    // CV: file input -> preview shows the known fixture text -> confirm.
+    // CV (user order 2026-10-29: the CV belongs to the profile):
+    // the import block lives inside the profile edit view now, so
+    // open the profile edit first, import there, and the confirmed
+    // import is pre-selected for this profile's CV select.
+    const card = app.page.locator(".profile-card").first();
+    await card.getByRole("button", { name: "Editar" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Guardar borrador"));
     const fixture = fileURLToPath(new URL("./fixtures/sample.txt", import.meta.url));
     await app.page.setInputFiles("#cv-file", fixture);
     await app.page.click("#cv-preview");
@@ -161,12 +167,8 @@ test("browser: CV import preview and confirm, CV assignment, policies, consent, 
     assert.match((await app.page.textContent("#cv-preview-out")) ?? "", /test\.person@example\.test/);
     await app.page.click("#cv-confirm");
     await app.page.waitForFunction(() => (document.querySelector("#cv-status")?.textContent ?? "").includes("CV validado"));
-    // R4: assign the confirmed CV to the profile through the screen
-    // (edit -> select CV -> save draft -> confirm draft).
-    await app.page.click("#profiles-refresh");
-    const card = app.page.locator(".profile-card").first();
-    await card.getByRole("button", { name: "Editar" }).click();
-    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Guardar borrador"));
+    // R4: the confirmed CV is pre-selected for this profile; saving
+    // the draft and confirming it associates the CV with the profile.
     const editForm = app.page.locator("#profile-edit-form");
     await editForm.locator("select").selectOption({ index: 1 });
     await editForm.getByRole("button", { name: "Guardar borrador" }).click();
@@ -424,16 +426,14 @@ test("browser G2 re-review 3: consecutive saves without reload refresh reference
   }
 });
 
-test("browser G2 regression: authorisations domain UI edits by country and preserves extra fields", async () => {
-  // WHY (G2 regression 2026-10-28): the user review ruled that
-  // removing the authorisations editor from the UI breaks pliego
-  // completeness ("sin acceso al código", T-V2-018, G2 criterion),
-  // even though the backend stayed intact. The old test asserting
-  // "no authorisations UI at all" is therefore superseded: the UI
-  // now has a domain editor (authorised/sponsorship per country),
-  // and this test guards that an ordinary person save still preserves
-  // stored authorisations byte-identical, while a domain save edits
-  // by id and preserves extra fields (valid_from, source_note).
+test("browser: person screen shows no authorisation, sponsorship or country-by-authorisation content, while stored data survives", async () => {
+  // WHY (user order 2026-10-29, final scope): the Person screen must
+  // contain no authorisation section, no sponsorship control or label,
+  // and no country listing by authorisation — not even through the
+  // declarations zone. Stored authorisations and facts are NOT
+  // deleted: an ordinary person save preserves them byte-identical,
+  // and they keep feeding the search criteria (proven at domain level
+  // in tests/person-profile-split.test.mjs).
   const app = await startApp();
   try {
     const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
@@ -448,40 +448,39 @@ test("browser G2 regression: authorisations domain UI edits by country and prese
     };
     const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(seed) });
     assert.equal(created.status, 201);
+    const personId = (await (await fetch(`${base}/api/person`)).json()).person.id;
+    const postFact = async (concept, scope, value) => {
+      const r = await fetch(`${base}/api/facts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personId, concept, scope, value, provenance: "user" }) });
+      assert.equal(r.status, 201, `fact ${concept} seeds`);
+    };
+    await postFact("work_authorisation", "ES", "yes");
+    await postFact("sponsorship_required", "ES", "no");
+    await postFact("english_level", "", "C1");
     const getPerson = async () => (await (await fetch(`${base}/api/person`)).json()).person.details;
+    const getFacts = async () => (await (await fetch(`${base}/api/facts?personId=${personId}`)).json()).facts;
     const before = (await getPerson()).authorisations;
-    assert.equal(before.length, 2, "seeded authorisations stored (ids normalised on read)");
+    assert.equal(before.length, 2, "seeded authorisations stored");
+    assert.equal((await getFacts()).length, 3, "seeded facts stored");
     await app.page.click("#person-load");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
-    // The domain UI renders countries readably, not as raw codes.
-    assert.ok((await bodyText(app.page)).includes("Autorizaciones de trabajo"));
-    assert.equal(await app.page.locator("#person-authorisations-list .auth-card").count(), 2);
-    assert.ok((await app.page.locator("#person-authorisations-list").textContent()).includes("España"));
-    // An ordinary person save (changing links) preserves them exactly.
+    // No authorisation editor anywhere on the served Person screen.
+    assert.equal(await app.page.locator("#person-authorisations-list").count(), 0);
+    assert.equal(await app.page.locator("#authorisations-add").count(), 0);
+    assert.equal(await app.page.locator("#authorisations-save").count(), 0);
+    // The declarations zone renders the benign fact but hides the
+    // authorisation/sponsorship facts entirely — no label, no country.
+    const factsText = await app.page.locator("#person-facts-list").textContent();
+    assert.ok(factsText.includes("Nivel de inglés"), "benign fact still renders");
+    assert.ok(!factsText.includes("Autorización de trabajo"), "no authorisation fact label");
+    assert.ok(!factsText.includes("Necesita patrocinio"), "no sponsorship fact label");
+    assert.ok(!factsText.includes("España"), "no country listing from authorisation facts");
+    assert.ok(!factsText.includes("Francia"), "no country listing from authorisation facts");
+    // An ordinary person save (changing links) preserves everything.
     await app.page.fill("#person-links", "https://example.test/professional-profile");
     await app.page.click("#person-save");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
     assert.deepEqual((await getPerson()).authorisations, before, "form save preserves stored authorisations byte-identical");
-    // Edit through the domain UI: turn sponsorship ON for Spain.
-    // The status is a select now (RF-V2-016 fix); sponsorship is the
-    // only checkbox left on the card.
-    const esCard = app.page.locator("#person-authorisations-list .auth-card").filter({ hasText: "España" });
-    await esCard.locator("input[type=checkbox]").nth(0).check();
-    await app.page.click("#authorisations-save");
-    await app.page.waitForFunction(() => (document.querySelector("#authorisations-status")?.textContent ?? "").includes("Autorizaciones guardadas"));
-    const edited = (await getPerson()).authorisations;
-    const es = edited.find((a) => a.country === "ES");
-    assert.equal(es.sponsorship_required, true, "sponsorship edited through the domain UI");
-    assert.equal(es.valid_from, "2025-01", "extra field valid_from preserved across a domain edit");
-    assert.equal(es.source_note, "Synthetic user declaration", "extra field source_note preserved across a domain edit");
-    // Delete France through the domain UI and save.
-    const frCard = app.page.locator("#person-authorisations-list .auth-card").filter({ hasText: "Francia" });
-    await frCard.getByRole("button", { name: "Eliminar" }).click();
-    await app.page.click("#authorisations-save");
-    await app.page.waitForFunction(() => (document.querySelector("#authorisations-status")?.textContent ?? "").includes("Autorizaciones guardadas"));
-    const remaining = (await getPerson()).authorisations;
-    assert.equal(remaining.length, 1, "only Spain remains after deleting France");
-    assert.equal(remaining[0].country, "ES");
+    assert.equal((await getFacts()).length, 3, "form save deletes no stored facts");
   } finally {
     await stopApp(app);
   }
@@ -757,11 +756,16 @@ test("browser split: no defaults section, explicit history modes, dynamic vs fix
 });
 
 
-test("browser defect fix: unknown authorisation status is never normalised to authorised", async () => {
-  // WHY (defect fix 2026-10-28, RF-V2-016): the old authorised
-  // checkbox displayed any unknown status (e.g. "pending") as
-  // authorised, and an unchanged save converted it to "authorised".
-  // A legal authorisation must never be inferred towards "yes".
+test("browser defect fix: unknown authorisation status is never normalised by a form-equivalent save", async () => {
+  // WHY (defect fix 2026-10-28, RF-V2-016, reworked 2026-10-29): the
+  // old authorised checkbox displayed any unknown status (e.g.
+  // "pending") as authorised, and an unchanged save converted it to
+  // "authorised". The authorisation editor has since been removed
+  // from the person form by user order, so the guarantee is now
+  // proven at the form-equivalent level: a person save that never
+  // mentions authorisations (exactly what the form sends) preserves
+  // the unknown status, while an explicit API edit still works —
+  // the backend model is untouched.
   const app = await startApp();
   try {
     const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
@@ -775,22 +779,24 @@ test("browser defect fix: unknown authorisation status is never normalised to au
     const getPerson = async () => (await (await fetch(`${base}/api/person`)).json()).person.details;
     await app.page.click("#person-load");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
-    const card = app.page.locator("#person-authorisations-list .auth-card").first();
-    // Displays as unknown, literally — not as authorised.
-    assert.equal(await card.locator(".auth-status").inputValue(), "pending");
-    assert.ok((await card.locator(".auth-status").textContent()).includes("Desconocido (pending)"));
-    // An unchanged save preserves "pending" byte for byte.
-    await app.page.click("#authorisations-save");
-    await app.page.waitForFunction(() => (document.querySelector("#authorisations-status")?.textContent ?? "").includes("Autorizaciones guardadas"));
-    assert.equal((await getPerson()).authorisations[0].status, "pending", "unchanged save keeps the unknown status");
-    // Explicit changes in both directions work.
-    await card.locator(".auth-status").selectOption("authorised");
-    await app.page.click("#authorisations-save");
-    await app.page.waitForFunction(() => (document.querySelector("#authorisations-status")?.textContent ?? "").includes("Autorizaciones guardadas"));
+    // An ordinary form save (changing links) never mentions
+    // authorisations and must keep "pending" literally.
+    await app.page.fill("#person-links", "https://example.test/profile");
+    await app.page.click("#person-save");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+    assert.equal((await getPerson()).authorisations[0].status, "pending", "form-equivalent save keeps the unknown status");
+    // Explicit API edits in both directions still work (backend kept).
+    // Edits address the stored entry by its stable id: an id-less
+    // entry with different fields is a NEW entry by design (full
+    // field identity, G2 re-review 3), never a country-only merge.
+    const edit = async (status) => {
+      const stored = (await getPerson()).authorisations[0];
+      const r = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ authorisations: [{ id: stored.id, country: "DE", status, sponsorship_required: false }] }) });
+      assert.ok(r.status === 200 || r.status === 201, `edit returns 2xx, got ${r.status}`);
+    };
+    await edit("authorised");
     assert.equal((await getPerson()).authorisations[0].status, "authorised");
-    await app.page.locator("#person-authorisations-list .auth-card").first().locator(".auth-status").selectOption("not_authorised");
-    await app.page.click("#authorisations-save");
-    await app.page.waitForFunction(() => (document.querySelector("#authorisations-status")?.textContent ?? "").includes("Autorizaciones guardadas"));
+    await edit("not_authorised");
     assert.equal((await getPerson()).authorisations[0].status, "not_authorised");
   } finally {
     await stopApp(app);
@@ -978,6 +984,71 @@ test("browser separation: Persona screen has no profiles; Perfiles starts as lis
     await app.page.click("#profile-create-open");
     assert.equal(await app.page.locator("#profile-name").inputValue(), "");
     assert.equal(await app.page.locator("#profile-desired-roles").inputValue(), "");
+  } finally {
+    await stopApp(app);
+  }
+});
+
+test("browser: person screen contains no CV content; CV import lives in the profile edit view", async () => {
+  // WHY (user order 2026-10-29): the CV belongs to the profile, not
+  // to the person. The Person screen must show no CV section,
+  // control, label or reference — including the provenance label of
+  // imported facts, which now reads "Importado" without naming the
+  // CV. The import block itself moved into the profile edit view.
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ full_name: "Test Person", email: "test.person@example.test" }) });
+    assert.equal(created.status, 201);
+    const personId = (await (await fetch(`${base}/api/person`)).json()).person.id;
+    const fr = await fetch(`${base}/api/facts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personId, concept: "english_level", value: "C1", provenance: "cv-import" }) });
+    assert.equal(fr.status, 201);
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    const personText = await app.page.locator("#person-screen").textContent();
+    assert.ok(!personText.includes("Currículum"), "no CV section on the Person screen");
+    assert.ok(!personText.includes("Archivo del CV"), "no CV file control on the Person screen");
+    assert.ok(!personText.includes("Vista previa del CV"), "no CV preview control on the Person screen");
+    assert.ok(!personText.includes("Importado de tu CV"), "no CV reference in provenance labels");
+    assert.ok(personText.includes("Importado"), "imported provenance is still shown, without naming the CV");
+    assert.equal(await app.page.locator("#cv-section").count(), 0);
+    assert.equal(await app.page.locator("#person-screen #cv-file").count(), 0);
+    assert.equal(await app.page.locator("#person-screen #cv-confirm").count(), 0);
+    // The import block still exists — inside the profile edit view.
+    assert.equal(await app.page.locator("#profile-edit-view #cv-file").count(), 1);
+    assert.equal(await app.page.locator("#profile-edit-view #cv-preview").count(), 1);
+    assert.equal(await app.page.locator("#profile-edit-view #cv-confirm").count(), 1);
+    assert.ok((await app.page.locator("#profile-edit-view").textContent()).includes("Currículum de este perfil"));
+  } finally {
+    await stopApp(app);
+  }
+});
+
+test("browser: served UI contains no field-mappings section, while the mappings backend still works", async () => {
+  // WHY (user order 2026-10-29): field mappings are internal portal
+  // management, not person/profile content, and the user does not
+  // know what they are — so the section leaves the user-visible UI.
+  // The backend (/api/mappings) and the connectors' resolution are
+  // untouched, and the domain tests in tests/mappings.test.mjs keep
+  // covering per-source resolution.
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    assert.equal(await app.page.locator("#mappings-section").count(), 0);
+    assert.equal(await app.page.locator("#map-source").count(), 0);
+    assert.equal(await app.page.locator("#map-key").count(), 0);
+    assert.equal(await app.page.locator("#map-field").count(), 0);
+    assert.equal(await app.page.locator("#map-save").count(), 0);
+    assert.equal(await app.page.locator("#maps-refresh").count(), 0);
+    assert.ok(!((await app.page.textContent("body")) ?? "").includes("Mapeos de campos por fuente"));
+    const saved = await fetch(`${base}/api/mappings`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "greenhouse", fieldKey: "work_authorisation", sourceField: "work_authorization" }) });
+    assert.equal(saved.status, 201, "mappings API still accepts mappings");
+    const resolved = await (await fetch(`${base}/api/mappings?source=greenhouse&fieldKey=work_authorisation`)).json();
+    assert.equal(resolved.sourceField, "work_authorization", "mappings backend still resolves per source");
+    const other = await (await fetch(`${base}/api/mappings?source=lever&fieldKey=work_authorisation`)).json();
+    assert.equal(other.sourceField, null, "a greenhouse mapping never applies to lever");
   } finally {
     await stopApp(app);
   }

@@ -98,7 +98,7 @@ button:hover { border-color: #3A3E45; background: #22252C; }
 button:focus-visible { outline: 2px solid #CDFF3C; outline-offset: 2px; }
 button:disabled { opacity: 0.55; cursor: default; background: #23261C; color: #9AA1A6; }
 /* Primary actions: lime, near-black text, no visible border. */
-#person-save, #profile-create, #cv-confirm, #map-save,
+#person-save, #profile-create, #cv-confirm,
 #consent-apply, #xai-save, #xai-model-save, #auto-policy-save,
 #auto-enable, #q-resolve, #search-def-create {
   background: #CDFF3C;
@@ -109,10 +109,10 @@ button:disabled { opacity: 0.55; cursor: default; background: #23261C; color: #9
   border-radius: 12px;
 }
 #person-save:hover, #profile-create:hover, #cv-confirm:hover,
-#map-save:hover, #consent-apply:hover, #xai-save:hover, #xai-model-save:hover,
+#consent-apply:hover, #xai-save:hover, #xai-model-save:hover,
 #auto-policy-save:hover, #auto-enable:hover, #q-resolve:hover, #search-def-create:hover { background: #D8FF66; border-color: transparent; }
 #person-save:disabled, #profile-create:disabled, #cv-confirm:disabled,
-#map-save:disabled, #consent-apply:disabled, #xai-save:disabled, #xai-model-save:disabled,
+#consent-apply:disabled, #xai-save:disabled, #xai-model-save:disabled,
 #auto-policy-save:disabled, #auto-enable:disabled, #q-resolve:disabled, #search-def-create:disabled { background: #3A3F22; color: #7C838A; }
 /* Delete stays muted grey like the reference: no red is invented. */
 .profile-card button:last-child { background: #1D2026; border-color: #2A2E35; color: #9AA1A6; }
@@ -200,27 +200,11 @@ perfil, en la pantalla Perfiles.</small></p>
 <textarea id="person-languages" rows="3" placeholder="English, C1"></textarea>
 <label for="person-links">Enlaces personales (uno por línea)</label>
 <textarea id="person-links" rows="3" placeholder="https://example.test/mi-perfil"></textarea>
-<h3>Autorizaciones de trabajo</h3>
-<p><small>Por país: si estás autorizado/a para trabajar allí y si
-necesitas patrocinio. Editar aquí conserva el identificador estable de
-cada autorización y todos sus datos adicionales (vigencia, notas).
-Borrar una autorización la quita de la persona; nada se inventa.</small></p>
-<div id="person-authorisations-list"></div>
-<label for="auth-add-country">País (código de 2 letras, ej.: ES)</label>
-<input id="auth-add-country" placeholder="ES">
-<label><input id="auth-add-authorised" type="checkbox" checked> Autorizado/a para trabajar</label>
-<label><input id="auth-add-sponsorship" type="checkbox"> Necesita patrocinio</label>
-<label for="auth-add-valid-until">Vigencia (opcional, YYYY o YYYY-MM)</label>
-<input id="auth-add-valid-until" placeholder="2030-12">
-<button id="authorisations-add" type="button">Añadir autorización</button>
-<button id="authorisations-save" type="button">Guardar autorizaciones</button>
-<p class="status" id="authorisations-status"></p>
-
 <h3>Declaraciones reutilizables</h3>
 <p><small>Las respuestas que ya declaraste y que el agente reutiliza para
 las preguntas de selección. Puedes corregir el valor o borrar la
 declaración. La procedencia se muestra tal cual consta (declarado por
-ti, importado de tu CV…): no se escribe a mano, para que nunca se
+ti, importado…): no se escribe a mano, para que nunca se
 pueda disfrazar una suposición de hecho declarado.</small></p>
 <div id="person-facts-list"></div>
 <button id="facts-refresh" type="button">Actualizar declaraciones</button>
@@ -311,17 +295,16 @@ simplemente dejan de presentarse.</small></p>
 <div id="profile-edit-view" style="display: none;">
 <h3 id="profile-edit-title"></h3>
 <div id="profile-edit-form"></div>
-<button id="profile-edit-back" type="button">Volver a la lista</button>
-</div>
-</section>
-
-<section id="cv-section">
-<h2>Currículum (CV)</h2>
-<p><small>Sube tu CV en PDF, DOCX o texto. Primero verás una vista previa
-con el texto extraído y los datos detectados; nada se guarda como hecho
-confirmado hasta que confirmes la importación. Un archivo corrupto o
-vacío no se aprueba, y un PDF escaneado sin texto no se puede confirmar:
-en ese caso introduce los datos manualmente.</small></p>
+<h3>Currículum de este perfil</h3>
+<p><small>El CV es propio de este perfil: importa aquí el CV que usará
+este perfil. Sube el archivo en PDF, DOCX o texto. Primero verás una
+vista previa con el texto extraído y los datos detectados; nada se
+guarda como hecho confirmado hasta que confirmes la importación. Un
+archivo corrupto o vacío no se aprueba, y un PDF escaneado sin texto
+no se puede confirmar: en ese caso introduce los datos manualmente.
+Una vez confirmado, el CV aparece en el desplegable «CV asociado» de
+arriba: guárdalo con «Guardar borrador» y confírmalo para asociarlo
+a este perfil.</small></p>
 <label for="cv-file">Archivo del CV (PDF, DOCX o TXT)</label>
 <input id="cv-file" type="file" accept=".pdf,.docx,.txt">
 <button id="cv-preview">Vista previa del CV</button>
@@ -333,20 +316,10 @@ en ese caso introduce los datos manualmente.</small></p>
 <p class="status" id="cv-status"></p>
 <button id="cv-refresh">Ver importaciones de CV</button>
 <pre id="cv-out"></pre>
+<button id="profile-edit-back" type="button">Volver a la lista</button>
+</div>
 </section>
 
-<section id="mappings-section">
-<h2>Mapeos de campos por fuente</h2>
-<p><small>Un mapeo vale solo para su fuente: uno de Greenhouse nunca se
-aplica a Lever ni a Ashby.</small></p>
-<label for="map-source">Fuente</label>
-<select id="map-source"><option value="greenhouse">greenhouse</option><option value="lever">lever</option><option value="ashby">ashby</option><option value="smartrecruiters">smartrecruiters</option><option value="generic">generic</option></select>
-<label for="map-key">Clave estable</label><input id="map-key" placeholder="work_authorisation">
-<label for="map-field">Campo en la fuente</label><input id="map-field" placeholder="work_authorization">
-<button id="map-save">Guardar mapeo</button>
-<button id="maps-refresh">Actualizar lista</button>
-<pre id="maps-out"></pre>
-</section>
 
 <section id="questions-section">
 <h2>Preguntas y respuestas</h2>
@@ -530,6 +503,13 @@ async function call(path, method, body) {
 }
 let personId = null;
 let currentCvId = null;
+// The CV select of the profile edit view currently open, if any.
+// Set when a profile edit opens, cleared when returning to the list:
+// the CV import block lives inside the edit view now (user order
+// 2026-10-29: the CV belongs to the profile), so confirming an import
+// refreshes THIS select and pre-selects the new import for the profile
+// being edited. Saving the draft persists the association.
+let currentEditCvSelect = null;
 let lastPersonDetails = null;
 const draftsByCard = new Map();
 // Screens (separation 2026-10-29): Persona and Perfiles are two
@@ -548,11 +528,13 @@ function showProfilesListView() {
   $("profiles-list-view").style.display = "";
   $("profile-create-view").style.display = "none";
   $("profile-edit-view").style.display = "none";
+  currentEditCvSelect = null;
 }
 function showProfileCreateView() {
   $("profiles-list-view").style.display = "none";
   $("profile-create-view").style.display = "";
   $("profile-edit-view").style.display = "none";
+  currentEditCvSelect = null;
 }
 function showProfileEditView() {
   $("profiles-list-view").style.display = "none";
@@ -778,15 +760,15 @@ function fillPersonForm(details) {
     languages: (details.languages || []).length > 0,
     links: (details.links || []).length > 0,
   };
-  // G2 regression (2026-10-28): authorisations and reusable
-  // declarations are back in the UI as domain sections below (they
-  // save through their own buttons, never through personDetailsFromForm,
-  // so an ordinary person save still preserves stored authorisations
-  // exactly). Split 2026-10-29: there is no defaults section any
-  // more — search fields live only on profiles.
+  // Reusable declarations are a domain section below (they save
+  // through their own button, never through personDetailsFromForm).
+  // User order 2026-10-29: work authorisations are NOT edited in the
+  // person form at all — the backend model and stored authorisations
+  // are untouched, and an ordinary person save preserves them exactly
+  // because personDetailsFromForm never sends an authorisations field.
+  // Split 2026-10-29: there is no defaults section any more —
+  // search fields live only on profiles.
   $("person-links").value = (details.links || []).join("\n");
-  authDeletedIds = new Set();
-  renderAuthorisations(details.authorisations || []);
   deletedEmploymentIds = new Set();
   deletedEducationIds = new Set();
   renderEntries("person-employment-list", "employment", details.employment || [], deletedEmploymentIds);
@@ -798,124 +780,29 @@ function fillPersonForm(details) {
   lastPersonDetails = details;
   renderCreateSelections(details);
 }
-// ---- G2 regression (2026-10-28): domain UI in the Persona screen ----
 // Country names are rendered with Intl.DisplayNames, never from a
 // hand-kept table, so a code always shows its readable name (or the
-// code itself when it is not a known region).
+// code itself when it is not a known region). Used by the reusable
+// declarations section to label fact scopes; the work-authorisations
+// editor was removed from the person form by user order 2026-10-29.
 function countryName(code) {
   try {
     const names = new Intl.DisplayNames(["es"], { type: "region" });
     return names.of(String(code).toUpperCase()) || code;
   } catch { return code; }
 }
-// Work authorisations, per country, in plain language. A card edits
-// only authorised (status), sponsorship and validity; every other
-// stored field (valid_from, source_note, ...) is preserved because
-// the save starts from the stored entry and the backend merge only
-// overwrites the keys the card sends. Ids are stable: a stored card
-// keeps its id, a new card gets a fresh client id that the backend
-// stores as a new entry, and deleting a stored card sends an
-// explicit { id, deleted: true } marker on save.
-let authDeletedIds = new Set();
-let authOriginalById = new Map();
-function authCard(entry, stored) {
-  const card = document.createElement("div");
-  card.className = "auth-card profile-card";
-  card.dataset.id = entry.id || "";
-  card.dataset.stored = stored ? "1" : "";
-  const title = document.createElement("h3");
-  title.textContent = entry.country ? countryName(entry.country) + " (" + String(entry.country).toUpperCase() + ")" : "Nueva autorización";
-  card.appendChild(title);
-  const mk = (label, cls, value, placeholder) => {
-    const lab = document.createElement("label");
-    lab.textContent = label;
-    const input = document.createElement("input");
-    input.className = cls;
-    input.value = value || "";
-    input.placeholder = placeholder || "";
-    card.append(lab, input);
-  };
-  mk("País (código de 2 letras)", "auth-country", entry.country, "ES");
-  // RF-V2-016 (defect fix 2026-10-28): authorisation status is never
-  // inferred. A checkbox ("checked unless not_authorised") displayed
-  // any unknown stored status (e.g. "pending") as authorised, and an
-  // unchanged save normalised it to "authorised". The status is now
-  // an explicit select: authorised / not authorised, plus — only when
-  // the stored status is neither — a third option showing that status
-  // literally, which saves it back unchanged if left untouched.
-  const statusLab = document.createElement("label");
-  statusLab.textContent = "Estado de la autorización";
-  const statusSel = document.createElement("select");
-  statusSel.className = "auth-status";
-  const mkOpt = (value, label) => { const o = document.createElement("option"); o.value = value; o.textContent = label; statusSel.appendChild(o); return o; };
-  mkOpt("authorised", "Autorizado/a");
-  mkOpt("not_authorised", "No autorizado/a");
-  if (entry.status && entry.status !== "authorised" && entry.status !== "not_authorised") {
-    mkOpt(entry.status, "Desconocido (" + entry.status + ")");
-  }
-  statusSel.value = entry.status || "authorised";
-  statusLab.appendChild(statusSel);
-  card.appendChild(statusLab);
-  const spLab = document.createElement("label");
-  const sp = document.createElement("input");
-  sp.type = "checkbox";
-  sp.className = "auth-sponsorship";
-  sp.checked = Boolean(entry.sponsorship_required);
-  spLab.append(sp, document.createTextNode(" Necesita patrocinio"));
-  card.appendChild(spLab);
-  mk("Vigencia (opcional, YYYY o YYYY-MM)", "auth-valid-until", entry.valid_until, "2030-12");
-  const del = document.createElement("button");
-  del.type = "button";
-  del.textContent = "Eliminar";
-  del.onclick = () => { if (stored && entry.id) authDeletedIds.add(entry.id); card.remove(); };
-  card.appendChild(del);
-  return card;
-}
-function renderAuthorisations(entries) {
-  const container = $("person-authorisations-list");
-  container.innerHTML = "";
-  authOriginalById = new Map();
-  for (const e of entries || []) {
-    if (e.id) authOriginalById.set(e.id, e);
-    container.appendChild(authCard(e, true));
-  }
-}
-function collectAuthorisations() {
-  const out = [];
-  for (const card of document.querySelectorAll("#person-authorisations-list .auth-card")) {
-    const id = card.dataset.id;
-    const base = id && authOriginalById.get(id) ? { ...authOriginalById.get(id) } : {};
-    const field = (cls) => { const el = card.querySelector("." + cls); return el ? el.value.trim() : ""; };
-    const entry = { ...base };
-    entry.country = field("auth-country").toUpperCase();
-    // The select value is the status verbatim: an unknown stored
-    // status round-trips unchanged (see authCard), never normalised.
-    entry.status = card.querySelector(".auth-status")?.value || "authorised";
-    entry.sponsorship_required = card.querySelector(".auth-sponsorship")?.checked ?? false;
-    entry.valid_until = field("auth-valid-until") || null;
-    if (id) entry.id = id;
-    out.push(entry);
-  }
-  return out;
-}
-$("authorisations-add").onclick = () => {
-  $("person-authorisations-list").appendChild(authCard({ id: newEntryId("auth"), country: "", status: "authorised", sponsorship_required: false }, false));
-};
-$("authorisations-save").onclick = async () => { try {
-  if (!personId) throw new Error("guarda primero una persona");
-  const authorisations = collectAuthorisations();
-  for (const id of authDeletedIds) authorisations.push({ id, deleted: true });
-  const d = await call("/api/person", "POST", { authorisations });
-  if (d.person && d.person.details) fillPersonForm(d.person.details);
-  $("authorisations-status").textContent = "Autorizaciones guardadas";
-} catch (e) { $("authorisations-status").textContent = "Error: " + e.message; } };
 // Reusable declarations: human-readable concept labels, value shown
 // and corrected as plain text, provenance shown read-only. The old
 // technical concept/scope/provenance editor is NOT brought back:
 // provenance is displayed, never typed, so a guess can never be
 // dressed up as a declared fact.
+// User order 2026-10-29 (final scope): the Person screen shows NO
+// work-authorisation or sponsorship content at all. The two concepts
+// below are therefore absent from the labels AND filtered out of the
+// declarations rendering in refreshFacts. This is display-only: the
+// facts stay stored, still resolve via the API, and still feed the
+// search criteria (buildProfileView) from the stored data.
 const CONCEPT_LABELS = {
-  work_authorisation: "Autorización de trabajo", sponsorship_required: "Necesita patrocinio",
   salary_expectations: "Expectativa salarial", experience_years: "Años de experiencia",
   english_level: "Nivel de inglés", spanish_level: "Nivel de español",
   desired_role: "Puesto deseado", current_location: "Ubicación actual",
@@ -923,7 +810,7 @@ const CONCEPT_LABELS = {
   current_employment_status: "Situación laboral actual", relocation_willingness: "Disposición a mudarse",
 };
 const PROVENANCE_LABELS = {
-  user: "Declarado por ti", "cv-import": "Importado de tu CV",
+  user: "Declarado por ti", "cv-import": "Importado",
   "portal-form": "Formulario del portal", manual: "Añadido manualmente", document: "Documento",
 };
 function conceptLabel(concept) { return CONCEPT_LABELS[concept] || String(concept).replace(/_/g, " "); }
@@ -938,6 +825,11 @@ async function refreshFacts() {
     const data = await call("/api/facts?personId=" + personId, "GET");
     list.innerHTML = "";
     for (const f of data.facts || []) {
+      // Display-only filter (user order 2026-10-29): authorisation
+      // and sponsorship facts are never shown on the Person screen,
+      // not even as a country listing. They are NOT deleted and NOT
+      // edited here; they stay stored and keep feeding criteria.
+      if (f.concept === "work_authorisation" || f.concept === "sponsorship_required") continue;
       const card = document.createElement("div");
       card.className = "profile-card";
       const title = document.createElement("h3");
@@ -1019,6 +911,41 @@ async function refreshProfileCvOptions() {
   }
   if (current) sel.value = current;
   return confirmed;
+}
+// Refresh the open profile edit's CV select after a CV import is
+// confirmed (or its conflicts resolved): the new import becomes
+// selectable for the profile being edited and is pre-selected, so
+// saving the draft associates it. A value that is not confirmed
+// (e.g. still conflicted) is kept as a disabled option, mirroring
+// the open-edit logic — it can never be silently selected.
+async function refreshEditCvSelect(preferId) {
+  const sel = currentEditCvSelect;
+  if (!sel || !personId) return;
+  try {
+    const data = await call("/api/cv?personId=" + personId, "GET");
+    const confirmed = (data.imports || []).filter((c) => c.status === "confirmed");
+    const previous = sel.value;
+    sel.innerHTML = "";
+    const noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = "(sin CV asociado)";
+    sel.appendChild(noneOpt);
+    for (const c of confirmed) {
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = c.filename + " (" + c.status + ")";
+      sel.appendChild(opt);
+    }
+    if (previous && !confirmed.some((c) => c.id === previous)) {
+      const opt = document.createElement("option");
+      opt.value = previous;
+      opt.disabled = true;
+      opt.textContent = "(CV con conflictos pendientes — resolver antes de usar)";
+      sel.appendChild(opt);
+    }
+    if (preferId && confirmed.some((c) => c.id === preferId)) sel.value = preferId;
+    else sel.value = previous;
+  } catch { /* leave the select unchanged on a refresh failure */ }
 }
 // Profile history selection (redesign 2026-10-28). checkedIds === null
 // means the profile body carries NO selection key, which presents ALL
@@ -1195,6 +1122,7 @@ async function openProfileEdit(p, confirmedCvs, stored) {
       cvSelect.appendChild(opt);
     }
     cvSelect.value = p.body.cv_import_id || "";
+    currentEditCvSelect = cvSelect;
     // Per-profile fields (split 2026-10-29): edited here from the
     // profile's OWN body only. There is no fallback to person values
     // any more — the person holds no search fields, so a profile
@@ -1432,23 +1360,21 @@ function renderCvConflicts(result) {
     label.textContent = "Conflicto en " + c.concept + ": el hecho confirmado es «" + c.existing + "» y este CV propone «" + c.proposed + "». ";
     const replaceBtn = document.createElement("button");
     replaceBtn.textContent = "Usar el valor de este CV";
-    replaceBtn.onclick = async () => { try { const r = await call("/api/cv/" + currentCvId + "/confirm", "POST", { resolutions: { [c.proposalId]: "replace" } }); $("cv-status").textContent = r.status === "confirmed" ? "CV validado" : "CV confirmado con conflictos"; renderCvConflicts(r); } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
+    replaceBtn.onclick = async () => { try { const r = await call("/api/cv/" + currentCvId + "/confirm", "POST", { resolutions: { [c.proposalId]: "replace" } }); $("cv-status").textContent = r.status === "confirmed" ? "CV validado" : "CV confirmado con conflictos"; renderCvConflicts(r); await refreshEditCvSelect(currentCvId); } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
     const keepBtn = document.createElement("button");
     keepBtn.textContent = "Conservar el hecho confirmado";
-    keepBtn.onclick = async () => { try { const r = await call("/api/cv/" + currentCvId + "/confirm", "POST", { resolutions: { [c.proposalId]: "keep" } }); $("cv-status").textContent = r.status === "confirmed" ? "CV validado" : "CV confirmado con conflictos"; renderCvConflicts(r); } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
+    keepBtn.onclick = async () => { try { const r = await call("/api/cv/" + currentCvId + "/confirm", "POST", { resolutions: { [c.proposalId]: "keep" } }); $("cv-status").textContent = r.status === "confirmed" ? "CV validado" : "CV confirmado con conflictos"; renderCvConflicts(r); await refreshEditCvSelect(currentCvId); } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
     row.append(label, replaceBtn, keepBtn);
     box.appendChild(row);
   }
 }
-$("cv-confirm").onclick = async () => { try { if (!currentCvId) throw new Error("primero genera una vista previa"); const r = await call("/api/cv/" + currentCvId + "/confirm", "POST", {}); $("cv-status").textContent = r.status === "confirmed" ? "CV validado" : "CV confirmado con conflictos"; renderCvConflicts(r); } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
+$("cv-confirm").onclick = async () => { try { if (!currentCvId) throw new Error("primero genera una vista previa"); const r = await call("/api/cv/" + currentCvId + "/confirm", "POST", {}); $("cv-status").textContent = r.status === "confirmed" ? "CV validado" : "CV confirmado con conflictos"; renderCvConflicts(r); await refreshEditCvSelect(currentCvId); } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
 $("cv-reject").onclick = async () => { try { if (!currentCvId) throw new Error("primero genera una vista previa"); await call("/api/cv/" + currentCvId + "/reject", "POST", {}); $("cv-status").textContent = "Importación rechazada"; } catch (e) { $("cv-status").textContent = "Error: " + e.message; } };
 $("cv-refresh").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("cv-out"), await call("/api/cv?personId=" + personId, "GET")); } catch (e) { show($("cv-out"), "Error: " + e.message); } };
 // NOTE (user order 2026-10-28): the declared-facts editor was removed
 // from this UI. Facts still exist in the backend (/api/facts, /api/resolve,
 // /api/questions) and already-stored facts still resolve; they can only be
 // added or edited via the API or scripts, not from this page.
-$("map-save").onclick = async () => { try { show($("maps-out"), await call("/api/mappings", "POST", { source: $("map-source").value, fieldKey: $("map-key").value, sourceField: $("map-field").value })); } catch (e) { show($("maps-out"), "Error: " + e.message); } };
-$("maps-refresh").onclick = async () => { try { show($("maps-out"), await call("/api/mappings", "GET")); } catch (e) { show($("maps-out"), "Error: " + e.message); } };
 $("q-resolve").onclick = async () => { try { if (!personId) throw new Error("guarda primero una persona"); show($("q-out"), await call("/api/resolve", "POST", { personId, questions: [{ concept: $("q-concept").value, scope: $("q-scope").value }] })); } catch (e) { show($("q-out"), "Error: " + e.message); } };
 async function refreshPending() {
   if (!personId) { show($("q-out"), "guarda primero una persona"); return; }
