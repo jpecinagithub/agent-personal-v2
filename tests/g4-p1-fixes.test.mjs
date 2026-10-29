@@ -197,3 +197,29 @@ test("P1: declared ms remain a floor (existing simulation behaviour preserved)",
   const execution = runPlanDryRun(db, planId, { activeMsPerStep: 1000, limits: { activeTimeBudgetMs: 1500 } });
   assert.equal(execution.state, "stuck", "declared 1000 ms/step still exhausts a 1500 ms budget");
 });
+
+// --- Residual P1 (user reproduction on 8e842c7, 2026-10-29): a FAILED
+// observation must still consume real active time, or failures and
+// their retries evade the accumulated time budget. The diagnosis is
+// preserved alongside the recorded time.
+test("P1 residual: a failed observation after ~60 ms of real work records its time", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p1-failed-time-");
+  const planId = createPlan(db, { personId: personA, offerId: "https://example.test/jobs/1", profileId: profileA, routeKind: "company_careers", rationale: "failed time", steps: STEPS });
+  const failAfterWork = () => {
+    const start = performance.now();
+    while (performance.now() - start < 60) { /* real work, then an error */ }
+    throw new Error("network timeout while observing");
+  };
+  const execution = runPlanDryRun(db, planId, {
+    limits: { activeTimeBudgetMs: 1 }, activeMsPerStep: 0,
+    observeFn: () => failAfterWork(),
+  });
+  assert.equal(execution.state, "stuck", "failed observation still ends stuck");
+  assert.match(execution.stoppedReason ?? "", /observation failed/, "error diagnosis preserved");
+  assert.equal(execution.stepResults[0].status, "observation_failed");
+  assert.match(execution.stepResults[0].effect ?? "", /network timeout/, "error message preserved in the step result");
+  assert.ok(execution.usage.activeMs >= 50, `failed observation must record real time, got ${execution.usage.activeMs}`);
+  const persisted = listExecutions(db, planId).at(-1);
+  assert.ok(persisted.usage.activeMs >= 50, `persisted activeMs must reflect the failed observation, got ${persisted.usage.activeMs}`);
+  assert.equal(persisted.state, "stuck");
+});

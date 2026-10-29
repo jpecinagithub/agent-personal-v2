@@ -385,16 +385,22 @@ export function runPlanDryRun(db, planId, opts = {}) {
     // work is timed.
     let observed = null;
     const observeStarted = performance.now();
+    const declaredMs = typeof opts.activeMsPerStep === "number" && opts.activeMsPerStep > 0 ? opts.activeMsPerStep : 0;
     try {
       observed = opts.observeFn ? opts.observeFn(step, index) : (step.observableInput ?? null);
     } catch (err) {
+      // A failed observation still consumed REAL time: record it
+      // before leaving (finally-style), or failures and their
+      // retries would evade the accumulated time budget. The error
+      // diagnosis is preserved unchanged below.
+      const measuredMs = performance.now() - observeStarted;
+      usage = recordActiveMs(usage, Math.max(measuredMs, declaredMs));
       stepResults.push({ stepId: step.id, kind: step.kind, status: "observation_failed", observed: null, effect: err instanceof Error ? err.message : String(err) });
       state = "stuck";
       stoppedReason = `observation failed at step ${step.id}`;
       break;
     }
     const measuredMs = performance.now() - observeStarted;
-    const declaredMs = typeof opts.activeMsPerStep === "number" && opts.activeMsPerStep > 0 ? opts.activeMsPerStep : 0;
     // Decide: the step is the next action (no model re-planning here).
     // Check progress: a repeated fingerprint at the same index with
     // no advance is a repetition without progress.
