@@ -493,6 +493,32 @@ desactivar inmediatamente en cualquier momento.</small></p>
 <script>
 const $ = (id) => document.getElementById(id);
 const show = (el, obj) => { el.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2); };
+// Display filter (defect P2 2026-10-29, UI-only like 9367bef):
+// the "Ver persona actual" dump must never show authorisation data.
+// The copy shown is stripped — the authorisations array (per-country
+// status, sponsorship, validity) and any sponsorship key — while the
+// original response still feeds the form, the API and the criteria
+// untouched.
+function stripAuthorisationsForDisplay(value) {
+  const copy = JSON.parse(JSON.stringify(value));
+  const person = copy && copy.person;
+  if (person && typeof person === "object") {
+    // The row also carries the raw details_json/contact_json blobs,
+    // which duplicate the parsed fields and would leak the stripped
+    // authorisations back into the dump as text. The parsed contact
+    // and details objects remain, so nothing else is lost.
+    delete person.details_json;
+    delete person.contact_json;
+    const details = person.details;
+    if (details && typeof details === "object") {
+      delete details.authorisations;
+      for (const key of Object.keys(details)) {
+        if (key.toLowerCase().includes("sponsorship")) delete details[key];
+      }
+    }
+  }
+  return copy;
+}
 async function call(path, method, body) {
   const r = await fetch(path, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
   const data = await r.json().catch(() => ({}));
@@ -510,12 +536,20 @@ let currentCvId = null;
 let currentEditCvSelect = null;
 let lastPersonDetails = null;
 const draftsByCard = new Map();
+// Save routine of the profile edit view currently open, if any.
+// Set when a profile edit opens, cleared when the list view returns:
+// switching screens autosaves through it (defect P2 2026-10-29), so
+// typed input is persisted into the draft instead of being rebuilt
+// away on reopen. Saving a draft never touches the live profile.
+let saveOpenProfileEdit = null;
 // Screens (separation 2026-10-29): Persona and Perfiles are two
-// independent screens, not tabs of one form. Switching only shows
-// or hides a screen; it never reloads, resets or submits either
-// form, so unsaved input survives a screen switch. Each screen
-// shows only its own entries: the Persona screen never shows
-// profiles, and the Perfiles screen never shows person fields.
+// independent screens, not tabs of one form. Switching screens
+// autosaves an open profile edit into its draft (see
+// autosaveOpenEdit) and reopening a profile reuses its pending draft,
+// so typed input survives a screen switch instead of being rebuilt
+// from live values. Each screen shows only its own entries: the
+// Persona screen never shows profiles, and the Perfiles screen never
+// shows person fields.
 function showScreen(name) {
   $("person-screen").style.display = name === "person" ? "" : "none";
   $("profiles-screen").style.display = name === "profiles" ? "" : "none";
@@ -527,6 +561,7 @@ function showProfilesListView() {
   $("profile-create-view").style.display = "none";
   $("profile-edit-view").style.display = "none";
   currentEditCvSelect = null;
+  saveOpenProfileEdit = null;
 }
 function showProfileCreateView() {
   $("profiles-list-view").style.display = "none";
@@ -550,8 +585,18 @@ async function ensureProfilesPerson() {
     if ((data.persons || []).length) personId = data.persons[0].id;
   } catch { /* refreshProfiles reports "guarda primero una persona" */ }
 }
-$("nav-person").onclick = async () => { showScreen("person"); await refreshPersonList(); };
-$("nav-profiles").onclick = async () => { showScreen("profiles"); await ensureProfilesPerson(); await refreshProfiles(); };
+// Switching screens autosaves an open profile edit into its draft
+// (defect P2 2026-10-29): without this, typed input that was never
+// explicitly saved was rebuilt away when the profile was reopened.
+// A draft save never touches the live profile. If the autosave
+// itself fails (e.g. invalid input), navigation still continues and
+// the failure is visible in the edit view when it is reopened.
+async function autosaveOpenEdit() {
+  if (!saveOpenProfileEdit) return;
+  try { await saveOpenProfileEdit(); } catch { /* navigation continues */ }
+}
+$("nav-person").onclick = async () => { await autosaveOpenEdit(); showScreen("person"); await refreshPersonList(); };
+$("nav-profiles").onclick = async () => { await autosaveOpenEdit(); showScreen("profiles"); await ensureProfilesPerson(); await refreshProfiles(); };
 showScreen("person");
 const lines = (id) => $(id).value.split("\n").map((l) => l.trim()).filter(Boolean);
 const pairs = (id) => lines(id).map((l) => { const [a, b] = l.split(",").map((s) => s.trim()); return [a, b]; });
@@ -1084,8 +1129,29 @@ async function refreshProfiles() {
 // profile from the list shows ONLY this form, in its own
 // view — no person fields, no person editing, no list.
 async function openProfileEdit(p, confirmedCvs, stored) {
-    const draft = await call("/api/profiles/" + p.id + "/drafts", "POST", {});
-    draftsByCard.set(p.id, draft.id);
+    // Draft reuse (defect P2 2026-10-29): opening a profile must NOT
+    // blindly create a fresh draft from the live body — that discarded
+    // a previously saved draft's edits. If a pending draft exists,
+    // reopen it and fill the form from ITS body; only create a new
+    // draft when none is pending.
+    let pendingDraft = null;
+    try {
+      const existing = await call("/api/profiles/" + p.id + "/drafts", "GET");
+      pendingDraft = (existing.drafts || []).filter((d) => d.status === "draft").at(-1) || null;
+    } catch { /* fall through to creating a fresh draft */ }
+    let draftId;
+    if (pendingDraft) {
+      draftId = pendingDraft.id;
+      // Fill from the draft body, not the live body, so saved draft
+      // edits come back instead of the old live values. The draft
+      // body is the full validated body; template falls back to the
+      // live column when the draft predates it.
+      p = { ...p, body: pendingDraft.body, template: pendingDraft.body.template !== undefined ? pendingDraft.body.template : p.template };
+    } else {
+      const draft = await call("/api/profiles/" + p.id + "/drafts", "POST", {});
+      draftId = draft.id;
+    }
+    draftsByCard.set(p.id, draftId);
     $("profile-edit-form").innerHTML = "";
     const editArea = document.createElement("div");
     const templateLabel = document.createElement("label");
@@ -1216,6 +1282,7 @@ async function openProfileEdit(p, confirmedCvs, stored) {
         body.education_ids = hasSelectionCheckboxes(eduSel) ? checkedIdsIn(eduSel) : [];
       }
       await call("/api/drafts/" + draftId, "PUT", { body }); draftOut.textContent = "Borrador guardado"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
+    saveOpenProfileEdit = saveBtn.onclick;
     const confirmBtn = document.createElement("button");
     confirmBtn.textContent = "Confirmar borrador";
     confirmBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (!draftId) throw new Error("sin borrador"); await call("/api/drafts/" + draftId + "/confirm", "POST", {}); await refreshProfiles(); $("profiles-status").textContent = "Borrador confirmado"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
@@ -1227,6 +1294,13 @@ async function openProfileEdit(p, confirmedCvs, stored) {
       salCurLab, salCurInput, salMinLab, salMinInput, salMaxLab, salMaxInput, salPerLab, salPerInput,
       histModeLabel, histDynamicLab, histFixedLab, histWrap,
       saveBtn, confirmBtn, discardBtn, draftOut);
+  // A reused draft may be stale (its base version predates a profile
+  // change, e.g. the versioned search-fields migration): say so
+  // instead of letting Confirm fail without explanation. The draft
+  // is still shown, never silently discarded.
+  if (pendingDraft && pendingDraft.base_version !== p.version) {
+    draftOut.textContent = "Este borrador es anterior a un cambio del perfil y no podrá confirmarse: descártalo y empieza de nuevo.";
+  }
   $("profile-edit-form").appendChild(editArea);
   $("profile-edit-title").textContent = "Editar perfil: " + p.name;
   showProfileEditView();
@@ -1269,8 +1343,8 @@ async function refreshPersonList() {
 }
 $("person-list-refresh").onclick = refreshPersonList;
 refreshPersonList();
-$("person-save").onclick = async () => { try { const d = await call("/api/person", "POST", personDetailsFromForm()); personId = d.id; selectedPersonId = d.id; $("person-status").textContent = "Persona guardada: " + (d.person.details.full_name || ""); show($("person-out"), d); if (d.person && d.person.details) fillPersonForm(d.person.details); await refreshFacts(); await refreshPersonList(); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
-$("person-load").onclick = async () => { try { const d = await call("/api/person", "GET"); if (d.person) { personId = d.person.id; selectedPersonId = d.person.id; fillPersonForm(d.person.details || {}); $("person-status").textContent = "Persona actual: " + (d.person.details.full_name || ""); await refreshFacts(); await refreshPersonList(); } else { $("person-status").textContent = "Sin persona guardada"; } show($("person-out"), d); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
+$("person-save").onclick = async () => { try { const d = await call("/api/person", "POST", personDetailsFromForm()); personId = d.id; selectedPersonId = d.id; $("person-status").textContent = "Persona guardada: " + (d.person.details.full_name || ""); show($("person-out"), stripAuthorisationsForDisplay(d)); if (d.person && d.person.details) fillPersonForm(d.person.details); await refreshFacts(); await refreshPersonList(); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
+$("person-load").onclick = async () => { try { const d = await call("/api/person", "GET"); if (d.person) { personId = d.person.id; selectedPersonId = d.person.id; fillPersonForm(d.person.details || {}); $("person-status").textContent = "Persona actual: " + (d.person.details.full_name || ""); await refreshFacts(); await refreshPersonList(); } else { $("person-status").textContent = "Sin persona guardada"; } show($("person-out"), stripAuthorisationsForDisplay(d)); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
 $("profile-create").onclick = async () => { try {
   if (!personId) throw new Error("guarda primero una persona");
   // Split 2026-10-29: creating a profile starts EMPTY. There is no

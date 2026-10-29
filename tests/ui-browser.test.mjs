@@ -1043,3 +1043,94 @@ test("browser: served UI contains no field-mappings section, while the mappings 
     await stopApp(app);
   }
 });
+
+test("browser P2: profile edits survive switching to Persona and back, and reopening restores the pending draft", async () => {
+  // WHY (defect P2 2026-10-29, conformity to c753fb7 withheld):
+  // opening a profile always created a fresh draft from the live body
+  // and rebuilt the form, so edits — saved to a draft or only typed —
+  // came back as the old live values after a screen switch. Reopening
+  // must reuse the pending draft, and switching screens autosaves
+  // typed input into it first.
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ full_name: "Test Person", email: "test.person@example.test" }) });
+    assert.equal(created.status, 201);
+    const personId = (await (await fetch(`${base}/api/person`)).json()).person.id;
+    const profileRes = await fetch(`${base}/api/profiles`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personId, name: "Finanzas", body: { desired_roles: ["Finance Manager"], skills: ["accounting"] } }) });
+    assert.equal(profileRes.status, 201);
+    await app.page.click("#nav-profiles");
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
+    const card = app.page.locator("#profiles-list .profile-card").first();
+    await card.getByRole("button", { name: "Editar" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Guardar borrador"));
+    const editForm = app.page.locator("#profile-edit-form");
+    // Typed, NOT explicitly saved: skills textarea is index 2
+    // (desired roles, locations, skills, exclusions).
+    await editForm.locator("textarea").nth(2).fill("forecasting");
+    // Switching to Persona autosaves the typed input into the draft.
+    await Promise.all([
+      app.page.waitForResponse((r) => r.url().includes("/api/drafts/") && r.request().method() === "PUT"),
+      app.page.click("#nav-person"),
+    ]);
+    assert.equal(await app.page.locator("#person-screen").isVisible(), true);
+    // Back to Perfiles and reopen: the autosaved value must be there,
+    // not the old live value.
+    await app.page.click("#nav-profiles");
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
+    await app.page.locator("#profiles-list .profile-card").first().getByRole("button", { name: "Editar" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Guardar borrador"));
+    assert.equal(await app.page.locator("#profile-edit-form").locator("textarea").nth(2).inputValue(), "forecasting", "autosaved typed edit survives the screen switch");
+    // Now save explicitly, switch, reopen: the saved draft must be
+    // reused, not replaced by a fresh draft from live values.
+    await app.page.locator("#profile-edit-form").getByRole("button", { name: "Guardar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Borrador guardado"));
+    await app.page.click("#nav-person");
+    await app.page.click("#nav-profiles");
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
+    await app.page.locator("#profiles-list .profile-card").first().getByRole("button", { name: "Editar" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Guardar borrador"));
+    assert.equal(await app.page.locator("#profile-edit-form").locator("textarea").nth(2).inputValue(), "forecasting", "saved draft is reused on reopen, not rebuilt from live values");
+  } finally {
+    await stopApp(app);
+  }
+});
+
+test("browser P2: 'Ver persona actual' dump shows no authorisations or sponsorship, while the API still returns them", async () => {
+  // WHY (defect P2 2026-10-29): the dump rendered the full person
+  // response, including the authorisations array with countries and
+  // sponsorship. Display filtering only: backend, API and criteria
+  // keep the stored data.
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      full_name: "Test Person", email: "test.person@example.test",
+      authorisations: [
+        { country: "AT", status: "authorised", sponsorship_required: true, valid_until: "2030-12" },
+        { country: "BE", status: "authorised", sponsorship_required: false },
+      ],
+    }) });
+    assert.equal(created.status, 201);
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    // The dump is written after the handler's facts/list refreshes,
+    // so wait for the dump itself, not just the status (which is set
+    // first) — otherwise the read can race ahead of the render.
+    await app.page.waitForFunction(() => (document.querySelector("#person-out")?.textContent ?? "").includes("Test Person"));
+    const dump = (await app.page.locator("#person-out").textContent()) ?? "";
+    assert.ok(dump.includes("Test Person"), "the dump still shows identity");
+    assert.ok(!dump.includes("authorisations"), "no authorisations array in the dump");
+    assert.ok(!dump.includes("sponsorship"), "no sponsorship content in the dump");
+    assert.ok(!dump.includes('"country"'), "no per-country entries in the dump");
+    assert.ok(!dump.includes("2030-12"), "no authorisation validity in the dump");
+    // The API itself still returns the stored data untouched.
+    const api = (await (await fetch(`${base}/api/person`)).json()).person;
+    assert.equal(api.details.authorisations.length, 2, "API still returns stored authorisations");
+    assert.equal(api.details.authorisations[0].sponsorship_required, true);
+  } finally {
+    await stopApp(app);
+  }
+});

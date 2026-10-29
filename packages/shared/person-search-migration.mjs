@@ -16,11 +16,19 @@
 // fields, so a second run moves nothing (and creates no profile).
 // Runs on every openDatabase (see packages/shared/db.mjs) so an
 // existing local database is migrated on first start after upgrade.
-// It writes profile bodies directly, without snapshots: this is a
-// data migration, not a user edit, and snapshotting it would pollute
-// the attempt history with a move the user did not make. All moves
-// for all persons happen in ONE transaction: a failure rolls
-// everything back instead of half-moving one person.
+// VERSIONED like a user edit (user order, defect P1 2026-10-29): the
+// migration must NOT write a profile body in place. A direct body
+// write leaves the profile version unchanged, so (a) a draft created
+// before the migration still matches the version and could later be
+// confirmed, overwriting the migrated body and deleting the moved
+// fields, and (b) the snapshot in force for that version still holds
+// the pre-migration body. Instead, when fields actually move into an
+// existing profile, the old version's snapshot is preserved (if not
+// already pinned), the profile version is bumped, and a new snapshot
+// captures the migrated body — exactly as confirmDraft does. A
+// pre-migration draft then fails the stale-version check on confirm
+// instead of silently erasing migrated fields. Old snapshots are
+// never rewritten; they stay as history.
 // A field counts as "empty" on the profile side when it is absent, an
 // empty array, or (for salary) an object with no keys; a "present"
 // person value that is itself empty is simply deleted, not moved.
@@ -83,14 +91,35 @@ export function migrateLegacyPersonSearchFields(db) {
       if (target) {
         if (Object.keys(moved).length > 0) {
           const next = { ...body, ...moved };
-          db.prepare("UPDATE profiles SET body_json = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").run(
+          // Version the move like a user edit (P1 2026-10-29): keep
+          // the old version's snapshot if it is not already pinned,
+          // bump the version, and snapshot the migrated body, so the
+          // snapshot in force carries the moved fields and any
+          // pre-migration draft goes stale instead of overwriting them.
+          const oldVersion = target.version;
+          const oldSnapshot = db.prepare("SELECT id FROM profile_snapshots WHERE profile_id = ? AND version = ?").get(target.id, oldVersion);
+          if (!oldSnapshot) {
+            db.prepare("INSERT INTO profile_snapshots (id, profile_id, version, body_json) VALUES (?, ?, ?, ?)").run(
+              randomUUID(), target.id, oldVersion, JSON.stringify(body),
+            );
+          }
+          db.prepare("UPDATE profiles SET body_json = ?, version = version + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").run(
             JSON.stringify(next), target.id,
+          );
+          db.prepare("INSERT INTO profile_snapshots (id, profile_id, version, body_json) VALUES (?, ?, ?, ?)").run(
+            randomUUID(), target.id, oldVersion + 1, JSON.stringify(next),
           );
         }
       } else if (Object.keys(moved).length > 0) {
         const id = randomUUID();
         db.prepare("INSERT INTO profiles (id, person_id, name, template, body_json) VALUES (?, ?, ?, '', ?)").run(
           id, person.id, profileNameFor(details), JSON.stringify(moved),
+        );
+        // A brand-new profile has no prior version to bump; snapshot
+        // version 1 so the snapshot in force already carries the
+        // moved fields.
+        db.prepare("INSERT INTO profile_snapshots (id, profile_id, version, body_json) VALUES (?, ?, ?, ?)").run(
+          randomUUID(), id, 1, JSON.stringify(moved),
         );
         profilesCreated += 1;
       }

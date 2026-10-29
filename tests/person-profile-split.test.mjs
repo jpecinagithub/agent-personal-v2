@@ -10,6 +10,8 @@ import { createPersonFull, updatePersonDetails, getPerson, validatePersonDetails
 import { createProfileFull, getProfileFull, listProfiles } from "../packages/shared/profiles.mjs";
 import { buildProfileView } from "../packages/shared/search-run.mjs";
 import { migrateLegacyPersonSearchFields } from "../packages/shared/person-search-migration.mjs";
+import { createDraft, confirmDraft } from "../packages/shared/drafts.mjs";
+import { pinSnapshot } from "../packages/shared/profiles.mjs";
 import { createServer } from "../apps/server/server.mjs";
 
 const PERSON_ONLY = {
@@ -249,4 +251,64 @@ test("focus deleted: migration 010 drops the column and strips body_json keys on
   assert.deepEqual(profile.body.desired_roles, ["Finance Manager"], "search fields intact");
   assert.ok(!("focus" in profile), "no focus column value leaks through the profile row");
   migrated.close();
+});
+
+// --- Defects reproduced by the user on c753fb7 (conformity withheld) ---
+// P1: the 009 migration wrote profile bodies in place, so a
+// pre-migration draft could later confirm and delete the moved fields,
+// and the snapshot in force predated the move.
+test("split P1: migration versions its move — old draft goes stale, current snapshot carries moved fields", () => {
+  const db = setup("agentv2-split-ver-");
+  insertLegacyPerson(db, "person-v", {
+    ...PERSON_ONLY,
+    desired_roles: ["Finance Manager"], locations: ["Logroño"], skills: ["accounting"],
+    exclusions: ["night shifts"], salary_expectations: { currency: "EUR", min: 50000, max: 70000, period: "year" },
+  });
+  db.prepare("INSERT INTO profiles (id, person_id, name, template, body_json) VALUES (?, ?, ?, '', ?)").run(
+    "profile-v", "person-v", "Existing", JSON.stringify({ skills: ["forecasting"] }),
+  );
+  // Draft created BEFORE the migration, from version 1, without the moved fields.
+  const draftId = createDraft(db, "profile-v");
+  assert.equal(getProfileFull(db, "profile-v").version, 1);
+  const result = migrateLegacyPersonSearchFields(db);
+  assert.equal(result.personsMoved, 1);
+  const after = getProfileFull(db, "profile-v");
+  assert.equal(after.version, 2, "migration bumps the version");
+  assert.deepEqual(after.body.desired_roles, ["Finance Manager"]);
+  assert.deepEqual(after.body.locations, ["Logroño"]);
+  assert.deepEqual(after.body.skills, ["forecasting"], "profile's own skills never overwritten");
+  assert.deepEqual(after.body.exclusions, ["night shifts"]);
+  assert.deepEqual(after.body.salary_expectations, { currency: "EUR", min: 50000, max: 70000, period: "year" });
+  // The snapshot in force (version 2) carries the moved fields; the
+  // version-1 snapshot keeps the pre-migration body as history.
+  const snapRow = (v) => db.prepare("SELECT * FROM profile_snapshots WHERE profile_id = ? AND version = ?").get("profile-v", v);
+  const current = snapRow(2);
+  assert.ok(current, "a version-2 snapshot exists");
+  assert.deepEqual(JSON.parse(String(current.body_json)).desired_roles, ["Finance Manager"], "current snapshot carries moved fields");
+  assert.equal(pinSnapshot(db, "profile-v"), current.id, "pinSnapshot returns the migrated snapshot");
+  const old = snapRow(1);
+  assert.ok(old, "the old version snapshot is preserved");
+  assert.equal(JSON.parse(String(old.body_json)).desired_roles, undefined, "old snapshot keeps pre-migration body");
+  // The pre-migration draft is refused as stale and the moved fields survive.
+  assert.throws(() => confirmDraft(db, draftId), /stale draft/);
+  assert.deepEqual(getProfileFull(db, "profile-v").body.desired_roles, ["Finance Manager"], "stale confirm deleted nothing");
+  // Idempotent: a second run bumps nothing.
+  migrateLegacyPersonSearchFields(db);
+  assert.equal(getProfileFull(db, "profile-v").version, 2, "second run bumps nothing");
+});
+
+test("split P1: migration-created profile snapshots version 1 with moved fields", () => {
+  const db = setup("agentv2-split-ver2-");
+  insertLegacyPerson(db, "person-c", {
+    ...PERSON_ONLY,
+    desired_roles: ["Finance Manager"], locations: ["Logroño"],
+  });
+  const result = migrateLegacyPersonSearchFields(db);
+  assert.equal(result.profilesCreated, 1);
+  const profiles = listProfiles(db, "person-c");
+  assert.equal(profiles.length, 1);
+  const snap = db.prepare("SELECT * FROM profile_snapshots WHERE profile_id = ? AND version = ?").get(profiles[0].id, 1);
+  assert.ok(snap, "a version-1 snapshot exists for the created profile");
+  assert.deepEqual(JSON.parse(String(snap.body_json)).desired_roles, ["Finance Manager"]);
+  assert.deepEqual(JSON.parse(String(snap.body_json)).locations, ["Logroño"]);
 });
