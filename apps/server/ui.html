@@ -137,12 +137,13 @@ pre {
   margin: 12px 0;
 }
 .status { font-weight: 600; color: #F2F4F1; }
-/* Person/profile tabs: presentation only. Switching tabs only shows
-   or hides the two sections below; it never reloads, resets or
-   submits either form, so unsaved input survives a tab switch. */
-#tabs { display: flex; gap: 8px; margin-bottom: 16px; }
-#tabs button[role="tab"] { margin: 0; }
-#tabs button[role="tab"][aria-selected="true"] { background: #CDFF3C; border-color: transparent; color: #101203; font-weight: 700; }
+/* Person/profile screens (separation 2026-10-29): two independent
+   screens, NOT tabs of one form. Switching screens only shows or
+   hides a screen; it never reloads, resets or submits either form,
+   so unsaved input survives a screen switch. */
+#main-nav { display: flex; gap: 8px; margin-bottom: 16px; }
+#main-nav button { margin: 0; }
+#main-nav button[aria-current="true"] { background: #CDFF3C; border-color: transparent; color: #101203; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -153,20 +154,20 @@ xAI se guarda en el almacén de secretos y solo se informa si está
 configurada o no. Nada de lo que escribas aquí se inventa: lo que no
 declares queda pendiente y se te pedirá cuando haga falta.</small></p>
 
-<div id="tabs" role="tablist" aria-label="Persona o perfiles">
-<button id="tab-person" type="button" role="tab" aria-selected="true">Persona</button>
-<button id="tab-profiles" type="button" role="tab" aria-selected="false">Perfiles</button>
-</div>
+<nav id="main-nav" aria-label="Pantallas principales">
+<button id="nav-person" type="button" aria-current="true">Persona</button>
+<button id="nav-profiles" type="button" aria-current="false">Perfiles</button>
+</nav>
 
-<section id="entries-section">
-<h2>Lo que ya tienes creado</h2>
-<p><small>Tu persona y tus perfiles, siempre visibles. Pulsa una entrada
-para editarla: la seleccionada queda marcada y el formulario cambia a
-ella. Cuando apliques, aplicarás con un perfil determinado de esta
-lista, nada más.</small></p>
-<div id="entries-list"></div>
-<button id="entries-refresh" type="button">Actualizar lista</button>
-<p class="status" id="entries-status"></p>
+<section id="person-screen">
+<section id="person-list-section">
+<h2>Personas</h2>
+<p><small>Las personas que ya tienes creadas. Pulsa una para editarla:
+el formulario de abajo cambia a ella. Esta pantalla es solo Persona:
+aquí no hay perfiles ni campos de perfil.</small></p>
+<div id="person-list"></div>
+<button id="person-list-refresh" type="button">Actualizar lista</button>
+<p class="status" id="person-list-status"></p>
 </section>
 
 <section id="person-section">
@@ -177,7 +178,7 @@ perfiles no lo copian, sino que eligen qué parte de él presentan.
 Lo que quites de un perfil sigue estando aquí. Cómo buscas trabajo
 (puestos, ubicaciones, habilidades, exclusiones, salario) NO vive
 aquí: cada campo vive en un solo sitio, y esos viven en cada
-perfil, en la pestaña Perfiles.</small></p>
+perfil, en la pantalla Perfiles.</small></p>
 <label for="person-full-name">Nombre completo</label>
 <input id="person-full-name" placeholder="Ej.: Test Person">
 <label for="person-display-name">Nombre a mostrar (opcional)</label>
@@ -244,15 +245,24 @@ Cada perfil elige qué estudios de aquí presenta.</small></p>
 <p class="status" id="person-status"></p>
 <pre id="person-out"></pre>
 </section>
+</section>
 
-<section id="profiles-section">
+<section id="profiles-screen" style="display: none;">
 <h2>Perfiles — cómo buscas</h2>
-<p><small>Cada perfil dice cómo buscas trabajo: puestos, ubicaciones, habilidades, exclusiones y salario, y qué parte de tu historial maestro presenta. Nada de esto vive en Persona: un campo vive en un solo sitio. Crear un perfil empieza vacío. Cuando apliques, aplicarás con un perfil determinado de esta pestaña, nada más. Máximo 10 perfiles no eliminados.</small></p>
+<p><small>Cada perfil dice cómo buscas trabajo: puestos, ubicaciones, habilidades, exclusiones y salario, y qué parte de tu historial maestro presenta. Nada de esto vive en Persona: un campo vive en un solo sitio. Crear un perfil empieza vacío. Cuando apliques, aplicarás con un perfil determinado de esta lista, nada más. Máximo 10 perfiles no eliminados.</small></p>
 <p><small>Datos específicos de cada perfil: lo que un perfil presenta
 puede diferir de otro. Archivar un perfil no libera su plaza: el
 límite cuenta los perfiles activos y los archivados; solo eliminar
 libera una plaza, y eliminar nunca borra las instantáneas de
 candidaturas anteriores.</small></p>
+<div id="profiles-list-view">
+<div id="profiles-list"></div>
+<button id="profile-create-open" type="button">Crear perfil</button>
+<button id="profiles-refresh">Actualizar lista</button>
+<p class="status" id="profiles-status"></p>
+<pre id="profiles-out"></pre>
+</div>
+<div id="profile-create-view" style="display: none;">
 
 <label for="profile-name">Nombre del perfil</label>
 <input id="profile-name" placeholder="Ej.: Finanzas">
@@ -295,10 +305,14 @@ simplemente dejan de presentarse.</small></p>
 <div id="profile-education-select"></div>
 </div>
 <button id="profile-create">Crear perfil</button>
-<button id="profiles-refresh">Actualizar lista</button>
-<p class="status" id="profiles-status"></p>
-<div id="profiles-list"></div>
-<pre id="profiles-out"></pre>
+<button id="profile-create-cancel" type="button">Volver a la lista</button>
+<p class="status" id="profile-create-status"></p>
+</div>
+<div id="profile-edit-view" style="display: none;">
+<h3 id="profile-edit-title"></h3>
+<div id="profile-edit-form"></div>
+<button id="profile-edit-back" type="button">Volver a la lista</button>
+</div>
 </section>
 
 <section id="cv-section">
@@ -518,18 +532,47 @@ let personId = null;
 let currentCvId = null;
 let lastPersonDetails = null;
 const draftsByCard = new Map();
-// Tabs (redesign 2026-10-28): switching only shows/hides the person
-// and profiles sections. It never reloads, resets or submits either
-// form, so unsaved input survives a tab switch.
-function showTab(name) {
-  $("person-section").style.display = name === "person" ? "" : "none";
-  $("profiles-section").style.display = name === "profiles" ? "" : "none";
-  $("tab-person").setAttribute("aria-selected", name === "person" ? "true" : "false");
-  $("tab-profiles").setAttribute("aria-selected", name === "profiles" ? "true" : "false");
+// Screens (separation 2026-10-29): Persona and Perfiles are two
+// independent screens, not tabs of one form. Switching only shows
+// or hides a screen; it never reloads, resets or submits either
+// form, so unsaved input survives a screen switch. Each screen
+// shows only its own entries: the Persona screen never shows
+// profiles, and the Perfiles screen never shows person fields.
+function showScreen(name) {
+  $("person-screen").style.display = name === "person" ? "" : "none";
+  $("profiles-screen").style.display = name === "profiles" ? "" : "none";
+  $("nav-person").setAttribute("aria-current", name === "person" ? "true" : "false");
+  $("nav-profiles").setAttribute("aria-current", name === "profiles" ? "true" : "false");
 }
-$("tab-person").onclick = () => showTab("person");
-$("tab-profiles").onclick = () => showTab("profiles");
-showTab("person");
+function showProfilesListView() {
+  $("profiles-list-view").style.display = "";
+  $("profile-create-view").style.display = "none";
+  $("profile-edit-view").style.display = "none";
+}
+function showProfileCreateView() {
+  $("profiles-list-view").style.display = "none";
+  $("profile-create-view").style.display = "";
+  $("profile-edit-view").style.display = "none";
+}
+function showProfileEditView() {
+  $("profiles-list-view").style.display = "none";
+  $("profile-create-view").style.display = "none";
+  $("profile-edit-view").style.display = "";
+}
+// Profiles belong to a person: entering the Perfiles screen without
+// a selected person adopts the first person (read-only context, no
+// person editing happens here); with no person at all, the list
+// view reports that a person must be created first.
+async function ensureProfilesPerson() {
+  if (personId) return;
+  try {
+    const data = await call("/api/persons", "GET");
+    if ((data.persons || []).length) personId = data.persons[0].id;
+  } catch { /* refreshProfiles reports "guarda primero una persona" */ }
+}
+$("nav-person").onclick = async () => { showScreen("person"); await refreshPersonList(); };
+$("nav-profiles").onclick = async () => { showScreen("profiles"); await ensureProfilesPerson(); await refreshProfiles(); };
+showScreen("person");
 const lines = (id) => $(id).value.split("\n").map((l) => l.trim()).filter(Boolean);
 const pairs = (id) => lines(id).map((l) => { const [a, b] = l.split(",").map((s) => s.trim()); return [a, b]; });
 function personDetailsFromForm() {
@@ -559,7 +602,7 @@ function personDetailsFromForm() {
   // NOTE (redesign 2026-10-28): the person form also no longer sends
   // the per-profile fields (desired_roles, locations, skills,
   // exclusions, salary_expectations) — they live on each profile now
-  // (Perfiles tab). They are simply omitted here, so the backend
+  // (pantalla Perfiles). They are simply omitted here, so the backend
   // merge preserves whatever is stored in them, exactly like
   // authorisations above. The person backend fields are untouched.
   sendList("links", lines("person-links"));
@@ -755,7 +798,7 @@ function fillPersonForm(details) {
   lastPersonDetails = details;
   renderCreateSelections(details);
 }
-// ---- G2 regression (2026-10-28): domain UI in the Persona tab ----
+// ---- G2 regression (2026-10-28): domain UI in the Persona screen ----
 // Country names are rendered with Intl.DisplayNames, never from a
 // hand-kept table, so a code always shows its readable name (or the
 // code itself when it is not a known region).
@@ -1068,7 +1111,7 @@ function salaryFromInputs(currencyEl, minEl, maxEl, periodEl) {
   if (period) salary.period = period;
   return salary;
 }
-async function refreshProfiles(openEditProfileId = null) {
+async function refreshProfiles() {
   if (!personId) { show($("profiles-out"), "guarda primero una persona"); return; }
   // The edit areas select from the master history, so refresh the
   // stored person details first (a page reload loses them otherwise).
@@ -1081,6 +1124,7 @@ async function refreshProfiles(openEditProfileId = null) {
   show($("profiles-out"), data);
   const list = $("profiles-list");
   list.innerHTML = "";
+  showProfilesListView();
   for (const p of data.profiles) {
     const card = document.createElement("div");
     card.className = "profile-card";
@@ -1103,11 +1147,25 @@ async function refreshProfiles(openEditProfileId = null) {
       const r = await call("/api/profiles/" + p.id + "/readiness", "GET");
       readinessOut.textContent = r.ready ? "Perfil preparado" : "Falta: " + r.missing.map(missingLabel).join(", ");
     }, false);
+    const stored = lastPersonDetails || {};
     const editBtn = document.createElement("button");
     editBtn.textContent = "Editar";
     editBtn.dataset.editProfileId = p.id;
+    editBtn.onclick = async () => { try { await openProfileEdit(p, confirmedCvs, stored); } catch (e) { readinessOut.textContent = "Error: " + e.message; } };
+    card.append(editBtn);
+
+    list.appendChild(card);
+  }
+}
+
+// The profile edit form (separation 2026-10-29): opening a
+// profile from the list shows ONLY this form, in its own
+// view — no person fields, no person editing, no list.
+async function openProfileEdit(p, confirmedCvs, stored) {
+    const draft = await call("/api/profiles/" + p.id + "/drafts", "POST", {});
+    draftsByCard.set(p.id, draft.id);
+    $("profile-edit-form").innerHTML = "";
     const editArea = document.createElement("div");
-    editArea.style.display = "none";
     const focusLabel = document.createElement("label");
     focusLabel.textContent = "Enfoque";
     const focusInput = document.createElement("input");
@@ -1140,9 +1198,8 @@ async function refreshProfiles(openEditProfileId = null) {
     // Per-profile fields (split 2026-10-29): edited here from the
     // profile's OWN body only. There is no fallback to person values
     // any more — the person holds no search fields, so a profile
-    // field that is absent starts empty. (stored below is still the
-    // master history, used for the history-selection checkboxes.)
-    const stored = lastPersonDetails || {};
+    // field that is absent starts empty. (stored is the master
+    // history, used for the history-selection checkboxes.)
     const mkEditArea = (labelText, value, rows) => {
       const lab = document.createElement("label");
       lab.textContent = labelText;
@@ -1245,80 +1302,56 @@ async function refreshProfiles(openEditProfileId = null) {
     confirmBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (!draftId) throw new Error("sin borrador"); await call("/api/drafts/" + draftId + "/confirm", "POST", {}); await refreshProfiles(); $("profiles-status").textContent = "Borrador confirmado"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
     const discardBtn = document.createElement("button");
     discardBtn.textContent = "Descartar borrador";
-    discardBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (draftId) await call("/api/drafts/" + draftId + "/discard", "POST", {}); draftOut.textContent = "Borrador descartado"; editArea.style.display = "none"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
+    discardBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (draftId) await call("/api/drafts/" + draftId + "/discard", "POST", {}); await refreshProfiles(); $("profiles-status").textContent = "Borrador descartado"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
     editArea.append(focusLabel, focusInput, templateLabel, templateInput, cvLabel, cvSelect,
       drLab, drInput, locLab, locInput, skLab, skInput, exLab, exInput,
       salCurLab, salCurInput, salMinLab, salMinInput, salMaxLab, salMaxInput, salPerLab, salPerInput,
       histModeLabel, histDynamicLab, histFixedLab, histWrap,
       saveBtn, confirmBtn, discardBtn, draftOut);
-    editBtn.onclick = async () => { try { const d = await call("/api/profiles/" + p.id + "/drafts", "POST", {}); draftsByCard.set(p.id, d.id); editArea.style.display = "block"; } catch (e) { readinessOut.textContent = "Error: " + e.message; } };
-    card.append(editBtn, editArea);
-    list.appendChild(card);
-  }
-  if (openEditProfileId) {
-    const btn = list.querySelector('[data-edit-profile-id="' + openEditProfileId + '"]');
-    if (btn) btn.click();
-  }
+  $("profile-edit-form").appendChild(editArea);
+  $("profile-edit-title").textContent = "Editar perfil: " + p.name;
+  showProfileEditView();
+  $("profile-edit-back").onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (draftId) await call("/api/drafts/" + draftId + "/discard", "POST", {}); } catch { /* discard best-effort; the list refresh follows */ } await refreshProfiles(); };
 }
 
-// Entries list (split 2026-10-29): the form always shows what already
-// exists — every person and profile, by name — instead of hiding
-// them behind tabs. Selecting an entry marks it and switches the
-// form to edit it: a person opens the Persona tab with that person
-// loaded; a profile opens the Perfiles tab with that profile's edit
-// area open. Applying always uses one given profile from this list.
-let selectedEntry = null;
-async function refreshEntriesList() {
-  const list = $("entries-list");
+// Person list (separation 2026-10-29): the Persona screen shows
+// ONLY persons — no profiles, no profile fields. Selecting a
+// person loads exactly that person into the form below.
+let selectedPersonId = null;
+async function refreshPersonList() {
+  const list = $("person-list");
   try {
-    const personsData = await call("/api/persons", "GET");
-    const persons = personsData.persons || [];
+    const data = await call("/api/persons", "GET");
+    const persons = data.persons || [];
     list.innerHTML = "";
     if (persons.length === 0) {
-      list.innerHTML = "<p><small>Sin persona ni perfiles todavía: guarda primero una persona.</small></p>";
+      list.innerHTML = "<p><small>Sin persona todavía: guarda una con el formulario de abajo.</small></p>";
       return;
     }
     for (const p of persons) {
       const personBtn = document.createElement("button");
       personBtn.type = "button";
       const personName = p.full_name || p.display_name || "Persona";
-      const personSelected = selectedEntry && selectedEntry.kind === "person" && selectedEntry.id === p.id;
+      const personSelected = selectedPersonId === p.id || personId === p.id;
       personBtn.textContent = "Persona: " + personName + (personSelected ? " (seleccionada)" : "");
       personBtn.setAttribute("aria-pressed", personSelected ? "true" : "false");
       personBtn.onclick = async () => { try {
         const d = await call("/api/persons/" + p.id, "GET");
         personId = p.id;
+        selectedPersonId = p.id;
         fillPersonForm(d.person.details || {});
         $("person-status").textContent = "Persona actual: " + (d.person.details.full_name || "");
-        await refreshFacts(); await refreshProfileCvOptions();
-        selectedEntry = { kind: "person", id: p.id };
-        showTab("person");
-        await refreshEntriesList();
-      } catch (e) { $("entries-status").textContent = "Error: " + e.message; } };
+        await refreshFacts();
+        await refreshPersonList();
+      } catch (e) { $("person-list-status").textContent = "Error: " + e.message; } };
       list.appendChild(personBtn);
-      const profilesData = await call("/api/profiles?personId=" + p.id, "GET");
-      for (const prof of profilesData.profiles || []) {
-        const profBtn = document.createElement("button");
-        profBtn.type = "button";
-        const profSelected = selectedEntry && selectedEntry.kind === "profile" && selectedEntry.id === prof.id;
-        profBtn.textContent = "Perfil: " + prof.name + (prof.archived ? " (archivado)" : " (activo)") + (profSelected ? " (seleccionado)" : "");
-        profBtn.setAttribute("aria-pressed", profSelected ? "true" : "false");
-        profBtn.onclick = async () => { try {
-          personId = p.id;
-          selectedEntry = { kind: "profile", id: prof.id };
-          showTab("profiles");
-          await refreshProfiles(prof.id);
-          await refreshEntriesList();
-        } catch (e) { $("entries-status").textContent = "Error: " + e.message; } };
-        list.appendChild(profBtn);
-      }
     }
-  } catch (e) { $("entries-status").textContent = "Error: " + e.message; }
+  } catch (e) { $("person-list-status").textContent = "Error: " + e.message; }
 }
-$("entries-refresh").onclick = refreshEntriesList;
-refreshEntriesList();
-$("person-save").onclick = async () => { try { const d = await call("/api/person", "POST", personDetailsFromForm()); personId = d.id; $("person-status").textContent = "Persona guardada: " + (d.person.details.full_name || ""); show($("person-out"), d); if (d.person && d.person.details) fillPersonForm(d.person.details); await refreshFacts(); await refreshProfileCvOptions(); await refreshEntriesList(); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
-$("person-load").onclick = async () => { try { const d = await call("/api/person", "GET"); if (d.person) { personId = d.person.id; fillPersonForm(d.person.details || {}); $("person-status").textContent = "Persona actual: " + (d.person.details.full_name || ""); await refreshFacts(); await refreshProfileCvOptions(); await refreshEntriesList(); } else { $("person-status").textContent = "Sin persona guardada"; } show($("person-out"), d); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
+$("person-list-refresh").onclick = refreshPersonList;
+refreshPersonList();
+$("person-save").onclick = async () => { try { const d = await call("/api/person", "POST", personDetailsFromForm()); personId = d.id; selectedPersonId = d.id; $("person-status").textContent = "Persona guardada: " + (d.person.details.full_name || ""); show($("person-out"), d); if (d.person && d.person.details) fillPersonForm(d.person.details); await refreshFacts(); await refreshPersonList(); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
+$("person-load").onclick = async () => { try { const d = await call("/api/person", "GET"); if (d.person) { personId = d.person.id; selectedPersonId = d.person.id; fillPersonForm(d.person.details || {}); $("person-status").textContent = "Persona actual: " + (d.person.details.full_name || ""); await refreshFacts(); await refreshPersonList(); } else { $("person-status").textContent = "Sin persona guardada"; } show($("person-out"), d); } catch (e) { $("person-status").textContent = "Error: " + e.message; } };
 $("profile-create").onclick = async () => { try {
   if (!personId) throw new Error("guarda primero una persona");
   // Split 2026-10-29: creating a profile starts EMPTY. There is no
@@ -1353,9 +1386,11 @@ $("profile-create").onclick = async () => { try {
   }
   await call("/api/profiles", "POST", { personId, name: $("profile-name").value, body });
   await refreshProfiles();
-  await refreshEntriesList();
-} catch (e) { show($("profiles-out"), "Error: " + e.message); } };
-$("profiles-refresh").onclick = async () => { await refreshProfiles(); await refreshEntriesList(); };
+  $("profiles-status").textContent = "Perfil creado";
+} catch (e) { $("profile-create-status").textContent = "Error: " + e.message; } };
+$("profiles-refresh").onclick = async () => { await refreshProfiles(); };
+$("profile-create-open").onclick = () => { showProfileCreateView(); };
+$("profile-create-cancel").onclick = () => { showProfilesListView(); };
 $("cv-preview").onclick = async () => { try {
   if (!personId) throw new Error("guarda primero una persona");
   const file = $("cv-file").files[0];

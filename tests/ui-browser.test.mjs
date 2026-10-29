@@ -89,9 +89,11 @@ test("browser: create a person and a profile through the forms, no JSON, no IDs"
     await app.page.click("#person-save");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
     assert.match(await bodyText(app.page), /Persona guardada: Test Person/);
-    // WHY (redesign 2026-10-28): profiles live on the Perfiles tab now;
-    // the create form is hidden until the tab is selected.
-    await app.page.click("#tab-profiles");
+    // WHY (separation 2026-10-29): profiles live on the Perfiles
+    // screen now; the create form is hidden until "Crear perfil"
+    // is pressed from the list view.
+    await app.page.click("#nav-profiles");
+    await app.page.click("#profile-create-open");
     await app.page.fill("#profile-name", "Finanzas");
     await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
@@ -111,9 +113,11 @@ test("browser: duplicate, archive and delete a profile through the screen", asyn
     await app.page.fill("#person-email", "test.person@example.test");
     await app.page.click("#person-save");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
-    // WHY (redesign 2026-10-28): profiles live on the Perfiles tab now;
-    // the create form is hidden until the tab is selected.
-    await app.page.click("#tab-profiles");
+    // WHY (separation 2026-10-29): profiles live on the Perfiles
+    // screen now; the create form is hidden until "Crear perfil"
+    // is pressed from the list view.
+    await app.page.click("#nav-profiles");
+    await app.page.click("#profile-create-open");
     await app.page.fill("#profile-name", "Finanzas");
     await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
@@ -140,9 +144,11 @@ test("browser: CV import preview and confirm, CV assignment, policies, consent, 
     await app.page.fill("#person-email", "test.person@example.test");
     await app.page.click("#person-save");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
-    // WHY (redesign 2026-10-28): profiles live on the Perfiles tab now;
-    // the create form is hidden until the tab is selected.
-    await app.page.click("#tab-profiles");
+    // WHY (separation 2026-10-29): profiles live on the Perfiles
+    // screen now; the create form is hidden until "Crear perfil"
+    // is pressed from the list view.
+    await app.page.click("#nav-profiles");
+    await app.page.click("#profile-create-open");
     await app.page.fill("#profile-name", "Finanzas");
     await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
@@ -160,11 +166,12 @@ test("browser: CV import preview and confirm, CV assignment, policies, consent, 
     await app.page.click("#profiles-refresh");
     const card = app.page.locator(".profile-card").first();
     await card.getByRole("button", { name: "Editar" }).click();
-    await app.page.waitForFunction(() => (document.querySelector(".profile-card")?.textContent ?? "").includes("Guardar borrador"));
-    await card.locator("select").selectOption({ index: 1 });
-    await card.getByRole("button", { name: "Guardar borrador" }).click();
-    await app.page.waitForFunction(() => (document.querySelector(".profile-card")?.textContent ?? "").includes("Borrador guardado"));
-    await card.getByRole("button", { name: "Confirmar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Guardar borrador"));
+    const editForm = app.page.locator("#profile-edit-form");
+    await editForm.locator("select").selectOption({ index: 1 });
+    await editForm.getByRole("button", { name: "Guardar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Borrador guardado"));
+    await editForm.getByRole("button", { name: "Confirmar borrador" }).click();
     await app.page.waitForFunction(() => (document.querySelector("#profiles-status")?.textContent ?? "").includes("Borrador confirmado"));
     // Policies: accept the required data-processing policy through the screen.
     await app.page.click("#policies-refresh");
@@ -480,13 +487,16 @@ test("browser G2 regression: authorisations domain UI edits by country and prese
   }
 });
 
-test("browser split: tabs, entries list, profile create starts empty, draft edit persists", async () => {
-  // WHY (split 2026-10-29): one field lives in exactly one place.
-  // The screen must always show what already exists (entries list),
-  // tabs switch without losing unsaved input, profile creation
-  // starts EMPTY (no seeding from the person, which holds no search
-  // fields at all), typed values are stored with the history
-  // selection, and editing through a draft persists them.
+test("browser separation: independent Persona and Perfiles screens, profile create starts empty, draft edit persists", async () => {
+  // WHY (separation 2026-10-29): one field lives in exactly one
+  // place, and Persona and Perfiles are two independent screens,
+  // not tabs of one form. The Persona screen shows only the person
+  // list and the person form; the Perfiles screen starts as only
+  // the profile list, and opening a profile shows only its edit
+  // form. Screen switches do not lose unsaved input, profile
+  // creation starts EMPTY (no seeding from the person, which holds
+  // no search fields at all), typed values are stored with the
+  // history selection, and editing through a draft persists them.
   const app = await startApp();
   try {
     const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
@@ -506,26 +516,39 @@ test("browser split: tabs, entries list, profile create starts empty, draft edit
     assert.equal(created.status, 201);
     const personId = (await (await fetch(`${base}/api/person`)).json()).person.id;
     const getProfiles = async () => (await (await fetch(`${base}/api/profiles?personId=${personId}`)).json()).profiles;
-    // Headings name the split, and the entries list shows the person.
+    // Headings name the split, and the Persona screen's own list
+    // shows the person — no profiles, no profile fields here.
     assert.ok((await bodyText(app.page)).includes("Persona — quién eres"));
     await app.page.click("#person-load");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
-    await app.page.waitForFunction(() => (document.querySelector("#entries-list")?.textContent ?? "").includes("Persona: Test Person"));
-    assert.ok((await app.page.locator("#entries-list").textContent()).includes("Persona: Test Person"));
-    // Tabs: person visible and profiles hidden by default.
-    assert.equal(await app.page.locator("#person-section").isVisible(), true);
-    assert.equal(await app.page.locator("#profiles-section").isVisible(), false);
-    // Unsaved input survives a tab switch both ways.
+    await app.page.waitForFunction(() => (document.querySelector("#person-list")?.textContent ?? "").includes("Persona: Test Person"));
+    assert.ok((await app.page.locator("#person-list").textContent()).includes("Persona: Test Person"));
+    // Screens: Persona visible and Perfiles hidden by default, and
+    // the Persona screen shows no profile fields or profile list.
+    assert.equal(await app.page.locator("#person-screen").isVisible(), true);
+    assert.equal(await app.page.locator("#profiles-screen").isVisible(), false);
+    assert.equal(await app.page.locator("#profile-name").isVisible(), false);
+    assert.equal(await app.page.locator("#profiles-list").isVisible(), false);
+    // Unsaved input survives a screen switch both ways.
     await app.page.fill("#person-links", "https://example.test/keep");
-    await app.page.click("#tab-profiles");
-    assert.equal(await app.page.locator("#profiles-section").isVisible(), true);
-    assert.equal(await app.page.locator("#person-section").isVisible(), false);
+    await app.page.click("#nav-profiles");
+    assert.equal(await app.page.locator("#profiles-screen").isVisible(), true);
+    assert.equal(await app.page.locator("#person-screen").isVisible(), false);
     assert.ok((await bodyText(app.page)).includes("Perfiles — cómo buscas"));
-    await app.page.click("#tab-person");
+    await app.page.click("#nav-person");
     assert.equal(await app.page.locator("#person-links").inputValue(), "https://example.test/keep");
+    // The Perfiles screen starts as ONLY the list: no create form,
+    // no edit form, no person fields visible.
+    await Promise.all([
+      app.page.waitForResponse((r) => r.url().includes("/api/profiles?") && r.request().method() === "GET"),
+      app.page.click("#nav-profiles"),
+    ]);
+    assert.equal(await app.page.locator("#profile-create-view").isVisible(), false);
+    assert.equal(await app.page.locator("#profile-edit-view").isVisible(), false);
+    assert.equal(await app.page.locator("#person-full-name").isVisible(), false);
     // Load the person: the create form's selection checkboxes render
     // from the master history.
-    await app.page.click("#tab-profiles");
+    await app.page.click("#profile-create-open");
     // Dynamic is the default history mode, so the fixed checkboxes
     // are hidden until that mode is chosen.
     assert.equal(await app.page.locator("#profile-history-fixed").isVisible(), false);
@@ -559,24 +582,25 @@ test("browser split: tabs, entries list, profile create starts empty, draft edit
     assert.deepEqual(profiles[0].body.salary_expectations, { currency: "EUR", min: 50000, max: 70000, period: "year" });
     assert.deepEqual(profiles[0].body.employment_ids, ["job-1"]);
     assert.deepEqual(profiles[0].body.education_ids, []);
-    // The entries list now shows the profile too, and selecting it
-    // marks it and opens its edit area.
-    await app.page.waitForFunction(() => (document.querySelector("#entries-list")?.textContent ?? "").includes("Perfil: Finanzas"));
-    assert.ok((await app.page.locator("#entries-list").textContent()).includes("Perfil: Finanzas"));
-    await app.page.locator("#entries-list").getByRole("button", { name: /Perfil: Finanzas/ }).click();
-    await app.page.waitForFunction(() => (document.querySelector("#profiles-list .profile-card")?.textContent ?? "").includes("Guardar borrador"));
-    await app.page.waitForFunction(() => (document.querySelector("#entries-list")?.textContent ?? "").includes("Perfil: Finanzas (activo) (seleccionado)"));
-    assert.ok((await app.page.locator("#entries-list").textContent()).includes("Perfil: Finanzas (activo) (seleccionado)"));
+    // The list shows the profile; opening it shows ONLY its edit
+    // form — no person fields, no list.
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
+    const card = app.page.locator("#profiles-list .profile-card").first();
+    await card.getByRole("button", { name: "Editar" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Guardar borrador"));
+    assert.equal(await app.page.locator("#profiles-list-view").isVisible(), false);
+    assert.equal(await app.page.locator("#person-full-name").isVisible(), false);
+    assert.ok((await app.page.locator("#profile-edit-form").textContent()).includes("Puestos deseados"));
     // Edit through the draft: change skills, tick the education entry
     // back in, save and confirm; the body must reflect both changes.
-    const card = app.page.locator("#profiles-list .profile-card").first();
+    const editForm = app.page.locator("#profile-edit-form");
     // Edit-area textareas, in order: desired roles, locations, skills,
     // exclusions — so skills is index 2.
-    await card.locator("textarea").nth(2).fill("forecasting");
-    await card.locator("label").filter({ hasText: "MBA" }).locator("input[type=checkbox]").check();
-    await card.getByRole("button", { name: "Guardar borrador" }).click();
-    await app.page.waitForFunction(() => (document.querySelector("#profiles-list .profile-card")?.textContent ?? "").includes("Borrador guardado"));
-    await card.getByRole("button", { name: "Confirmar borrador" }).click();
+    await editForm.locator("textarea").nth(2).fill("forecasting");
+    await editForm.locator("label").filter({ hasText: "MBA" }).locator("input[type=checkbox]").check();
+    await editForm.getByRole("button", { name: "Guardar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Borrador guardado"));
+    await editForm.getByRole("button", { name: "Confirmar borrador" }).click();
     await app.page.waitForFunction(() => (document.querySelector("#profiles-status")?.textContent ?? "").includes("Borrador confirmado"));
     profiles = await getProfiles();
     assert.deepEqual(profiles[0].body.skills, ["forecasting"]);
@@ -587,6 +611,7 @@ test("browser split: tabs, entries list, profile create starts empty, draft edit
     assert.deepEqual(profiles[0].body.salary_expectations, { currency: "EUR", min: 50000, max: 70000, period: "year" });
     // A second profile created with every search field left empty
     // starts EMPTY: no seeding from anywhere.
+    await app.page.click("#profile-create-open");
     await app.page.fill("#profile-name", "Vacío");
     await app.page.fill("#profile-focus", "Finance");
     await app.page.fill("#profile-desired-roles", "");
@@ -650,7 +675,8 @@ test("browser split: no defaults section, explicit history modes, dynamic vs fix
     await app.page.waitForFunction(() => (document.querySelector("#person-facts-list")?.textContent ?? "").includes("Nivel de inglés"));
     assert.ok((await app.page.locator("#person-facts-list").textContent()).includes("Declarado por ti"));
     // Empty create: no value at all, and dynamic (default) stores no keys.
-    await app.page.click("#tab-profiles");
+    await app.page.click("#nav-profiles");
+    await app.page.click("#profile-create-open");
     await app.page.fill("#profile-name", "Vacío");
     await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
@@ -662,21 +688,23 @@ test("browser split: no defaults section, explicit history modes, dynamic vs fix
     assert.equal(empty.body.employment_ids, undefined, "dynamic mode (default) stores no employment key");
     assert.equal(empty.body.education_ids, undefined, "dynamic mode (default) stores no education key");
     // Editing the person never adds search fields to it.
-    await app.page.click("#tab-person");
+    await app.page.click("#nav-person");
     await app.page.click("#person-save");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
     assert.equal((await getPerson()).skills, undefined, "person save adds no skills");
     // Fixed mode: untick job-2, save the person, come back — the
     // untick must survive the person save.
-    await app.page.click("#tab-profiles");
+    await app.page.click("#nav-profiles");
+    await app.page.click("#profile-create-open");
     await app.page.check('input[name="profile-history-mode"][value="fixed"]');
     assert.equal(await app.page.locator("#profile-history-fixed").isVisible(), true);
     assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").count(), 2);
     await app.page.locator("#profile-employment-select input[type=checkbox]").nth(1).uncheck();
-    await app.page.click("#tab-person");
+    await app.page.click("#nav-person");
     await app.page.click("#person-save");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
-    await app.page.click("#tab-profiles");
+    await app.page.click("#nav-profiles");
+    await app.page.click("#profile-create-open");
     assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").nth(1).isChecked(), false, "fixed untick survives a person save");
     assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").nth(0).isChecked(), true);
     await app.page.fill("#profile-name", "Fijo");
@@ -690,18 +718,19 @@ test("browser split: no defaults section, explicit history modes, dynamic vs fix
     // — the stored keys must be cleared.
     const card = app.page.locator("#profiles-list .profile-card").filter({ hasText: "Fijo" }).first();
     await card.getByRole("button", { name: "Editar" }).click();
-    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Guardar borrador"));
-    await card.locator('input[type="radio"][value="dynamic"]').check();
-    await card.getByRole("button", { name: "Guardar borrador" }).click();
-    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Borrador guardado"));
-    await card.getByRole("button", { name: "Confirmar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Guardar borrador"));
+    const editForm = app.page.locator("#profile-edit-form");
+    await editForm.locator('input[type="radio"][value="dynamic"]').check();
+    await editForm.getByRole("button", { name: "Guardar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Borrador guardado"));
+    await editForm.getByRole("button", { name: "Confirmar borrador" }).click();
     await app.page.waitForFunction(() => (document.querySelector("#profiles-status")?.textContent ?? "").includes("Borrador confirmado"));
     profiles = await getProfiles();
     const switched = profiles.find((p) => p.name === "Fijo");
     assert.equal(switched.body.employment_ids, undefined, "fixed -> dynamic clears the employment key");
     assert.equal(switched.body.education_ids, undefined, "fixed -> dynamic clears the education key");
     // Correct and delete declarations through the domain UI.
-    await app.page.click("#tab-person");
+    await app.page.click("#nav-person");
     // Wait for THIS refresh's fetch and render to complete before
     // filling: the previous wait only checked for text that was
     // already in the DOM from the earlier render, so a pending
@@ -787,7 +816,8 @@ test("browser defect fix: fixed history mode stores both arrays even with empty 
       assert.ok(r.status === 200 || r.status === 201, `person patch returns 2xx, got ${r.status}`);
     };
     const createFixed = async (name) => {
-      await app.page.click("#tab-profiles");
+      await app.page.click("#nav-profiles");
+      await app.page.click("#profile-create-open");
       await app.page.check('input[name="profile-history-mode"][value="fixed"]');
       await app.page.fill("#profile-name", name);
       await app.page.fill("#profile-focus", "Finance");
@@ -802,6 +832,7 @@ test("browser defect fix: fixed history mode stores both arrays even with empty 
     assert.deepEqual(p.body.employment_ids, [], "fixed with no employment stores []");
     assert.deepEqual(p.body.education_ids, [], "fixed with no education stores []");
     // Draft edit: switch a dynamic profile to fixed with no history.
+    await app.page.click("#profile-create-open");
     await app.page.check('input[name="profile-history-mode"][value="dynamic"]');
     await app.page.fill("#profile-name", "Dinamico");
     await app.page.fill("#profile-focus", "Finance");
@@ -809,18 +840,19 @@ test("browser defect fix: fixed history mode stores both arrays even with empty 
     await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Dinamico"));
     const dynCard = app.page.locator("#profiles-list .profile-card").filter({ hasText: "Dinamico" }).first();
     await dynCard.getByRole("button", { name: "Editar" }).click();
-    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Guardar borrador"));
-    await dynCard.locator('input[type="radio"][value="fixed"]').check();
-    await dynCard.getByRole("button", { name: "Guardar borrador" }).click();
-    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Borrador guardado"));
-    await dynCard.getByRole("button", { name: "Confirmar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Guardar borrador"));
+    const dynEditForm = app.page.locator("#profile-edit-form");
+    await dynEditForm.locator('input[type="radio"][value="fixed"]').check();
+    await dynEditForm.getByRole("button", { name: "Guardar borrador" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Borrador guardado"));
+    await dynEditForm.getByRole("button", { name: "Confirmar borrador" }).click();
     await app.page.waitForFunction(() => (document.querySelector("#profiles-status")?.textContent ?? "").includes("Borrador confirmado"));
     p = (await getProfiles()).find((x) => x.name === "Dinamico");
     assert.deepEqual(p.body.employment_ids, [], "draft switch to fixed with no employment stores []");
     assert.deepEqual(p.body.education_ids, [], "draft switch to fixed with no education stores []");
     // (a) Empty employment + existing education.
     await setHistory([], [{ id: "edu-1", institution: "Fixture University", title: "BSc Test Studies", start: "2016", end: "2020" }]);
-    await app.page.click("#tab-person");
+    await app.page.click("#nav-person");
     await app.page.click("#person-load");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
     p = await createFixed("FijoEdu");
@@ -830,13 +862,14 @@ test("browser defect fix: fixed history mode stores both arrays even with empty 
     // id, so an empty array never clears a block: edu-1 is removed
     // with an explicit deletion marker.
     await setHistory([{ id: "job-1", employer: "Alpha Corp", title: "Analyst", start: "2020-01" }], [{ id: "edu-1", deleted: true }]);
-    await app.page.click("#tab-person");
+    await app.page.click("#nav-person");
     await app.page.click("#person-load");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
     p = await createFixed("FijoEmp");
     assert.deepEqual(p.body.employment_ids, ["job-1"], "existing employment block stores exactly the ticked ids");
     assert.deepEqual(p.body.education_ids, [], "empty education block stores [] in fixed mode");
     // And dynamic still stores neither key.
+    await app.page.click("#profile-create-open");
     await app.page.check('input[name="profile-history-mode"][value="dynamic"]');
     await app.page.fill("#profile-name", "Dinamico2");
     await app.page.fill("#profile-focus", "Finance");
@@ -879,6 +912,72 @@ test("browser defect fix: correcting an imported declaration sets provenance to 
     const facts = await getFacts();
     assert.equal(facts[0].value, "C2", "value corrected through the UI");
     assert.equal(facts[0].provenance, "user", "a human correction is provenance user, not the old import origin");
+  } finally {
+    await stopApp(app);
+  }
+});
+
+test("browser separation: Persona screen has no profiles; Perfiles starts as list; opening a profile shows only its form", async () => {
+  // WHY (separation 2026-10-29, user complaint repeated): Persona
+  // and Perfiles must NOT be one combined form. Each screen shows
+  // only its own entries, and switching screens never mixes data.
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      full_name: "Test Person", email: "test.person@example.test",
+      employment: [{ id: "job-1", employer: "Alpha Corp", title: "Analyst", start: "2020-01" }],
+    }) });
+    assert.equal(created.status, 201);
+    const personId = (await (await fetch(`${base}/api/person`)).json()).person.id;
+    const createdProfile = await fetch(`${base}/api/profiles`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      personId, name: "Finanzas", body: { focus: "Finance", desired_roles: ["Finance Manager"] },
+    }) });
+    assert.equal(createdProfile.status, 201);
+    // Persona screen by default: person list + person form, and
+    // nothing of profiles is visible.
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    await app.page.waitForFunction(() => (document.querySelector("#person-list")?.textContent ?? "").includes("Persona: Test Person"));
+    assert.equal(await app.page.locator("#person-screen").isVisible(), true);
+    assert.equal(await app.page.locator("#profiles-screen").isVisible(), false);
+    assert.equal(await app.page.locator("#profile-name").isVisible(), false);
+    assert.equal(await app.page.locator("#profiles-list").isVisible(), false);
+    // Perfiles screen starts as ONLY the list: no create form, no
+    // edit form, no person fields visible.
+    await Promise.all([
+      app.page.waitForResponse((r) => r.url().includes("/api/profiles?") && r.request().method() === "GET"),
+      app.page.click("#nav-profiles"),
+    ]);
+    assert.equal(await app.page.locator("#profiles-list-view").isVisible(), true);
+    assert.equal(await app.page.locator("#profile-create-view").isVisible(), false);
+    assert.equal(await app.page.locator("#profile-edit-view").isVisible(), false);
+    assert.equal(await app.page.locator("#person-full-name").isVisible(), false);
+    assert.ok((await app.page.locator("#profiles-list").textContent()).includes("Finanzas"));
+    // Opening a profile shows ONLY its edit form — no list, and
+    // no person fields — with the profile's own values.
+    await app.page.locator("#profiles-list .profile-card").first().getByRole("button", { name: "Editar" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Guardar borrador"));
+    assert.equal(await app.page.locator("#profile-edit-view").isVisible(), true);
+    assert.equal(await app.page.locator("#profiles-list-view").isVisible(), false);
+    assert.equal(await app.page.locator("#person-full-name").isVisible(), false);
+    assert.equal(await app.page.locator("#profile-edit-form").locator("textarea").first().inputValue(), "Finance Manager");
+    // Back to the list, then back to Persona: each screen keeps
+    // its own data, nothing mixed or lost.
+    await app.page.click("#profile-edit-back");
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
+    assert.ok((await app.page.locator("#profiles-list").textContent()).includes("Finanzas"));
+    await app.page.click("#nav-person");
+    assert.equal(await app.page.locator("#person-full-name").inputValue(), "Test Person");
+    // Creating from the list starts empty.
+    await Promise.all([
+      app.page.waitForResponse((r) => r.url().includes("/api/profiles?") && r.request().method() === "GET"),
+      app.page.click("#nav-profiles"),
+    ]);
+    await app.page.click("#profile-create-open");
+    assert.equal(await app.page.locator("#profile-name").inputValue(), "");
+    assert.equal(await app.page.locator("#profile-desired-roles").inputValue(), "");
   } finally {
     await stopApp(app);
   }

@@ -60,7 +60,8 @@ async function createPersonAndProfile(page) {
   await page.fill("#person-email", "test.person@example.test");
   await page.click("#person-save");
   await page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
-  await page.click("#tab-profiles");
+  await page.click("#nav-profiles");
+  await page.click("#profile-create-open");
   await page.fill("#profile-name", "Finanzas");
   await page.fill("#profile-focus", "Finance");
   await page.click("#profile-create");

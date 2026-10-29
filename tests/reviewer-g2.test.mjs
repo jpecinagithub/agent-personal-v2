@@ -103,7 +103,8 @@ test("reviewer: fixed history stores empty arrays when the master history is emp
     assert.equal(created.status, 201);
     await app.page.click("#person-load");
     await app.page.waitForFunction(() => document.querySelector("#person-status")?.textContent?.includes("Persona actual"));
-    await app.page.click("#tab-profiles");
+    await app.page.click("#nav-profiles");
+    await app.page.click("#profile-create-open");
     await app.page.fill("#profile-name", "Empty fixed history");
     await app.page.fill("#profile-focus", "Testing");
     await app.page.locator('input[name="profile-history-mode"][value="fixed"]').check();
