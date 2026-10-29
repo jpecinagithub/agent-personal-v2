@@ -35,7 +35,6 @@ test("F4 server: route matrix, assessment, plan lifecycle, execution, preflight,
       full_name: "Test Person", email: "test.person@example.test",
       employment: [{ id: "job-1", employer: "Fixture Corp", title: "Accountant", start: "2020-01", end: "2024-06" }],
       education: [{ id: "edu-1", institution: "Fixture University", title: "BSc Test Studies", start: "2016", end: "2020" }],
-      skills: ["accounting", "forecasting"],
     });
     assert.equal(person.status, 201);
     const personId = person.json.id;

@@ -238,6 +238,16 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, ver
         const persons = listPersons(db);
         return send(res, 200, { person: persons[0] ?? null });
       }
+      if (req.method === "GET" && url.pathname === "/api/persons") {
+        // Entries list for the top selector: every stored person with
+        // its display name, so the form can show what already exists.
+        return send(res, 200, { persons: listPersons(db).map((p) => ({ id: p.id, display_name: p.display_name, full_name: p.details?.full_name ?? null })) });
+      }
+      if (req.method === "GET" && url.pathname.startsWith("/api/persons/")) {
+        const person = getPerson(db, url.pathname.split("/")[3]);
+        if (!person) return send(res, 404, { error: "person not found" });
+        return send(res, 200, { person });
+      }
       if (req.method === "POST" && url.pathname === "/api/profiles") {
         if (!requireControlOrigin(req, res)) return;
         const body = await readJson(req);

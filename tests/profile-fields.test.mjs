@@ -1,12 +1,12 @@
-// User-approved redesign 2026-10-28 (post-G2): per-profile fields and
-// history selection. The person holds universal data + the master
-// employment/education history; each profile body may carry its own
+// User-approved split 2026-10-29: per-profile fields live ONLY on
+// profiles. The person holds universal data + the master
+// employment/education history; each profile body carries its own
 // desired_roles, locations, skills, exclusions, salary_expectations
 // and employment_ids / education_ids selections. These tests cover
-// the backend contract: validation of the new keys, the selection
+// the backend contract: validation of the profile keys, the selection
 // semantics implemented by presentedHistory, and the fact that saving
-// a person without the per-profile keys preserves them (the person
-// form no longer sends them since the redesign).
+// a person never touches profile fields (and the person cannot hold
+// them at all).
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -98,24 +98,26 @@ test("redesign: profile creation stores per-profile fields and selections", () =
   assert.deepEqual(presented.education, []);
 });
 
-test("redesign: saving a person without per-profile keys preserves them", () => {
+test("split: saving a person never touches profile search fields, and never gains them", () => {
   const db = setup();
-  const personId = createPersonFull(db, {
-    ...PERSON,
-    desired_roles: ["Finance Manager"],
-    locations: ["Madrid"],
-    skills: ["accounting"],
-    exclusions: ["night shifts"],
-    salary_expectations: { currency: "EUR", min: 50000, max: 70000, period: "year" },
+  const personId = createPersonFull(db, PERSON);
+  const profileId = createProfileFull(db, personId, "Finance", {
+    desired_roles: ["Finance Manager"], locations: ["Madrid"], skills: ["accounting"],
+    exclusions: ["night shifts"], salary_expectations: { currency: "EUR", min: 50000, max: 70000, period: "year" },
   });
-  // This is exactly what the person form sends since the redesign:
-  // identity/contact/history, but none of the per-profile keys.
+  // This is exactly what the person form sends: identity/contact/
+  // history, but none of the per-profile keys — and under the split
+  // the person cannot hold them at all.
   updatePersonDetails(db, personId, { full_name: "Test Person", email: "test.person@example.test", links: ["https://example.test/x"] });
   const details = getPerson(db, personId).details;
-  assert.deepEqual(details.desired_roles, ["Finance Manager"]);
-  assert.deepEqual(details.locations, ["Madrid"]);
-  assert.deepEqual(details.skills, ["accounting"]);
-  assert.deepEqual(details.exclusions, ["night shifts"]);
-  assert.deepEqual(details.salary_expectations, { currency: "EUR", min: 50000, max: 70000, period: "year" });
+  for (const key of ["desired_roles", "locations", "skills", "exclusions", "salary_expectations"]) {
+    assert.equal(details[key], undefined, `person never gains ${key}`);
+  }
   assert.deepEqual(details.links, ["https://example.test/x"]);
+  const body = getProfileFull(db, profileId).body;
+  assert.deepEqual(body.desired_roles, ["Finance Manager"]);
+  assert.deepEqual(body.locations, ["Madrid"]);
+  assert.deepEqual(body.skills, ["accounting"]);
+  assert.deepEqual(body.exclusions, ["night shifts"]);
+  assert.deepEqual(body.salary_expectations, { currency: "EUR", min: 50000, max: 70000, period: "year" });
 });

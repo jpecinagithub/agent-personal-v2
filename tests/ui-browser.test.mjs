@@ -318,14 +318,13 @@ test("browser G2 re-review 3: consecutive saves without reload refresh reference
     // across saves without reload. The seeded per-profile values
     // below double as the preservation check: the person form never
     // sends them, so both saves must leave them exactly as stored.
+    // Split 2026-10-29: the person seed carries NO search fields —
+    // they live on a profile, created below through the API. Person
+    // form saves must leave the profile untouched, and the person
+    // record itself must never gain search keys.
     const seed = {
       full_name: "Synthetic Original",
       email: "original@example.test",
-      desired_roles: ["Finance Manager"],
-      locations: ["Madrid"],
-      skills: ["accounting"],
-      exclusions: ["night shifts"],
-      salary_expectations: { currency: "EUR", min: 40000, max: 60000, period: "year" },
       employment: [
         { id: "job-1", employer: "Alpha Corp", title: "Analyst", start: "2020-01", current: false },
       ],
@@ -335,7 +334,14 @@ test("browser G2 re-review 3: consecutive saves without reload refresh reference
     };
     const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(seed) });
     assert.equal(created.status, 201);
+    const personId0 = (await (await fetch(`${base}/api/person`)).json()).person.id;
+    const createdProfile = await fetch(`${base}/api/profiles`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personId: personId0, name: "Finance", body: {
+      desired_roles: ["Finance Manager"], locations: ["Madrid"], skills: ["accounting"], exclusions: ["night shifts"],
+      salary_expectations: { currency: "EUR", min: 40000, max: 60000, period: "year" },
+    } }) });
+    assert.equal(createdProfile.status, 201);
     const getPerson = async () => (await (await fetch(`${base}/api/person`)).json()).person.details;
+    const getProfileBody = async () => (await (await fetch(`${base}/api/profiles?personId=${personId0}`)).json()).profiles[0].body;
     const savePerson = async () => {
       const [resp] = await Promise.all([
         app.page.waitForResponse((r) => r.url().endsWith("/api/person") && r.request().method() === "POST"),
@@ -388,17 +394,24 @@ test("browser G2 re-review 3: consecutive saves without reload refresh reference
     assert.equal(details.employment[0].end, "2024-06");
     // WHY (user order 2026-10-28): the form no longer edits
     // authorisations, so the seeded entry must survive both
-    // consecutive form saves exactly as stored. The same holds for
-    // the per-profile fields since the redesign: the form never sends
-    // them, so both saves must leave them untouched.
+    // consecutive form saves exactly as stored. Split 2026-10-29:
+    // the search fields live on the profile, never on the person —
+    // person saves must leave the profile body untouched AND must
+    // never add search keys to the person record.
     assert.deepEqual(details.authorisations, [
       { id: "auth-1", country: "ES", status: "authorised", valid_until: "2030-12", sponsorship_required: false },
     ]);
-    assert.deepEqual(details.desired_roles, ["Finance Manager"]);
-    assert.deepEqual(details.locations, ["Madrid"]);
-    assert.deepEqual(details.skills, ["accounting"]);
-    assert.deepEqual(details.exclusions, ["night shifts"]);
-    assert.deepEqual(details.salary_expectations, { currency: "EUR", min: 40000, max: 60000, period: "year" });
+    assert.equal(details.desired_roles, undefined, "person never gains desired_roles");
+    assert.equal(details.locations, undefined, "person never gains locations");
+    assert.equal(details.skills, undefined, "person never gains skills");
+    assert.equal(details.exclusions, undefined, "person never gains exclusions");
+    assert.equal(details.salary_expectations, undefined, "person never gains salary_expectations");
+    const profileBody = await getProfileBody();
+    assert.deepEqual(profileBody.desired_roles, ["Finance Manager"]);
+    assert.deepEqual(profileBody.locations, ["Madrid"]);
+    assert.deepEqual(profileBody.skills, ["accounting"]);
+    assert.deepEqual(profileBody.exclusions, ["night shifts"]);
+    assert.deepEqual(profileBody.salary_expectations, { currency: "EUR", min: 40000, max: 60000, period: "year" });
   } finally {
     await stopApp(app);
   }
@@ -467,14 +480,13 @@ test("browser G2 regression: authorisations domain UI edits by country and prese
   }
 });
 
-test("browser redesign: tabs switch views, profile create seeds from person and stores fields + selections, draft edit persists them", async () => {
-  // WHY (redesign 2026-10-28): the person form no longer edits
-  // per-profile fields and the profiles live on their own tab. This
-  // test guards the new contract through the real screen: tabs switch
-  // without losing unsaved input, profile creation shows the new
-  // fields and history-selection checkboxes, empty create fields are
-  // seeded from the person's stored values, selections are stored,
-  // and editing through a draft persists them.
+test("browser split: tabs, entries list, profile create starts empty, draft edit persists", async () => {
+  // WHY (split 2026-10-29): one field lives in exactly one place.
+  // The screen must always show what already exists (entries list),
+  // tabs switch without losing unsaved input, profile creation
+  // starts EMPTY (no seeding from the person, which holds no search
+  // fields at all), typed values are stored with the history
+  // selection, and editing through a draft persists them.
   const app = await startApp();
   try {
     const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
@@ -482,11 +494,6 @@ test("browser redesign: tabs switch views, profile create seeds from person and 
     const seed = {
       full_name: "Test Person",
       email: "test.person@example.test",
-      desired_roles: ["Finance Manager"],
-      locations: ["Madrid"],
-      skills: ["accounting"],
-      exclusions: ["night shifts"],
-      salary_expectations: { currency: "EUR", min: 50000, max: 70000, period: "year" },
       employment: [
         { id: "job-1", employer: "Alpha Corp", title: "Analyst", start: "2020-01" },
         { id: "job-2", employer: "Beta Ltd", title: "Accountant", start: "2022-01" },
@@ -499,6 +506,12 @@ test("browser redesign: tabs switch views, profile create seeds from person and 
     assert.equal(created.status, 201);
     const personId = (await (await fetch(`${base}/api/person`)).json()).person.id;
     const getProfiles = async () => (await (await fetch(`${base}/api/profiles?personId=${personId}`)).json()).profiles;
+    // Headings name the split, and the entries list shows the person.
+    assert.ok((await bodyText(app.page)).includes("Persona — quién eres"));
+    await app.page.click("#person-load");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
+    await app.page.waitForFunction(() => (document.querySelector("#entries-list")?.textContent ?? "").includes("Persona: Test Person"));
+    assert.ok((await app.page.locator("#entries-list").textContent()).includes("Persona: Test Person"));
     // Tabs: person visible and profiles hidden by default.
     assert.equal(await app.page.locator("#person-section").isVisible(), true);
     assert.equal(await app.page.locator("#profiles-section").isVisible(), false);
@@ -507,25 +520,32 @@ test("browser redesign: tabs switch views, profile create seeds from person and 
     await app.page.click("#tab-profiles");
     assert.equal(await app.page.locator("#profiles-section").isVisible(), true);
     assert.equal(await app.page.locator("#person-section").isVisible(), false);
+    assert.ok((await bodyText(app.page)).includes("Perfiles — cómo buscas"));
     await app.page.click("#tab-person");
     assert.equal(await app.page.locator("#person-links").inputValue(), "https://example.test/keep");
     // Load the person: the create form's selection checkboxes render
     // from the master history.
-    await app.page.click("#person-load");
-    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
     await app.page.click("#tab-profiles");
-    // G2 regression: dynamic is the default history mode, so the
-    // fixed checkboxes are hidden until that mode is chosen.
+    // Dynamic is the default history mode, so the fixed checkboxes
+    // are hidden until that mode is chosen.
     assert.equal(await app.page.locator("#profile-history-fixed").isVisible(), false);
     await app.page.check('input[name="profile-history-mode"][value="fixed"]');
     assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").count(), 2);
     assert.equal(await app.page.locator("#profile-education-select input[type=checkbox]").count(), 1);
     assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").nth(0).isChecked(), true);
     assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").nth(1).isChecked(), true);
-    // Create with the per-profile fields left empty (seeding) and a
-    // subset selection: only job-1, no education.
+    // Create with typed values and a subset selection: only job-1,
+    // no education.
     await app.page.fill("#profile-name", "Finanzas");
     await app.page.fill("#profile-focus", "Finance");
+    await app.page.fill("#profile-desired-roles", "Finance Manager");
+    await app.page.fill("#profile-locations", "Madrid");
+    await app.page.fill("#profile-skills", "accounting");
+    await app.page.fill("#profile-exclusions", "night shifts");
+    await app.page.fill("#profile-salary-currency", "EUR");
+    await app.page.fill("#profile-salary-min", "50000");
+    await app.page.fill("#profile-salary-max", "70000");
+    await app.page.fill("#profile-salary-period", "year");
     await app.page.locator("#profile-employment-select input[type=checkbox]").nth(1).uncheck();
     await app.page.locator("#profile-education-select input[type=checkbox]").nth(0).uncheck();
     await app.page.click("#profile-create");
@@ -539,11 +559,17 @@ test("browser redesign: tabs switch views, profile create seeds from person and 
     assert.deepEqual(profiles[0].body.salary_expectations, { currency: "EUR", min: 50000, max: 70000, period: "year" });
     assert.deepEqual(profiles[0].body.employment_ids, ["job-1"]);
     assert.deepEqual(profiles[0].body.education_ids, []);
+    // The entries list now shows the profile too, and selecting it
+    // marks it and opens its edit area.
+    await app.page.waitForFunction(() => (document.querySelector("#entries-list")?.textContent ?? "").includes("Perfil: Finanzas"));
+    assert.ok((await app.page.locator("#entries-list").textContent()).includes("Perfil: Finanzas"));
+    await app.page.locator("#entries-list").getByRole("button", { name: /Perfil: Finanzas/ }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list .profile-card")?.textContent ?? "").includes("Guardar borrador"));
+    await app.page.waitForFunction(() => (document.querySelector("#entries-list")?.textContent ?? "").includes("Perfil: Finanzas (activo) (seleccionado)"));
+    assert.ok((await app.page.locator("#entries-list").textContent()).includes("Perfil: Finanzas (activo) (seleccionado)"));
     // Edit through the draft: change skills, tick the education entry
     // back in, save and confirm; the body must reflect both changes.
     const card = app.page.locator("#profiles-list .profile-card").first();
-    await card.getByRole("button", { name: "Editar" }).click();
-    await app.page.waitForFunction(() => (document.querySelector("#profiles-list .profile-card")?.textContent ?? "").includes("Guardar borrador"));
     // Edit-area textareas, in order: desired roles, locations, skills,
     // exclusions — so skills is index 2.
     await card.locator("textarea").nth(2).fill("forecasting");
@@ -556,25 +582,42 @@ test("browser redesign: tabs switch views, profile create seeds from person and 
     assert.deepEqual(profiles[0].body.skills, ["forecasting"]);
     assert.deepEqual(profiles[0].body.employment_ids, ["job-1"]);
     assert.deepEqual(profiles[0].body.education_ids, ["edu-1"]);
-    // And the untouched seeded values survived the draft round-trip.
+    // And the untouched typed values survived the draft round-trip.
     assert.deepEqual(profiles[0].body.desired_roles, ["Finance Manager"]);
     assert.deepEqual(profiles[0].body.salary_expectations, { currency: "EUR", min: 50000, max: 70000, period: "year" });
+    // A second profile created with every search field left empty
+    // starts EMPTY: no seeding from anywhere.
+    await app.page.fill("#profile-name", "Vacío");
+    await app.page.fill("#profile-focus", "Finance");
+    await app.page.fill("#profile-desired-roles", "");
+    await app.page.fill("#profile-locations", "");
+    await app.page.fill("#profile-skills", "");
+    await app.page.fill("#profile-exclusions", "");
+    await app.page.fill("#profile-salary-currency", "");
+    await app.page.fill("#profile-salary-min", "");
+    await app.page.fill("#profile-salary-max", "");
+    await app.page.fill("#profile-salary-period", "");
+    await app.page.click("#profile-create");
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Vacío"));
+    profiles = await getProfiles();
+    const empty = profiles.find((p) => p.name === "Vacío");
+    assert.equal(empty.body.desired_roles, undefined, "empty create stores no roles");
+    assert.equal(empty.body.skills, undefined, "empty create stores no skills");
+    assert.equal(empty.body.salary_expectations, undefined, "empty create stores no salary expectation");
   } finally {
     await stopApp(app);
   }
 });
-test("browser G2 regression: defaults editable and deletable, explicit create modes, dynamic vs fixed history", async () => {
-  // WHY (G2 regression 2026-10-28): the redesign left the person's
-  // old per-profile fields as hidden silent seeds (two sources of
-  // truth), created profiles inherited them without asking, and the
-  // history selection froze implicitly. This test guards the fixed
-  // contract through the real screen: defaults are visible, editable
-  // and deletable in Persona and never touch existing profiles;
-  // "Empezar vacíos" creates a profile with no salary expectation
-  // even when defaults exist; dynamic stores no selection keys and
-  // fixed stores exactly the ticked ids; a fixed selection survives
-  // a person save (the 4deb2b2 re-render quirk); and switching a
-  // profile from fixed to dynamic clears the stored keys.
+test("browser split: no defaults section, explicit history modes, dynamic vs fixed, facts domain UI", async () => {
+  // WHY (split 2026-10-29): the person's old per-profile fields as
+  // visible defaults were the second source of truth the user
+  // rejected. This test guards the new contract through the real
+  // screen: NO defaults section and NO seed-mode choice exist any
+  // more; a profile created with empty fields stores nothing;
+  // dynamic stores no selection keys and fixed stores exactly the
+  // ticked ids; a fixed selection survives a person save; switching
+  // a profile from fixed to dynamic clears the stored keys; and
+  // declarations are still corrected/deleted through the domain UI.
   const app = await startApp();
   try {
     const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
@@ -582,11 +625,6 @@ test("browser G2 regression: defaults editable and deletable, explicit create mo
     const seed = {
       full_name: "Test Person",
       email: "test.person@example.test",
-      desired_roles: ["Finance Manager"],
-      locations: ["Madrid"],
-      skills: ["accounting"],
-      exclusions: ["night shifts"],
-      salary_expectations: { currency: "EUR", min: 50000, max: 70000, period: "year" },
       employment: [
         { id: "job-1", employer: "Alpha Corp", title: "Analyst", start: "2020-01" },
         { id: "job-2", employer: "Beta Ltd", title: "Accountant", start: "2022-01" },
@@ -603,48 +641,34 @@ test("browser G2 regression: defaults editable and deletable, explicit create mo
     await fetch(`${base}/api/facts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personId, concept: "english_level", value: "C1", provenance: "user" }) });
     await app.page.click("#person-load");
     await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona actual"));
-    // Defaults are visible in Persona, and the declaration renders
-    // with a human label and a read-only provenance.
-    assert.equal(await app.page.locator("#defaults-skills").inputValue(), "accounting");
-    assert.equal(await app.page.locator("#defaults-salary-min").inputValue(), "50000");
+    // No defaults section and no seed-mode choice anywhere.
+    assert.equal(await app.page.locator("#defaults-skills").count(), 0, "defaults section removed");
+    assert.equal(await app.page.locator("#defaults-save").count(), 0, "defaults save removed");
+    assert.equal(await app.page.locator('input[name="profile-seed-mode"]').count(), 0, "seed-mode choice removed");
+    // The declaration renders with a human label and read-only provenance.
     await app.page.click("#facts-refresh");
     await app.page.waitForFunction(() => (document.querySelector("#person-facts-list")?.textContent ?? "").includes("Nivel de inglés"));
     assert.ok((await app.page.locator("#person-facts-list").textContent()).includes("Declarado por ti"));
-    // Inherit-create a profile, then change a default: the existing
-    // profile must not move.
+    // Empty create: no value at all, and dynamic (default) stores no keys.
     await app.page.click("#tab-profiles");
-    await app.page.fill("#profile-name", "Heredado");
-    await app.page.fill("#profile-focus", "Finance");
-    await app.page.click("#profile-create");
-    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Heredado"));
-    let profiles = await getProfiles();
-    assert.deepEqual(profiles[0].body.skills, ["accounting"]);
-    await app.page.click("#tab-person");
-    await app.page.fill("#defaults-skills", "forecasting");
-    await app.page.click("#defaults-save");
-    await app.page.waitForFunction(() => (document.querySelector("#defaults-status")?.textContent ?? "").includes("Valores por defecto guardados"));
-    assert.deepEqual((await getPerson()).skills, ["forecasting"]);
-    assert.deepEqual((await getProfiles())[0].body.skills, ["accounting"], "changing a default never changes an existing profile");
-    // Delete the locations default: it leaves the person JSON.
-    await app.page.locator('.defaults-delete[data-default-key="locations"]').click();
-    await app.page.waitForFunction(() => (document.querySelector("#defaults-status")?.textContent ?? "").includes("Valor por defecto eliminado"));
-    assert.equal((await getPerson()).locations, undefined, "deleted default is gone from the person JSON");
-    // Empty-create: no seeded value at all, even though defaults
-    // (skills, salary) still exist on the person.
-    await app.page.click("#tab-profiles");
-    await app.page.check('input[name="profile-seed-mode"][value="empty"]');
     await app.page.fill("#profile-name", "Vacío");
     await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
     await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Vacío"));
-    profiles = await getProfiles();
+    let profiles = await getProfiles();
     const empty = profiles.find((p) => p.name === "Vacío");
-    assert.equal(empty.body.salary_expectations, undefined, "empty mode creates a profile with no salary expectation");
-    assert.equal(empty.body.skills, undefined, "empty mode seeds no skills");
+    assert.equal(empty.body.salary_expectations, undefined, "empty create stores no salary expectation");
+    assert.equal(empty.body.skills, undefined, "empty create stores no skills");
     assert.equal(empty.body.employment_ids, undefined, "dynamic mode (default) stores no employment key");
     assert.equal(empty.body.education_ids, undefined, "dynamic mode (default) stores no education key");
+    // Editing the person never adds search fields to it.
+    await app.page.click("#tab-person");
+    await app.page.click("#person-save");
+    await app.page.waitForFunction(() => (document.querySelector("#person-status")?.textContent ?? "").includes("Persona guardada"));
+    assert.equal((await getPerson()).skills, undefined, "person save adds no skills");
     // Fixed mode: untick job-2, save the person, come back — the
-    // untick must survive the person save (4deb2b2 quirk).
+    // untick must survive the person save.
+    await app.page.click("#tab-profiles");
     await app.page.check('input[name="profile-history-mode"][value="fixed"]');
     assert.equal(await app.page.locator("#profile-history-fixed").isVisible(), true);
     assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").count(), 2);
@@ -655,7 +679,6 @@ test("browser G2 regression: defaults editable and deletable, explicit create mo
     await app.page.click("#tab-profiles");
     assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").nth(1).isChecked(), false, "fixed untick survives a person save");
     assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").nth(0).isChecked(), true);
-    await app.page.check('input[name="profile-seed-mode"][value="inherit"]');
     await app.page.fill("#profile-name", "Fijo");
     await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");

@@ -25,11 +25,6 @@ function setup() {
 const PERSON = {
   full_name: "Test Person",
   email: "test.person@example.test",
-  desired_roles: ["Finance Manager"],
-  locations: ["Madrid"],
-  skills: ["accounting"],
-  exclusions: ["night shifts"],
-  salary_expectations: { currency: "EUR", min: 50000, max: 70000, period: "year" },
   authorisations: [
     { country: "ES", status: "authorised", valid_until: "2030-12", sponsorship_required: false, valid_from: "2025-01", source_note: "Synthetic user declaration" },
   ],
@@ -58,25 +53,27 @@ test("regression: a declared fact can be deleted by id, and unknown ids fail lou
   assert.throws(() => deleteFact(db, id), /fact not found/);
 });
 
-test("regression: person defaults can be edited and deleted, and never touch existing profiles", () => {
+test("split: person search-preference fields are rejected, and a profile keeps its own values untouched", () => {
   const db = setup();
   const personId = createPersonFull(db, PERSON);
-  // A profile created from the defaults carries its own copies.
+  // A profile carries its own search fields, independent of the person.
   const profileId = createProfileFull(db, personId, "Finance", {
     desired_roles: ["Finance Manager"], locations: ["Madrid"], skills: ["accounting"],
     salary_expectations: { currency: "EUR", min: 50000, max: 70000, period: "year" },
   });
-  // Editing the defaults changes future seeds only.
-  updatePersonDetails(db, personId, { skills: ["forecasting"], desired_roles: null });
-  const person = getPerson(db, personId);
-  assert.deepEqual(person.details.skills, ["forecasting"]);
-  assert.equal(person.details.desired_roles, undefined, "a null patch deletes the key from the person JSON");
+  // Every search-preference key is rejected on the person, on create
+  // and on patch, with an error naming the profile as its home —
+  // including a null patch, which must not become a silent delete.
+  for (const key of ["desired_roles", "locations", "skills", "exclusions", "salary_expectations"]) {
+    assert.throws(() => createPersonFull(db, { ...PERSON, email: "other@example.test", [key]: key === "salary_expectations" ? { currency: "EUR" } : ["x"] }), /belongs to profiles, not to the person/);
+    assert.throws(() => updatePersonDetails(db, personId, { [key]: null }), /belongs to profiles, not to the person/);
+  }
+  // Editing the person (a genuine person field) never touches the profile.
+  updatePersonDetails(db, personId, { links: ["https://example.test/profile"] });
   const profile = getProfileFull(db, profileId);
   assert.deepEqual(profile.body.skills, ["accounting"], "existing profile keeps its own skills");
   assert.deepEqual(profile.body.desired_roles, ["Finance Manager"], "existing profile keeps its own roles");
-  // Deleting the salary default removes it from the person JSON.
-  updatePersonDetails(db, personId, { salary_expectations: null });
-  assert.equal(getPerson(db, personId).details.salary_expectations, undefined);
+  assert.deepEqual(getPerson(db, personId).details.links, ["https://example.test/profile"]);
 });
 
 test("regression: dynamic history follows master additions, fixed history does not", () => {
@@ -127,11 +124,11 @@ test("regression: snapshots are immutable — later person/profile edits and pro
   const profileSnapshotBefore = String(db.prepare("SELECT body_json FROM profile_snapshots WHERE id = ?").get(before.profile_snapshot_id).body_json);
   const personSnapshotBefore = JSON.stringify(before.personSnapshot);
   // Now change everything the attempt must NOT follow: master
-  // history, authorisations, facts, defaults and the live profile.
+  // history, authorisations, facts, and the live profile.
   updatePersonDetails(db, personId, {
     employment: [{ id: "job-9", employer: "Gamma SA", title: "Controller", start: "2024-01" }],
     authorisations: [{ country: "DE", status: "authorised", sponsorship_required: false }],
-    skills: ["forecasting"],
+    links: ["https://example.test/profile"],
   });
   declareFact(db, { personId, concept: "english_level", value: "C1", provenance: "user" });
   const draftId = createDraft(db, profileId);

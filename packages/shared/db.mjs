@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { migrateLegacyPersonSearchFields } from "./person-search-migration.mjs";
 
 const MIGRATIONS_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -25,6 +26,12 @@ export function openDatabase(dbPath) {
     db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), "utf8"));
     db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(version);
   }
+  // User-approved split 2026-10-29 (migration 009): move legacy
+  // person search-preference fields into profiles. Idempotent by
+  // construction (see person-search-migration.mjs), so running it on
+  // every open is safe: fresh databases have nothing to move, and an
+  // existing database is migrated on first start after upgrade.
+  migrateLegacyPersonSearchFields(db);
   return db;
 }
 

@@ -22,13 +22,20 @@ const ALLOWED_BODY_KEYS = new Set([
   "employment_ids", "education_ids", "notes", "cv_import_id",
 ]);
 
-// User-approved redesign 2026-10-28 (post-G2): the person holds the
-// UNIVERSAL data and the MASTER employment/education history, while
-// each profile holds its own presentation of that history. A profile
-// body may therefore carry per-profile desired_roles, locations,
-// skills, exclusions and salary_expectations, plus employment_ids /
+// User-approved split 2026-10-29 (mutually exclusive entities, see
+// person.mjs): the person holds the UNIVERSAL data and the MASTER
+// employment/education history, while each profile holds ONLY how it
+// searches and what it presents: desired_roles, locations, skills,
+// exclusions, salary_expectations, plus employment_ids /
 // education_ids selecting which master-history entries the profile
-// presents. Selection semantics (see presentedHistory below):
+// presents. No search-preference field exists on the person any more:
+// profile creation starts EMPTY (there is no seeding from person
+// fields, in the domain or in the UI), and a profile that hides
+// financial experience ranks and compares without it. The deliberate
+// exception is personal circumstances, not preferences:
+// per-country authorisation / sponsorship and mobility are edited
+// only in Persona and carried into criteria by buildProfileView;
+// they are never duplicated as editable profile fields.
 //   - key ABSENT  -> the profile presents ALL master entries
 //     (backward compatible: profiles created before selections existed
 //     behave exactly as before);

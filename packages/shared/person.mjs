@@ -4,13 +4,40 @@
 // declared by the user through the UI; nothing here invents, infers or
 // preloads a real person's facts. Test data in the suite is synthetic
 // ("Test Person"). Unknown fields are rejected, never silently stored.
+//
+// USER-APPROVED SPLIT (2026-10-29, mutually exclusive entities —
+// a field lives in exactly ONE place, never in both):
+//   PERSON (who you are): identity, contact, languages, links,
+//   availability, mobility, master employment/education history,
+//   per-country work authorisations, reusable declarations.
+//   PROFILE (how you search): name, focus, template, CV, desired
+//   roles, locations, skills, exclusions, salary expectations, and
+//   which master-history entries it presents (presentedHistory).
+// The search-preference keys (desired_roles, locations, skills,
+// exclusions, salary_expectations) are REJECTED on the person, with a
+// clear error naming the profile as their home, so duplication cannot
+// creep back through the API. Legacy person rows that still carry them
+// are moved by migrateLegacyPersonSearchFields (see
+// person-search-migration.mjs), not silently kept.
+// DELIBERATE EXCEPTION, kept explicit: per-country authorisation /
+// sponsorship and mobility are personal circumstances, not search
+// preferences. They are edited ONLY in Persona, and buildProfileView
+// still carries them into search criteria — they are never duplicated
+// as editable profile fields.
 import { randomUUID } from "node:crypto";
 
 const ALLOWED_KEYS = new Set([
   "full_name", "display_name", "email", "phone", "languages",
-  "authorisations", "availability", "mobility", "exclusions", "desired_roles",
-  "locations", "salary_expectations", "employment", "education",
-  "links", "skills",
+  "authorisations", "availability", "mobility",
+  "employment", "education",
+  "links",
+]);
+
+// Search-preference keys that belong to profiles, not to the person.
+// Named separately from ALLOWED_KEYS so the error can point the caller
+// at the right place instead of a generic "unknown field".
+const PROFILE_ONLY_KEYS = new Set([
+  "desired_roles", "locations", "skills", "exclusions", "salary_expectations",
 ]);
 
 // Mobility (G2 regression, 2026-10-28): a person-level willingness to
@@ -43,6 +70,9 @@ export function validatePersonDetails(details) {
     throw new Error("person details must be an object");
   }
   for (const key of Object.keys(details)) {
+    if (PROFILE_ONLY_KEYS.has(key)) {
+      throw new Error(`person field ${key} belongs to profiles, not to the person: edit it in the profile, not here`);
+    }
     if (!ALLOWED_KEYS.has(key)) throw new Error(`unknown person field: ${key}`);
   }
   if (!isNonEmptyString(details.full_name)) throw new Error("full_name is required");
@@ -74,26 +104,12 @@ export function validatePersonDetails(details) {
       }
     }
   }
-  if (details.exclusions !== undefined) checkStringArray(details.exclusions, "exclusions");
   if (details.mobility !== undefined && details.mobility !== null) {
     if (typeof details.mobility !== "string" || !MOBILITY_VALUES.has(details.mobility)) {
       throw new Error(`mobility must be one of: ${[...MOBILITY_VALUES].join(", ")}`);
     }
   }
-  if (details.desired_roles !== undefined) checkStringArray(details.desired_roles, "desired_roles");
-  if (details.locations !== undefined) checkStringArray(details.locations, "locations");
-  if (details.skills !== undefined) checkStringArray(details.skills, "skills");
   if (details.links !== undefined) checkStringArray(details.links, "links");
-  if (details.salary_expectations !== undefined) {
-    const s = details.salary_expectations;
-    if (!s || typeof s !== "object" || Array.isArray(s)) throw new Error("salary_expectations must be an object");
-    for (const k of Object.keys(s)) {
-      if (!["currency", "min", "max", "period"].includes(k)) throw new Error(`unknown salary_expectations field: ${k}`);
-    }
-    if (s.min !== undefined && typeof s.min !== "number") throw new Error("salary_expectations.min must be a number");
-    if (s.max !== undefined && typeof s.max !== "number") throw new Error("salary_expectations.max must be a number");
-    if (s.min !== undefined && s.max !== undefined && s.min > s.max) throw new Error("salary_expectations.min must not exceed max");
-  }
   for (const section of ["employment", "education"]) {
     if (details[section] === undefined) continue;
     if (!Array.isArray(details[section])) throw new Error(`${section} must be an array`);
@@ -390,6 +406,9 @@ export function mergePersonDetails(existing, patch) {
     throw new Error("person patch must be an object");
   }
   for (const key of Object.keys(patch)) {
+    if (PROFILE_ONLY_KEYS.has(key)) {
+      throw new Error(`person field ${key} belongs to profiles, not to the person: edit it in the profile, not here`);
+    }
     if (!ALLOWED_KEYS.has(key)) throw new Error(`unknown person field: ${key}`);
   }
   const merged = JSON.parse(JSON.stringify(existing ?? {}));

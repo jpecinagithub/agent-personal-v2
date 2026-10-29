@@ -42,13 +42,16 @@ test("form-equivalent save without an authorisations field preserves stored auth
   // Three form-equivalent saves: each patch touches another field and
   // never mentions authorisations, exactly as personDetailsFromForm
   // now behaves after the authorisations section was removed.
+  // (Split 2026-10-29: the patch field is links, a person field —
+  // skills now live on profiles and a person patch with skills is
+  // rejected, so it can no longer serve as the "other field" here.)
   for (let round = 0; round < 3; round++) {
-    updatePersonDetails(db, personId, { skills: [`accounting-${round}`] });
+    updatePersonDetails(db, personId, { links: [`https://example.test/profile-${round}`] });
     const after = getPerson(db, personId).details;
     assert.deepEqual(after.authorisations, first, `round ${round}: stored authorisations byte-identical`);
     assert.equal(after.authorisations[0].valid_from, "2025-01", "extra field preserved");
     assert.equal(after.authorisations[0].source_note, "Synthetic user declaration", "extra field preserved");
-    assert.deepEqual(after.skills, [`accounting-${round}`], "the patch itself still applied");
+    assert.deepEqual(after.links, [`https://example.test/profile-${round}`], "the patch itself still applied");
   }
 });
 

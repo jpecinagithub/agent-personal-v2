@@ -1,0 +1,12 @@
+-- 009: user-approved split 2026-10-29 (mutually exclusive
+-- person/profile fields). The data move itself is implemented in
+-- JavaScript (packages/shared/person-search-migration.mjs, run from
+-- openDatabase), because it needs conditional logic SQL cannot
+-- express safely: move each legacy person search-preference field
+-- (desired_roles, locations, skills, exclusions,
+-- salary_expectations) into the person's first non-deleted profile
+-- only where that profile's field is empty, create a profile when
+-- none exists, and delete the fields from the person. This file
+-- exists so the migration is recorded in the version chain; it
+-- carries no DDL because no schema change is needed.
+SELECT 1;
