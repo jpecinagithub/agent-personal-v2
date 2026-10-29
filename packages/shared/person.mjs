@@ -10,7 +10,7 @@
 //   PERSON (who you are): identity, contact, languages, links,
 //   availability, mobility, master employment/education history,
 //   per-country work authorisations, reusable declarations.
-//   PROFILE (how you search): name, focus, template, CV, desired
+//   PROFILE (how you search): name, template, CV, desired
 //   roles, locations, skills, exclusions, salary expectations, and
 //   which master-history entries it presents (presentedHistory).
 // The search-preference keys (desired_roles, locations, skills,

@@ -89,7 +89,7 @@ export function migrateLegacyPersonSearchFields(db) {
         }
       } else if (Object.keys(moved).length > 0) {
         const id = randomUUID();
-        db.prepare("INSERT INTO profiles (id, person_id, name, focus, template, body_json) VALUES (?, ?, ?, '', '', ?)").run(
+        db.prepare("INSERT INTO profiles (id, person_id, name, template, body_json) VALUES (?, ?, ?, '', ?)").run(
           id, person.id, profileNameFor(details), JSON.stringify(moved),
         );
         profilesCreated += 1;

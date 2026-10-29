@@ -26,8 +26,8 @@ function setup(prefix) {
   const db = openDatabase(path.join(dir, "agentv2.db"));
   const personA = createPersonFull(db, FIXTURE_PERSON);
   const personB = createPersonFull(db, { ...FIXTURE_PERSON, full_name: "Second Person", email: "second@example.test" });
-  const profileA = createProfileFull(db, personA, "Finance A", { focus: "Finance" });
-  const profileB = createProfileFull(db, personB, "Finance B", { focus: "Finance" });
+  const profileA = createProfileFull(db, personA, "Finance A", {});
+  const profileB = createProfileFull(db, personB, "Finance B", {});
   return { db, personA, personB, profileA, profileB };
 }
 
@@ -150,7 +150,7 @@ test("P1: HTTP endpoints reject person A + profile of person B", async () => {
     // the HTTP endpoints still refuse to mix them.
     const seeded = openDatabase(path.join(dir, "agentv2.db"));
     const personB = createPersonFull(seeded, { full_name: "Person B", email: "b@example.test" });
-    const profB = createProfileFull(seeded, personB, "B", { focus: "Finance" });
+    const profB = createProfileFull(seeded, personB, "B", {});
     const profBId = profB;
     const offer = { title: "Finance Manager", description: "Role.", language: "en", canonicalUrl: "https://example.test/jobs/1" };
     const assess = await post("/api/offers/assess", { personId: a.json.id, profileIds: [profBId], offer });
@@ -290,7 +290,7 @@ test("P1 retry via API: repeat /execute without reset blocks, with reset it proc
   try {
     const seeded = openDatabase(path.join(dir, "agentv2.db"));
     const personId = createPersonFull(seeded, { full_name: "Retry Person", email: "retry@example.test" });
-    const profileId = createProfileFull(seeded, personId, "Finance", { focus: "Finance" });
+    const profileId = createProfileFull(seeded, personId, "Finance", {});
     const plan = await post("/api/plans", { personId, offerId: "https://example.test/jobs/1", profileId, routeKind: "company_careers", rationale: "retry", steps: STEPS });
     assert.equal(plan.status, 201);
     const planId = plan.json.id;
@@ -394,7 +394,7 @@ test("P1 initialUsage via API: user's exact request (budget 20, {}, reset false)
   try {
     const seeded = openDatabase(path.join(dir, "agentv2.db"));
     const personId = createPersonFull(seeded, { full_name: "Init Person", email: "init@example.test" });
-    const profileId = createProfileFull(seeded, personId, "Finance", { focus: "Finance" });
+    const profileId = createProfileFull(seeded, personId, "Finance", {});
     const plan = await post("/api/plans", { personId, offerId: "https://example.test/jobs/1", profileId, routeKind: "company_careers", rationale: "init", steps: STEPS });
     assert.equal(plan.status, 201);
     const planId = plan.json.id;
@@ -424,7 +424,7 @@ test("P2: API rejects initialUsage {activeMs: 1e309} with 400 and alters nothing
   try {
     const seeded = openDatabase(path.join(dir, "agentv2.db"));
     const personId = createPersonFull(seeded, FIXTURE_PERSON);
-    const profileId = createProfileFull(seeded, personId, "Finance", { focus: "Finance" });
+    const profileId = createProfileFull(seeded, personId, "Finance", {});
     const planId = createPlan(seeded, { personId, offerId: "https://example.test/jobs/1", profileId, routeKind: "company_careers", rationale: "p2", steps: STEPS });
     runPlanDryRun(seeded, planId, { activeMsPerStep: 100, limits: { activeTimeBudgetMs: 1000 } });
     assert.equal(listExecutions(seeded, planId).length, 1);
@@ -512,7 +512,7 @@ test("P2: API rejects 1e309 in each per-step knob with 400 and alters nothing", 
   try {
     const seeded = openDatabase(path.join(dir, "agentv2.db"));
     const personId = createPersonFull(seeded, FIXTURE_PERSON);
-    const profileId = createProfileFull(seeded, personId, "Finance", { focus: "Finance" });
+    const profileId = createProfileFull(seeded, personId, "Finance", {});
     const planId = createPlan(seeded, { personId, offerId: "https://example.test/jobs/1", profileId, routeKind: "company_careers", rationale: "p2step", steps: STEPS });
     runPlanDryRun(seeded, planId, { activeMsPerStep: 100, limits: { activeTimeBudgetMs: 1000 } });
     assert.equal(listExecutions(seeded, planId).length, 1);

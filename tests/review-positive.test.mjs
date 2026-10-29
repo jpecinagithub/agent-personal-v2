@@ -29,9 +29,9 @@ function offer(db, id) {
 test("positive: archiving one of ten profiles does not free a slot", () => {
   const { db, personId } = setup();
   const ids = [];
-  for (let i = 0; i < 10; i++) ids.push(createProfileFull(db, personId, `P${i}`, { focus: "Finance" }));
+  for (let i = 0; i < 10; i++) ids.push(createProfileFull(db, personId, `P${i}`, {}));
   archiveProfile(db, ids[0]);
-  assert.throws(() => createProfileFull(db, personId, "P11", { focus: "Finance" }), /at most 10 non-deleted profiles/);
+  assert.throws(() => createProfileFull(db, personId, "P11", {}), /at most 10 non-deleted profiles/);
 });
 
 test("positive: the person snapshot stays unchanged after identity and history edits", async () => {
@@ -41,7 +41,7 @@ test("positive: the person snapshot stays unchanged after identity and history e
   confirmCvImport(db, preview.id);
   acceptPolicy(db, personId, "data_processing");
   giveConsent(db, personId, "apply_on_behalf");
-  const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance", cv_import_id: preview.id });
+  const profileId = createProfileFull(db, personId, "Finance", { cv_import_id: preview.id });
   const attemptId = createAttempt(db, personId, profileId, offer(db, "offer-pos-1"), { xaiVerified: true });
   updatePersonDetails(db, personId, { full_name: "Renamed Person", email: "renamed@example.test", employment: [{ id: "job-9", employer: "Other Corp", title: "Controller", start: "2024-07" }] });
   const kept = getAttempt(db, attemptId).personSnapshot;
@@ -59,7 +59,7 @@ test("positive: soft deletion retains the previous attempt and frees exactly one
   acceptPolicy(db, personId, "data_processing");
   giveConsent(db, personId, "apply_on_behalf");
   const ids = [];
-  for (let i = 0; i < 10; i++) ids.push(createProfileFull(db, personId, `P${i}`, { focus: "Finance", cv_import_id: preview.id }));
+  for (let i = 0; i < 10; i++) ids.push(createProfileFull(db, personId, `P${i}`, { cv_import_id: preview.id }));
   const attemptId = createAttempt(db, personId, ids[0], offer(db, "offer-pos-2"), { xaiVerified: true });
   archiveProfile(db, ids[0]);
   deleteProfile(db, ids[0]);
@@ -71,7 +71,7 @@ test("positive: soft deletion retains the previous attempt and frees exactly one
 
 test("positive: missing xAI blocks readiness initially", () => {
   const { db, personId } = setup();
-  const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance" });
+  const profileId = createProfileFull(db, personId, "Finance", {});
   const r = profileReadiness(db, profileId);
   assert.equal(r.ready, false);
   assert.ok(r.missing.includes("xai"), "with no verification at all, xai must block");

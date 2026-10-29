@@ -40,7 +40,7 @@ test("F4 server: route matrix, assessment, plan lifecycle, execution, preflight,
     const personId = person.json.id;
     const profile = await post(base, "/api/profiles", {
       personId, name: "Finance",
-      body: { focus: "Finance", desired_roles: ["Finance Manager"], skills: ["accounting", "forecasting"], employment_ids: ["job-1"], education_ids: ["edu-1"] },
+      body: { desired_roles: ["Finance Manager"], skills: ["accounting", "forecasting"], employment_ids: ["job-1"], education_ids: ["edu-1"] },
     });
     assert.equal(profile.status, 201);
     const profileId = profile.json.id;

@@ -17,7 +17,7 @@ import { requiredPoliciesAccepted, hasConsent } from "./policies.mjs";
 export const MAX_PROFILES = 10;
 
 const ALLOWED_BODY_KEYS = new Set([
-  "focus", "template", "factRefs", "desired_roles", "locations",
+  "template", "factRefs", "desired_roles", "locations",
   "salary_expectations", "skills", "exclusions",
   "employment_ids", "education_ids", "notes", "cv_import_id",
 ]);
@@ -168,8 +168,8 @@ export function createProfileFull(db, personId, name, body = {}) {
   const valid = validateProfileBody(body);
   assertValidProfileCv(db, personId, valid.cv_import_id);
   const id = randomUUID();
-  db.prepare("INSERT INTO profiles (id, person_id, name, focus, template, body_json) VALUES (?, ?, ?, ?, ?, ?)").run(
-    id, personId, name.trim(), valid.focus ?? "", valid.template ?? "", JSON.stringify(valid),
+  db.prepare("INSERT INTO profiles (id, person_id, name, template, body_json) VALUES (?, ?, ?, ?, ?)").run(
+    id, personId, name.trim(), valid.template ?? "", JSON.stringify(valid),
   );
   return id;
 }
@@ -229,7 +229,7 @@ export function unarchiveProfile(db, profileId) {
 }
 
 /**
- * Duplicate a profile: a new profile with the same body, focus and
+ * Duplicate a profile: a new profile with the same body and
  * template. It counts toward the ten non-deleted limit like any other.
  * @param {any} db
  * @param {string} profileId
@@ -238,7 +238,10 @@ export function unarchiveProfile(db, profileId) {
  */
 export function duplicateProfile(db, profileId, name) {
   const source = requireLiveProfile(db, profileId);
-  return createProfileFull(db, source.person_id, name ?? `${source.name} (copia)`, source.body);
+  // Focus was deleted (user order 2026-10-29): never copy a stray
+  // focus key into the new profile body.
+  const { focus: _dropped, ...body } = source.body ?? {};
+  return createProfileFull(db, source.person_id, name ?? `${source.name} (copia)`, body);
 }
 
 /**
@@ -286,7 +289,7 @@ export function snapshotPerson(db, personId) {
 
 /**
  * Readiness (RF-V2-020): a profile is ready only when ALL of these
- * hold — identity declared, name, focus, every referenced fact
+ * hold — identity declared, name, every referenced fact
  * confirmed, a validated CV EXPLICITLY SELECTED FOR THIS PROFILE (R4:
  * another profile's CV does not count), every required policy
  * accepted, the apply-on-behalf consent recorded, and xAI VERIFIED
@@ -312,7 +315,6 @@ export function profileReadiness(db, profileId, opts = {}) {
     missing.push("identity");
   }
   if (!profile.name.trim()) missing.push("name");
-  if (!profile.body.focus || !String(profile.body.focus).trim()) missing.push("focus");
   for (const ref of profile.body.factRefs ?? []) {
     if (!getConfirmedFact(db, profile.person_id, ref.concept, ref.scope ?? "")) {
       missing.push(`fact ${ref.concept}${ref.scope ? ` (${ref.scope})` : ""}`);

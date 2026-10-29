@@ -31,7 +31,7 @@ test("T-V2-040: preflight passes only when every condition holds, and names the 
     [{ offer: { title: "Finance Manager", language: "es", canonicalUrl: "https://example.test/jobs/1" } }, "language"],
     [{ offer: { title: "Finance Manager", language: "unknown", canonicalUrl: "https://example.test/jobs/1" } }, "language"],
     [{ offer: { title: "Finance Manager", language: "en", canonicalUrl: "https://example.test/jobs/1", status: "closed" } }, "validity"],
-    [{ readiness: { ready: false, missing: ["identity", "focus"] } }, "profile"],
+    [{ readiness: { ready: false, missing: ["identity"] } }, "profile"],
     [{ readiness: { ready: false, missing: ["identity"] } }, "mandatory_fields"],
     [{ documents: { cvValidated: false } }, "documents"],
     [{ policy: { accepted: false } }, "policy"],

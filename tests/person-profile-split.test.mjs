@@ -56,7 +56,7 @@ test("split: every search-preference key is rejected on the person, on create an
 test("split: profile creation starts empty, and the profile view carries only profile fields plus personal circumstances", () => {
   const db = setup("agentv2-split-empty-");
   const personId = createPersonFull(db, PERSON_ONLY);
-  const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance" });
+  const profileId = createProfileFull(db, personId, "Finance", {});
   const body = getProfileFull(db, profileId).body;
   for (const key of SEARCH_KEYS) assert.equal(body[key], undefined, `empty create stores no ${key}`);
   const view = buildProfileView(db, profileId);
@@ -76,7 +76,7 @@ test("split: migration moves legacy fields to the first profile without overwrit
     exclusions: ["night shifts"], salary_expectations: { currency: "EUR", min: 50000, max: 70000, period: "year" },
   });
   // First profile owns skills already; locations is empty; the rest absent.
-  db.prepare("INSERT INTO profiles (id, person_id, name, focus, template, body_json) VALUES (?, ?, ?, '', '', ?)").run(
+  db.prepare("INSERT INTO profiles (id, person_id, name, template, body_json) VALUES (?, ?, ?, '', ?)").run(
     "profile-1", "person-1", "Existing", JSON.stringify({ skills: ["forecasting"], locations: [] }),
   );
   const result = migrateLegacyPersonSearchFields(db);
@@ -174,7 +174,7 @@ test("split: stored authorisations and sponsorship facts still feed criteria aft
       { country: "DE", status: "pending", sponsorship_required: false },
     ],
   });
-  const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance" });
+  const profileId = createProfileFull(db, personId, "Finance", {});
   const view = buildProfileView(db, profileId);
   assert.equal(view.authorisationByCountry.ES, "yes");
   assert.equal(view.authorisationByCountry.FR, "yes");
@@ -183,4 +183,70 @@ test("split: stored authorisations and sponsorship facts still feed criteria aft
   assert.equal(view.sponsorshipRequiredByCountry.ES, false);
   assert.equal(view.sponsorshipRequired, true, "one sponsoring country makes sponsorship required");
   assert.equal(getPerson(db, personId).details.authorisations.length, 3, "stored authorisations untouched");
+});
+
+test("focus deleted: the API rejects focus in a profile body, and a profile without focus is never flagged for it", async () => {
+  // User order 2026-10-29: the focus field is deleted entirely — UI,
+  // database and readiness. The profile name alone identifies it.
+  const db = setup("agentv2-nofocus-");
+  const personId = createPersonFull(db, PERSON_ONLY);
+  assert.throws(() => createProfileFull(db, personId, "Finance", { focus: "Finance" }), /unknown profile field: focus/);
+  const profileId = createProfileFull(db, personId, "Finance", {});
+  const { profileReadiness } = await import("../packages/shared/profiles.mjs");
+  assert.ok(!profileReadiness(db, profileId).missing.includes("focus"), "focus must never block readiness");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agentv2-nofocus-api-"));
+  const { server } = createServer({ dataDir: dir });
+  await new Promise((r) => server.listen(0, "127.0.0.1", () => r(undefined)));
+  const base = `http://127.0.0.1:${/** @type {import("node:net").AddressInfo} */ (server.address()).port}`;
+  try {
+    const personRes = await fetch(`${base}/api/person`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(PERSON_ONLY),
+    });
+    assert.equal(personRes.status, 201);
+    const apiPersonId = (await personRes.json()).id;
+    const bad = await fetch(`${base}/api/profiles`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ personId: apiPersonId, name: "Finance", body: { focus: "Finance" } }),
+    });
+    assert.equal(bad.status, 400, "profile API rejects the deleted focus field");
+    const html = await (await fetch(`${base}/`)).text();
+    assert.ok(!html.includes("profile-focus"), "served UI has no focus input");
+    assert.ok(!html.includes("Enfoque"), "served UI has no focus label");
+    assert.ok(!html.includes("sin enfoque"), "served UI has no focus display");
+  } finally {
+    server.close();
+  }
+});
+
+test("focus deleted: migration 010 drops the column and strips body_json keys on an old database", async () => {
+  // Simulate a pre-010 database: a fresh database (current schema has
+  // no focus column) gains the old column and old body values back,
+  // then reopening it — the real upgrade path, since
+  // removeProfileFocus runs on every open — must clean both.
+  const { DatabaseSync } = await import("node:sqlite");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agentv2-nofocus-mig-"));
+  const dbPath = path.join(dir, "agentv2.db");
+  const db = openDatabase(dbPath);
+  const personId = createPersonFull(db, PERSON_ONLY);
+  const profileId = createProfileFull(db, personId, "Finance", { template: "finance", desired_roles: ["Finance Manager"] });
+  db.close();
+  const raw = new DatabaseSync(dbPath);
+  raw.exec("ALTER TABLE profiles ADD COLUMN focus TEXT NOT NULL DEFAULT '';");
+  raw.prepare("UPDATE profiles SET focus = 'Finance' WHERE id = ?").run(profileId);
+  const row = raw.prepare("SELECT body_json FROM profiles WHERE id = ?").get(profileId);
+  const body = JSON.parse(String(row.body_json));
+  body.focus = "Finance";
+  raw.prepare("UPDATE profiles SET body_json = ? WHERE id = ?").run(JSON.stringify(body), profileId);
+  raw.close();
+  const migrated = openDatabase(dbPath);
+  const cols = migrated.prepare("PRAGMA table_info(profiles)").all().map((c) => c.name);
+  assert.ok(!cols.includes("focus"), "focus column is gone after migration");
+  const profile = getProfileFull(migrated, profileId);
+  assert.equal(profile.body.focus, undefined, "focus key stripped from body_json");
+  assert.equal(profile.name, "Finance", "profile identity intact");
+  assert.equal(profile.body.template, "finance", "other body fields intact");
+  assert.deepEqual(profile.body.desired_roles, ["Finance Manager"], "search fields intact");
+  assert.ok(!("focus" in profile), "no focus column value leaks through the profile row");
+  migrated.close();
 });

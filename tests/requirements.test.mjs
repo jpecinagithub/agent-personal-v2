@@ -21,11 +21,11 @@ function setup() {
   const db = openDatabase(path.join(dir, "agentv2.db"));
   const personId = createPersonFull(db, FIXTURE_PERSON);
   const financeId = createProfileFull(db, personId, "Finance", {
-    focus: "Finance", desired_roles: ["Finance Manager"], locations: ["Madrid"],
+    desired_roles: ["Finance Manager"], locations: ["Madrid"],
     skills: ["accounting", "forecasting"], employment_ids: ["job-1"], education_ids: ["edu-1"],
   });
   const techId = createProfileFull(db, personId, "Tech", {
-    focus: "Tech", desired_roles: ["Data Analyst"], skills: ["python"],
+    desired_roles: ["Data Analyst"], skills: ["python"],
     employment_ids: [], education_ids: [],
   });
   return { db, personId, financeId, techId };

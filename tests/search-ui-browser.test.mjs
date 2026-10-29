@@ -63,7 +63,6 @@ async function createPersonAndProfile(page) {
   await page.click("#nav-profiles");
   await page.click("#profile-create-open");
   await page.fill("#profile-name", "Finanzas");
-  await page.fill("#profile-focus", "Finance");
   await page.click("#profile-create");
   await page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
 }

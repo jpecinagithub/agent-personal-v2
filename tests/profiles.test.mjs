@@ -41,11 +41,11 @@ function offer(db) {
 test("at most 10 NON-DELETED profiles: archiving does NOT free a slot, deleting does", () => {
   const { db, personId } = setup();
   const ids = [];
-  for (let i = 0; i < 10; i++) ids.push(createProfileFull(db, personId, `Profile ${i}`, { focus: "Finance" }));
-  assert.throws(() => createProfileFull(db, personId, "Profile 11", { focus: "Finance" }), /at most 10 non-deleted profiles/);
+  for (let i = 0; i < 10; i++) ids.push(createProfileFull(db, personId, `Profile ${i}`, {}));
+  assert.throws(() => createProfileFull(db, personId, "Profile 11", {}), /at most 10 non-deleted profiles/);
   archiveProfile(db, ids[0]);
   assert.throws(
-    () => createProfileFull(db, personId, "Profile 11", { focus: "Finance" }),
+    () => createProfileFull(db, personId, "Profile 11", {}),
     /at most 10 non-deleted profiles/,
     "an archived profile still occupies its slot",
   );
@@ -61,13 +61,13 @@ test("at most 10 NON-DELETED profiles: archiving does NOT free a slot, deleting 
   const dup = duplicateProfile(db, ids[1]);
   assert.ok(dup);
   assert.equal(listProfiles(db, personId).length, 10);
-  assert.throws(() => createProfileFull(db, personId, "Profile 11", { focus: "Finance" }), /at most 10 non-deleted profiles/);
+  assert.throws(() => createProfileFull(db, personId, "Profile 11", {}), /at most 10 non-deleted profiles/);
 });
 
 test("profiles reference facts, they do not copy them", () => {
   const { db, personId } = setup();
   declareFact(db, { personId, concept: "work_authorisation", scope: "ES", value: "yes", provenance: "user" });
-  const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance", factRefs: [{ concept: "work_authorisation", scope: "ES" }] });
+  const profileId = createProfileFull(db, personId, "Finance", { factRefs: [{ concept: "work_authorisation", scope: "ES" }] });
   // Changing the fact value changes what the reference resolves to, but
   // the profile body itself still holds only the reference, not a copy.
   declareFact(db, { personId, concept: "work_authorisation", scope: "ES", value: "no", provenance: "user" });
@@ -78,10 +78,10 @@ test("profiles reference facts, they do not copy them", () => {
 
 test("readiness explains exactly what is missing, and blocks attempts", () => {
   const { db, personId } = setup();
-  const profileId = createProfileFull(db, personId, "Finance", { focus: "", factRefs: [{ concept: "work_authorisation", scope: "ES" }] });
+  const profileId = createProfileFull(db, personId, "Finance", { factRefs: [{ concept: "work_authorisation", scope: "ES" }] });
   const readiness = profileReadiness(db, profileId);
   assert.equal(readiness.ready, false);
-  assert.ok(readiness.missing.includes("focus"));
+  assert.ok(!readiness.missing.includes("focus"), "focus is deleted and must never block readiness");
   assert.ok(readiness.missing.some((m) => m.includes("work_authorisation")));
   assert.throws(() => createAttempt(db, personId, profileId, offer(db)), /not ready/);
 });
@@ -90,31 +90,31 @@ test("sending pins the snapshot in force; later changes never alter past attempt
   const { db, personId } = setup();
   const cvId = await makeReady(db, personId);
   declareFact(db, { personId, concept: "work_authorisation", scope: "ES", value: "yes", provenance: "user" });
-  const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance v1", factRefs: [{ concept: "work_authorisation", scope: "ES" }], cv_import_id: cvId });
+  const profileId = createProfileFull(db, personId, "Finance", { template: "finance-v1", factRefs: [{ concept: "work_authorisation", scope: "ES" }], cv_import_id: cvId });
   const attemptId = createAttempt(db, personId, profileId, offer(db), { xaiVerified: true });
   const before = getAttempt(db, attemptId);
   assert.equal(before.evidence.resolvedFacts["work_authorisation@ES"], "yes");
   assert.equal(before.evidence.snapshotVersion, 1);
   // Later changes: a confirmed draft bumps the profile, and the fact changes.
   const draftId = createDraft(db, profileId);
-  updateDraft(db, draftId, { focus: "Finance v2", factRefs: [{ concept: "work_authorisation", scope: "ES" }] });
+  updateDraft(db, draftId, { factRefs: [{ concept: "work_authorisation", scope: "ES" }] });
   confirmDraft(db, draftId);
   declareFact(db, { personId, concept: "work_authorisation", scope: "ES", value: "no", provenance: "user" });
   const after = getAttempt(db, attemptId);
   assert.equal(after.evidence.resolvedFacts["work_authorisation@ES"], "yes", "past attempt content must not change");
   const snapshot = db.prepare("SELECT * FROM profile_snapshots WHERE id = ?").get(before.profile_snapshot_id);
-  assert.equal(JSON.parse(String(snapshot.body_json)).focus, "Finance v1", "pinned snapshot body must not change");
+  assert.equal(JSON.parse(String(snapshot.body_json)).template, "finance-v1", "pinned snapshot body must not change");
 });
 
 test("only archived profiles can be deleted, and deletion never deletes snapshots or attempts", async () => {
   const { db, personId } = setup();
   const cvId = await makeReady(db, personId);
-  const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance" });
+  const profileId = createProfileFull(db, personId, "Finance", {});
   assert.throws(() => deleteProfile(db, profileId), /only an archived profile/);
   archiveProfile(db, profileId);
   deleteProfile(db, profileId);
   assert.equal(listProfiles(db, personId).length, 0, "deleted profiles are excluded from the list");
-  const usedId = createProfileFull(db, personId, "Used", { focus: "Finance", cv_import_id: cvId });
+  const usedId = createProfileFull(db, personId, "Used", { template: "finance", cv_import_id: cvId });
   declareFact(db, { personId, concept: "work_authorisation", scope: "ES", value: "yes", provenance: "user" });
   const attemptId = createAttempt(db, personId, usedId, offer(db), { xaiVerified: true });
   const before = getAttempt(db, attemptId);
@@ -127,5 +127,5 @@ test("only archived profiles can be deleted, and deletion never deletes snapshot
   assert.equal(after.profile_snapshot_id, before.profile_snapshot_id);
   const snapshot = db.prepare("SELECT * FROM profile_snapshots WHERE id = ?").get(after.profile_snapshot_id);
   assert.ok(snapshot, "the pinned snapshot must survive profile deletion");
-  assert.equal(JSON.parse(String(snapshot.body_json)).focus, "Finance");
+  assert.equal(JSON.parse(String(snapshot.body_json)).template, "finance");
 });

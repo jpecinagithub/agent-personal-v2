@@ -19,7 +19,6 @@ CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
   person_id TEXT NOT NULL REFERENCES persons(id),
   name TEXT NOT NULL,
-  focus TEXT NOT NULL DEFAULT '',
   template TEXT NOT NULL DEFAULT '',
   body_json TEXT NOT NULL DEFAULT '{}',
   version INTEGER NOT NULL DEFAULT 1,

@@ -35,7 +35,7 @@ async function readyProfile(db, personId) {
   confirmCvImport(db, preview.id);
   acceptPolicy(db, personId, "data_processing");
   giveConsent(db, personId, "apply_on_behalf");
-  return createProfileFull(db, personId, "Finance", { focus: "Finance", cv_import_id: preview.id });
+  return createProfileFull(db, personId, "Finance", { cv_import_id: preview.id });
 }
 
 test("R6: readiness of a deleted profile is false, and attempt creation is rejected without side effects", async () => {
@@ -74,7 +74,7 @@ test("R6: server rejects POST /api/attempts for a deleted profile with 400 and k
     const cvRes = await post("/api/cv", { personId, filename: "sample.txt", contentBase64: txt });
     const cvId = cvRes.json.id;
     await post(`/api/cv/${cvId}/confirm`, {});
-    const profileRes = await post("/api/profiles", { personId, name: "Finance", body: { focus: "Finance", cv_import_id: cvId } });
+    const profileRes = await post("/api/profiles", { personId, name: "Finance", body: { cv_import_id: cvId } });
     const profileId = profileRes.json.id;
     await post("/api/policies/data_processing/accept", { personId });
     await post("/api/consents", { personId, key: "apply_on_behalf" });

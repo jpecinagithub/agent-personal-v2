@@ -81,7 +81,7 @@ test("configuration changes through the API take effect without restart, and for
     });
     assert.equal(personRes.status, 201);
     const personId = (await personRes.json()).id;
-    const profileRes = await post(base, "/api/profiles", { personId, name: "Finance", body: { focus: "Finance", factRefs: [{ concept: "work_authorisation", scope: "ES" }] } });
+    const profileRes = await post(base, "/api/profiles", { personId, name: "Finance", body: { factRefs: [{ concept: "work_authorisation", scope: "ES" }] } });
     assert.equal(profileRes.status, 201);
     const factRes = await post(base, "/api/facts", { personId, concept: "work_authorisation", scope: "ES", value: "yes", provenance: "user" });
     assert.equal(factRes.status, 201);
@@ -109,7 +109,7 @@ test("configuration changes through the API take effect without restart, and for
     const draftRes = await post(base, `/api/profiles/${profileId}/drafts`, {});
     assert.equal(draftRes.status, 201);
     const draftId = (await draftRes.json()).id;
-    const draftPut = await fetch(`${base}/api/drafts/${draftId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: { focus: "Finance", factRefs: [{ concept: "work_authorisation", scope: "ES" }], cv_import_id: cvId } }) });
+    const draftPut = await fetch(`${base}/api/drafts/${draftId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: { factRefs: [{ concept: "work_authorisation", scope: "ES" }], cv_import_id: cvId } }) });
     assert.equal(draftPut.status, 200);
     const draftConfirm = await post(base, `/api/drafts/${draftId}/confirm`, {});
     assert.equal(draftConfirm.status, 200);

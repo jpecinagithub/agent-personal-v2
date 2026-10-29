@@ -24,7 +24,7 @@ function setup() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agentv2-plan-"));
   const db = openDatabase(path.join(dir, "agentv2.db"));
   const personId = createPersonFull(db, FIXTURE_PERSON);
-  const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance" });
+  const profileId = createProfileFull(db, personId, "Finance", {});
   return { db, personId, profileId };
 }
 
@@ -71,7 +71,7 @@ test("T-V2-037: plan v1 stores steps, profile, documents, contingencies and rati
 
 test("T-V2-037: a plan's profile must be the comparison's chosen profile", () => {
   const { db, personId, profileId } = setup();
-  const otherId = createProfileFull(db, personId, "Tech", { focus: "Tech" });
+  const otherId = createProfileFull(db, personId, "Tech", {});
   recordComparison(db, { personId, offerId: "https://example.test/jobs/1", chosenProfileId: profileId, assessments: [] });
   assert.throws(() => makePlan(db, personId, otherId), /chosen profile/);
   assert.doesNotThrow(() => makePlan(db, personId, profileId));

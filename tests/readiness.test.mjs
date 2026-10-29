@@ -22,7 +22,7 @@ function setup() {
   const db = openDatabase(path.join(dir, "agentv2.db"));
   const personId = createPersonFull(db, FIXTURE_PERSON);
   declareFact(db, { personId, concept: "work_authorisation", scope: "ES", value: "yes", provenance: "user" });
-  const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance", factRefs: [{ concept: "work_authorisation", scope: "ES" }] });
+  const profileId = createProfileFull(db, personId, "Finance", { factRefs: [{ concept: "work_authorisation", scope: "ES" }] });
   return { db, personId, profileId };
 }
 
@@ -47,7 +47,7 @@ async function assignCvToProfile(db, profileId, cvImportId) {
 
 test("each missing readiness element blocks individually; all present means ready", async () => {
   const { db, personId, profileId } = setup();
-  // Nothing but identity, name, focus and the fact is in place.
+  // Nothing but identity, name and the fact is in place.
   let r = profileReadiness(db, profileId, { xaiVerified: true });
   assert.equal(r.ready, false);
   for (const key of ["cv_validated", "policy", "consent"]) {

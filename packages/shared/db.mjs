@@ -7,6 +7,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { migrateLegacyPersonSearchFields } from "./person-search-migration.mjs";
+import { removeProfileFocus } from "./remove-profile-focus.mjs";
 
 const MIGRATIONS_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -26,6 +27,10 @@ export function openDatabase(dbPath) {
     db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), "utf8"));
     db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(version);
   }
+  // User order 2026-10-29 (migration 010): the profile "focus" field
+  // is deleted entirely. Run before the legacy search-fields move so
+  // no code path can reintroduce the key; idempotent by construction.
+  removeProfileFocus(db);
   // User-approved split 2026-10-29 (migration 009): move legacy
   // person search-preference fields into profiles. Idempotent by
   // construction (see person-search-migration.mjs), so running it on

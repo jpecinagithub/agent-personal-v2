@@ -56,7 +56,7 @@ export function preflightCheck(input = {}) {
     reasons.push(condition("validity", true));
   }
 
-  // Profile: readiness (identity, focus, facts, CV, policy, consent,
+  // Profile: readiness (identity, facts, CV, policy, consent,
   // xAI) plus not-deleted.
   if (input.profileDeleted) {
     reasons.push(condition("profile", false, "profile is deleted"));
@@ -67,9 +67,9 @@ export function preflightCheck(input = {}) {
   }
 
   // Mandatory fields: the readiness gaps that are fields (identity,
-  // name, focus), reported separately from the profile verdict so a
+  // name), reported separately from the profile verdict so a
   // caller can see WHICH field blocks.
-  const fieldMissing = (readiness.missing ?? []).filter((m) => ["identity", "name", "focus"].includes(m));
+  const fieldMissing = (readiness.missing ?? []).filter((m) => ["identity", "name"].includes(m));
   if (fieldMissing.length > 0) {
     reasons.push(condition("mandatory_fields", false, `mandatory fields missing: ${fieldMissing.join(", ")}`));
   } else if (!readiness.ready && (readiness.missing ?? []).length > 0) {

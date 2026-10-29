@@ -114,7 +114,7 @@ test("regression: snapshots are immutable — later person/profile edits and pro
   acceptPolicy(db, personId, "data_processing");
   giveConsent(db, personId, "apply_on_behalf");
   const profileId = createProfileFull(db, personId, "Finance", {
-    focus: "Finance", cv_import_id: preview.id, skills: ["accounting"],
+    cv_import_id: preview.id, skills: ["accounting"],
     employment_ids: ["job-1"], education_ids: [],
   });
   db.prepare("INSERT INTO offers (id, source, ats, canonical_url, title) VALUES (?, 'greenhouse', 'greenhouse', ?, 'Finance Manager')")

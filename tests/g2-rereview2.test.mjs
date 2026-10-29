@@ -47,7 +47,7 @@ async function conflictedSetup() {
 
 test("An unresolved CV conflict blocks readiness", async () => {
   const { db, personId, secondId } = await conflictedSetup();
-  const profileId = createProfileFull(db, personId, "Conflicted CV", { focus: "Finance", cv_import_id: secondId });
+  const profileId = createProfileFull(db, personId, "Conflicted CV", { cv_import_id: secondId });
   const r = profileReadiness(db, profileId, { xaiVerified: true });
   assert.equal(r.ready, false, "a profile whose CV has unresolved conflicts is not ready");
   assert.ok(r.missing.includes("cv_conflicts_unresolved"), `the reason must name the unresolved conflicts, got: ${r.missing.join(", ")}`);
@@ -55,7 +55,7 @@ test("An unresolved CV conflict blocks readiness", async () => {
 
 test("An unresolved CV conflict cannot enter an attempt", async () => {
   const { db, personId, secondId } = await conflictedSetup();
-  const profileId = createProfileFull(db, personId, "Conflicted CV", { focus: "Finance", cv_import_id: secondId });
+  const profileId = createProfileFull(db, personId, "Conflicted CV", { cv_import_id: secondId });
   const attemptsBefore = db.prepare("SELECT COUNT(*) AS n FROM attempts").get().n;
   const snapshotsBefore = db.prepare("SELECT COUNT(*) AS n FROM person_snapshots").get().n;
   // A fresh synthetic offer: reusing an offer id must not mask the
@@ -79,7 +79,7 @@ test("Resolving the conflict explicitly unlocks readiness", async () => {
   assert.ok(result.conflicts.length >= 1);
   const resolved = confirmCvImport(db, secondId, { resolutions });
   assert.equal(resolved.status, "confirmed", "keeping the confirmed fact resolves the import");
-  const profileId = createProfileFull(db, personId, "Resolved CV", { focus: "Finance", cv_import_id: secondId });
+  const profileId = createProfileFull(db, personId, "Resolved CV", { cv_import_id: secondId });
   const r = profileReadiness(db, profileId, { xaiVerified: true });
   assert.ok(!r.missing.includes("cv_conflicts_unresolved"), "no conflict reason may remain after resolution");
   assert.ok(!r.missing.includes("cv_validated"), "the resolved CV now validates");

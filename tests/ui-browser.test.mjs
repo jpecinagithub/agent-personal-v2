@@ -95,7 +95,6 @@ test("browser: create a person and a profile through the forms, no JSON, no IDs"
     await app.page.click("#nav-profiles");
     await app.page.click("#profile-create-open");
     await app.page.fill("#profile-name", "Finanzas");
-    await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
     await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
     const list = await app.page.textContent("#profiles-list");
@@ -119,7 +118,6 @@ test("browser: duplicate, archive and delete a profile through the screen", asyn
     await app.page.click("#nav-profiles");
     await app.page.click("#profile-create-open");
     await app.page.fill("#profile-name", "Finanzas");
-    await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
     await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
     const card = app.page.locator(".profile-card").first();
@@ -150,7 +148,6 @@ test("browser: CV import preview and confirm, CV assignment, policies, consent, 
     await app.page.click("#nav-profiles");
     await app.page.click("#profile-create-open");
     await app.page.fill("#profile-name", "Finanzas");
-    await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
     await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
     // CV (user order 2026-10-29: the CV belongs to the profile):
@@ -559,7 +556,6 @@ test("browser separation: independent Persona and Perfiles screens, profile crea
     // Create with typed values and a subset selection: only job-1,
     // no education.
     await app.page.fill("#profile-name", "Finanzas");
-    await app.page.fill("#profile-focus", "Finance");
     await app.page.fill("#profile-desired-roles", "Finance Manager");
     await app.page.fill("#profile-locations", "Madrid");
     await app.page.fill("#profile-skills", "accounting");
@@ -612,7 +608,6 @@ test("browser separation: independent Persona and Perfiles screens, profile crea
     // starts EMPTY: no seeding from anywhere.
     await app.page.click("#profile-create-open");
     await app.page.fill("#profile-name", "Vacío");
-    await app.page.fill("#profile-focus", "Finance");
     await app.page.fill("#profile-desired-roles", "");
     await app.page.fill("#profile-locations", "");
     await app.page.fill("#profile-skills", "");
@@ -677,7 +672,6 @@ test("browser split: no defaults section, explicit history modes, dynamic vs fix
     await app.page.click("#nav-profiles");
     await app.page.click("#profile-create-open");
     await app.page.fill("#profile-name", "Vacío");
-    await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
     await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Vacío"));
     let profiles = await getProfiles();
@@ -707,7 +701,6 @@ test("browser split: no defaults section, explicit history modes, dynamic vs fix
     assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").nth(1).isChecked(), false, "fixed untick survives a person save");
     assert.equal(await app.page.locator("#profile-employment-select input[type=checkbox]").nth(0).isChecked(), true);
     await app.page.fill("#profile-name", "Fijo");
-    await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
     await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Fijo"));
     profiles = await getProfiles();
@@ -826,7 +819,6 @@ test("browser defect fix: fixed history mode stores both arrays even with empty 
       await app.page.click("#profile-create-open");
       await app.page.check('input[name="profile-history-mode"][value="fixed"]');
       await app.page.fill("#profile-name", name);
-      await app.page.fill("#profile-focus", "Finance");
       await app.page.click("#profile-create");
       await app.page.waitForFunction((n) => (document.querySelector("#profiles-list")?.textContent ?? "").includes(n), name);
       return (await getProfiles()).find((p) => p.name === name);
@@ -841,7 +833,6 @@ test("browser defect fix: fixed history mode stores both arrays even with empty 
     await app.page.click("#profile-create-open");
     await app.page.check('input[name="profile-history-mode"][value="dynamic"]');
     await app.page.fill("#profile-name", "Dinamico");
-    await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
     await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Dinamico"));
     const dynCard = app.page.locator("#profiles-list .profile-card").filter({ hasText: "Dinamico" }).first();
@@ -878,7 +869,6 @@ test("browser defect fix: fixed history mode stores both arrays even with empty 
     await app.page.click("#profile-create-open");
     await app.page.check('input[name="profile-history-mode"][value="dynamic"]');
     await app.page.fill("#profile-name", "Dinamico2");
-    await app.page.fill("#profile-focus", "Finance");
     await app.page.click("#profile-create");
     await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Dinamico2"));
     p = (await getProfiles()).find((x) => x.name === "Dinamico2");
@@ -938,7 +928,7 @@ test("browser separation: Persona screen has no profiles; Perfiles starts as lis
     assert.equal(created.status, 201);
     const personId = (await (await fetch(`${base}/api/person`)).json()).person.id;
     const createdProfile = await fetch(`${base}/api/profiles`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-      personId, name: "Finanzas", body: { focus: "Finance", desired_roles: ["Finance Manager"] },
+      personId, name: "Finanzas", body: { desired_roles: ["Finance Manager"] },
     }) });
     assert.equal(createdProfile.status, 201);
     // Persona screen by default: person list + person form, and

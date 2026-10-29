@@ -36,7 +36,6 @@ const PERSON = {
 
 test("redesign: profile body accepts the new per-profile keys", () => {
   const body = validateProfileBody({
-    focus: "Finance",
     desired_roles: ["Finance Manager"],
     locations: ["Madrid"],
     skills: ["accounting"],
@@ -81,7 +80,6 @@ test("redesign: profile creation stores per-profile fields and selections", () =
   const db = setup();
   const personId = createPersonFull(db, PERSON);
   const id = createProfileFull(db, personId, "Finanzas", {
-    focus: "Finance",
     desired_roles: ["Finance Manager"],
     skills: ["accounting"],
     salary_expectations: { currency: "EUR", min: 50000, max: 70000, period: "year" },

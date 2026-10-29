@@ -19,7 +19,7 @@ function setup() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agentv2-chat-"));
   const db = openDatabase(path.join(dir, "agentv2.db"));
   const personId = createPersonFull(db, FIXTURE_PERSON);
-  const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance" });
+  const profileId = createProfileFull(db, personId, "Finance", {});
   const otherPersonId = createPersonFull(db, { ...FIXTURE_PERSON, email: "other@example.test" });
   return { db, personId, profileId, otherPersonId };
 }

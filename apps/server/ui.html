@@ -250,8 +250,6 @@ candidaturas anteriores.</small></p>
 
 <label for="profile-name">Nombre del perfil</label>
 <input id="profile-name" placeholder="Ej.: Finanzas">
-<label for="profile-focus">Enfoque</label>
-<input id="profile-focus" placeholder="Ej.: Finance">
 <label for="profile-template">Plantilla</label>
 <input id="profile-template" placeholder="Ej.: finance">
 <label for="profile-cv">CV asociado a este perfil (debe estar confirmado; un CV de otro perfil no cuenta)</label>
@@ -881,7 +879,7 @@ async function refreshFacts() {
   } catch (e) { $("facts-status").textContent = "Error: " + e.message; }
 }
 $("facts-refresh").onclick = refreshFacts;
-const MISSING_LABELS = { identity: "identidad", name: "nombre", focus: "enfoque", cv_validated: "CV validado", cv_conflicts_unresolved: "CV con conflictos sin resolver (resuélvelos en la sección de CV)", policy: "política aceptada", consent: "consentimiento", xai: "xAI verificado", profile_deleted: "perfil eliminado" };
+const MISSING_LABELS = { identity: "identidad", name: "nombre", cv_validated: "CV validado", cv_conflicts_unresolved: "CV con conflictos sin resolver (resuélvelos en la sección de CV)", policy: "política aceptada", consent: "consentimiento", xai: "xAI verificado", profile_deleted: "perfil eliminado" };
 function missingLabel(m) { return m.startsWith("fact ") ? "hecho " + m.slice(5) : (MISSING_LABELS[m] || m); }
 let conflictedCvs = [];
 async function refreshProfileCvOptions() {
@@ -1059,9 +1057,6 @@ async function refreshProfiles() {
     const title = document.createElement("h3");
     title.textContent = p.name + (p.archived ? " (archivado)" : " (activo)");
     card.appendChild(title);
-    const focus = document.createElement("p");
-    focus.textContent = "Enfoque: " + (p.body.focus || "(sin enfoque)");
-    card.appendChild(focus);
     const readinessOut = document.createElement("p");
     readinessOut.className = "status";
     card.appendChild(readinessOut);
@@ -1093,10 +1088,6 @@ async function openProfileEdit(p, confirmedCvs, stored) {
     draftsByCard.set(p.id, draft.id);
     $("profile-edit-form").innerHTML = "";
     const editArea = document.createElement("div");
-    const focusLabel = document.createElement("label");
-    focusLabel.textContent = "Enfoque";
-    const focusInput = document.createElement("input");
-    focusInput.value = p.body.focus || "";
     const templateLabel = document.createElement("label");
     templateLabel.textContent = "Plantilla";
     const templateInput = document.createElement("input");
@@ -1206,7 +1197,7 @@ async function openProfileEdit(p, confirmedCvs, stored) {
       // Start from the stored body so keys this edit area does not
       // show (notes, etc.) survive a draft save instead of being
       // dropped; then overwrite every field the area does edit.
-      const body = { ...p.body, focus: focusInput.value, template: templateInput.value, factRefs: p.body.factRefs || [] };
+      const body = { ...p.body, template: templateInput.value, factRefs: p.body.factRefs || [] };
       if (cvSelect.value) body.cv_import_id = cvSelect.value; else delete body.cv_import_id;
       body.desired_roles = drInput.value.split("\n").map((l) => l.trim()).filter(Boolean);
       body.locations = locInput.value.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -1231,7 +1222,7 @@ async function openProfileEdit(p, confirmedCvs, stored) {
     const discardBtn = document.createElement("button");
     discardBtn.textContent = "Descartar borrador";
     discardBtn.onclick = async () => { try { const draftId = draftsByCard.get(p.id); if (draftId) await call("/api/drafts/" + draftId + "/discard", "POST", {}); await refreshProfiles(); $("profiles-status").textContent = "Borrador descartado"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
-    editArea.append(focusLabel, focusInput, templateLabel, templateInput, cvLabel, cvSelect,
+    editArea.append(templateLabel, templateInput, cvLabel, cvSelect,
       drLab, drInput, locLab, locInput, skLab, skInput, exLab, exInput,
       salCurLab, salCurInput, salMinLab, salMinInput, salMaxLab, salMaxInput, salPerLab, salPerInput,
       histModeLabel, histDynamicLab, histFixedLab, histWrap,
@@ -1288,7 +1279,7 @@ $("profile-create").onclick = async () => { try {
   // expectation. History mode is explicit: dynamic stores NO
   // selection keys (absent = all, including future master
   // additions); fixed stores exactly the ticked ids (possibly none).
-  const body = { focus: $("profile-focus").value, template: $("profile-template").value };
+  const body = { template: $("profile-template").value };
   const pickList = (fieldId) => {
     const typed = lines(fieldId);
     return typed.length ? typed : undefined;

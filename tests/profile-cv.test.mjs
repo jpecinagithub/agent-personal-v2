@@ -38,9 +38,9 @@ async function confirmedCv(db, personId, filename, text) {
 test("R4: a new profile without an assigned CV stays incomplete even when another profile has one", async () => {
   const { db, personId } = setup();
   const cvId = await confirmedCv(db, personId, "first.txt", "First Person\nfirst@example.test\n");
-  const withCv = createProfileFull(db, personId, "With CV", { focus: "Finance", cv_import_id: cvId });
+  const withCv = createProfileFull(db, personId, "With CV", { cv_import_id: cvId });
   assert.ok(!profileReadiness(db, withCv, { xaiVerified: true }).missing.includes("cv_validated"), "the profile that selected the CV clears cv_validated");
-  const withoutCv = createProfileFull(db, personId, "Without CV", { focus: "Finance" });
+  const withoutCv = createProfileFull(db, personId, "Without CV", {});
   const r = profileReadiness(db, withoutCv, { xaiVerified: true });
   assert.ok(r.missing.includes("cv_validated"), "a profile without a selected CV must still need one");
   assert.equal(r.ready, false);
@@ -50,13 +50,13 @@ test("R4: assigning an unconfirmed CV is rejected; assigning a valid one resolve
   const { db, personId } = setup();
   const preview = await previewCv(db, personId, "pending.txt", Buffer.from("Pending Person\npending@example.test\n", "utf8"));
   assert.throws(
-    () => createProfileFull(db, personId, "Too Early", { focus: "Finance", cv_import_id: preview.id }),
+    () => createProfileFull(db, personId, "Too Early", { cv_import_id: preview.id }),
     /must be a confirmed CV/,
     "a previewed, unconfirmed CV cannot be assigned",
   );
   const cvId = await confirmedCv(db, personId, "valid.txt", "Valid Person\nvalid@example.test\n");
-  const p1 = createProfileFull(db, personId, "One", { focus: "Finance", cv_import_id: cvId });
-  const p2 = createProfileFull(db, personId, "Two", { focus: "Finance", cv_import_id: cvId });
+  const p1 = createProfileFull(db, personId, "One", { cv_import_id: cvId });
+  const p2 = createProfileFull(db, personId, "Two", { cv_import_id: cvId });
   assert.ok(!profileReadiness(db, p1, { xaiVerified: true }).missing.includes("cv_validated"));
   assert.ok(!profileReadiness(db, p2, { xaiVerified: true }).missing.includes("cv_validated"), "the same CV may be reused across profiles");
 });
@@ -72,7 +72,7 @@ test("R4: changing a profile's CV does not alter historical attempts; new attemp
   const conflictResult = confirmCvImport(db, previewB.id);
   assert.equal(conflictResult.status, "confirmed_with_conflicts");
   const cvB = previewB.id;
-  const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance", cv_import_id: cvA });
+  const profileId = createProfileFull(db, personId, "Finance", { cv_import_id: cvA });
   const first = createAttempt(db, personId, profileId, offer(db, "offer-r4-1"), { xaiVerified: true });
   assert.equal(getAttempt(db, first).cvSnapshot.filename, "a.txt");
   assert.equal(getAttempt(db, first).cvSnapshot.extracted_text.includes("alpha@example.test"), true);

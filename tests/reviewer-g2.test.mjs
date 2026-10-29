@@ -113,7 +113,6 @@ test("reviewer: fixed history stores empty arrays when the master history is emp
     await app.page.click("#nav-profiles");
     await app.page.click("#profile-create-open");
     await app.page.fill("#profile-name", "Empty fixed history");
-    await app.page.fill("#profile-focus", "Testing");
     await app.page.locator('input[name="profile-history-mode"][value="fixed"]').check();
     await Promise.all([
       app.page.waitForResponse((r) => r.url().endsWith("/api/profiles") && r.request().method() === "POST"),

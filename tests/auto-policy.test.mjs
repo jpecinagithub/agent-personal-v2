@@ -22,7 +22,7 @@ function setup() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agentv2-autopolicy-"));
   const db = openDatabase(path.join(dir, "agentv2.db"));
   const personId = createPersonFull(db, FIXTURE_PERSON);
-  const profileId = createProfileFull(db, personId, "Finance", { focus: "Finance" });
+  const profileId = createProfileFull(db, personId, "Finance", {});
   return { db, personId, profileId };
 }
 
@@ -69,7 +69,7 @@ test("R5: server activation without a policy is rejected with the missing fields
     const cvRes = await post(base, "/api/cv", { personId, filename: "sample.txt", contentBase64: txt });
     const cvId = cvRes.json.id;
     await post(base, `/api/cv/${cvId}/confirm`, {});
-    const profileRes = await post(base, "/api/profiles", { personId, name: "Finance", body: { focus: "Finance", cv_import_id: cvId } });
+    const profileRes = await post(base, "/api/profiles", { personId, name: "Finance", body: { cv_import_id: cvId } });
     const profileId = profileRes.json.id;
     await post(base, "/api/policies/data_processing/accept", { personId });
     await post(base, "/api/consents", { personId, key: "apply_on_behalf" });
