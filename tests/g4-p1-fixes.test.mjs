@@ -308,3 +308,107 @@ test("P1 retry via API: repeat /execute without reset blocks, with reset it proc
     await new Promise((r) => server.close(() => r(undefined)));
   }
 });
+
+// --- initialUsage precedence (G4 P1, user reproduction on c4547fa,
+// 2026-10-29): without an explicit resetBudget, a supplied
+// initialUsage must NEVER reduce an accumulated counter. Effective
+// starting usage = element-wise maximum of (seeded previous usage,
+// supplied initialUsage) over every cumulative counter.
+function seedConsumedRun(db, personA, profileA, prefix) {
+  const planId = createPlan(db, { personId: personA, offerId: "https://example.test/jobs/1", profileId: profileA, routeKind: "company_careers", rationale: prefix, steps: STEPS });
+  // Deterministic consumption: declared 100 ms + 50 tokens + $1 cost (below the default $2 cap).
+  const first = runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 100000 }, activeMsPerStep: 100, llmTokensPerStep: 50, llmCostPerStep: 1 });
+  assert.equal(first.state, "observed_only");
+  assert.ok(first.usage.activeMs >= 100, `seeded activeMs, got ${first.usage.activeMs}`);
+  assert.equal(first.usage.llmTokens, 50);
+  assert.equal(first.usage.costUsd, 1);
+  assert.equal(first.usage.llmCalls, 1);
+  return planId;
+}
+
+test("P1 initialUsage: empty {} keeps the full previous consumption and blocks", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p1-init-empty-");
+  const planId = seedConsumedRun(db, personA, profileA, "init-empty");
+  let observedCalls = 0;
+  const retry = runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 20 }, initialUsage: {}, resetBudget: false, observeFn: () => { observedCalls += 1; return "x"; } });
+  assert.equal(retry.state, "stuck", "empty initialUsage must not reset the budget");
+  assert.equal(observedCalls, 0, "blocked retry must not observe");
+  assert.equal(retry.stepResults.length, 0);
+  assert.ok(retry.usage.activeMs >= 100, `previous consumption kept, got ${retry.usage.activeMs}`);
+  const persisted = listExecutions(db, planId).at(-1);
+  assert.ok(persisted.usage.activeMs >= 100, "persisted usage must not shrink");
+});
+
+test("P1 initialUsage: partial { llmCalls: 1 } preserves every previous counter", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p1-init-partial-");
+  const planId = seedConsumedRun(db, personA, profileA, "init-partial");
+  const retry = runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 20 }, initialUsage: { llmCalls: 1 }, resetBudget: false });
+  assert.equal(retry.state, "stuck");
+  assert.equal(retry.stepResults.length, 0);
+  assert.ok(retry.usage.activeMs >= 100, "activeMs preserved");
+  assert.equal(retry.usage.llmTokens, 50, "llmTokens preserved");
+  assert.equal(retry.usage.costUsd, 1, "costUsd preserved");
+  assert.equal(retry.usage.llmCalls, 1, "llmCalls kept at the stored value");
+});
+
+test("P1 initialUsage: values lower than stored lose on every counter", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p1-init-lower-");
+  const planId = seedConsumedRun(db, personA, profileA, "init-lower");
+  const retry = runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 20 }, initialUsage: { activeMs: 10, llmTokens: 5, costUsd: 0.5, llmCalls: 0 }, resetBudget: false });
+  assert.equal(retry.state, "stuck");
+  assert.ok(retry.usage.activeMs >= 100, "stored activeMs wins over 10");
+  assert.equal(retry.usage.llmTokens, 50, "stored llmTokens wins over 5");
+  assert.equal(retry.usage.costUsd, 1, "stored costUsd wins over 0.5");
+  assert.equal(retry.usage.llmCalls, 1, "stored llmCalls wins over 0");
+});
+
+test("P1 initialUsage: a higher value on one counter is kept, others stay stored", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p1-init-higher-");
+  const planId = seedConsumedRun(db, personA, profileA, "init-higher");
+  const retry = runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 20 }, initialUsage: { llmTokens: 500 }, resetBudget: false });
+  assert.equal(retry.state, "stuck");
+  assert.equal(retry.usage.llmTokens, 500, "higher supplied value kept as additional declared consumption");
+  assert.ok(retry.usage.activeMs >= 100, "other counters stay at stored values");
+  assert.equal(retry.usage.costUsd, 1);
+});
+
+test("P1 initialUsage: resetBudget true with {} genuinely restarts from zero", () => {
+  const { db, personA, profileA } = setup("agentv2-g4p1-init-reset-");
+  const planId = seedConsumedRun(db, personA, profileA, "init-reset");
+  const reset = runPlanDryRun(db, planId, { limits: { activeTimeBudgetMs: 20 }, initialUsage: {}, resetBudget: true });
+  assert.equal(reset.state, "observed_only", "explicit reset restarts the budget");
+  assert.equal(reset.stepResults[0].status, "observed");
+  assert.ok(reset.usage.activeMs < 20, `reset run starts from zero, got ${reset.usage.activeMs}`);
+  assert.equal(reset.usage.llmTokens, 0);
+});
+
+test("P1 initialUsage via API: user's exact request (budget 20, {}, reset false) blocks with consumption kept", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agentv2-g4p1-init-http-"));
+  const { server } = createServer({ dataDir: dir });
+  await new Promise((r) => server.listen(0, "127.0.0.1", () => r(undefined)));
+  const base = `http://127.0.0.1:${/** @type {import("node:net").AddressInfo} */ (server.address()).port}`;
+  const post = async (p, body) => {
+    const r = await fetch(`${base}${p}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    return { status: r.status, json: await r.json().catch(() => ({})) };
+  };
+  try {
+    const seeded = openDatabase(path.join(dir, "agentv2.db"));
+    const personId = createPersonFull(seeded, { full_name: "Init Person", email: "init@example.test" });
+    const profileId = createProfileFull(seeded, personId, "Finance", { focus: "Finance" });
+    const plan = await post("/api/plans", { personId, offerId: "https://example.test/jobs/1", profileId, routeKind: "company_careers", rationale: "init", steps: STEPS });
+    assert.equal(plan.status, 201);
+    const planId = plan.json.id;
+    const first = await post(`/api/plans/${planId}/execute`, { limits: { activeTimeBudgetMs: 20 }, activeMsPerStep: 100 });
+    assert.ok(first.json.execution.usage.activeMs >= 100, `first run persists ~100 ms, got ${first.json.execution.usage.activeMs}`);
+    // The user's exact request.
+    const retry = await post(`/api/plans/${planId}/execute`, { limits: { activeTimeBudgetMs: 20 }, initialUsage: {}, resetBudget: false });
+    assert.equal(retry.json.execution.state, "stuck", "exact user request must block");
+    assert.equal(retry.json.execution.stepResults.length, 0, "blocked retry has zero steps");
+    assert.ok(retry.json.execution.usage.activeMs >= 100, `consumption kept, got ${retry.json.execution.usage.activeMs}`);
+    const reset = await post(`/api/plans/${planId}/execute`, { limits: { activeTimeBudgetMs: 20 }, initialUsage: {}, resetBudget: true });
+    assert.equal(reset.json.execution.state, "observed_only", "explicit reset via API proceeds");
+    assert.equal(reset.json.execution.stepResults[0].status, "observed");
+  } finally {
+    await new Promise((r) => server.close(() => r(undefined)));
+  }
+});

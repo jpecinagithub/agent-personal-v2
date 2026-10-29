@@ -342,8 +342,12 @@ export function orderSteps(steps) {
  * Budget retry semantics (G4 P1 fix, 2026-10-29): a retry of the same
  * plan + version resumes from the latest execution's cumulative
  * counters by default — saving consumption does not imply forgetting
- * it. Only an explicit opts.resetBudget === true starts fresh, and
- * an explicitly supplied opts.initialUsage wins over both. An
+ * it. Only an explicit opts.resetBudget === true starts fresh. Without
+ * a reset, an explicitly supplied opts.initialUsage can only ADD
+ * declared consumption: the effective starting usage is the
+ * element-wise maximum of (seeded previous usage, supplied
+ * initialUsage) over every cumulative counter, so {} keeps the full
+ * previous consumption and lower values lose to the stored ones. An
  * already-exhausted starting usage blocks BEFORE any observation
  * (limit pre-check below); it never buys one more observation.
  * @param {any} db
@@ -359,10 +363,10 @@ export function runPlanDryRun(db, planId, opts = {}) {
   // run's progress detection and is never carried across runs.
   const CUMULATIVE_KEYS = ["activeMs", "waitMs", "llmCalls", "llmTokens", "costUsd", "planChanges", "noProgressRepetitions"];
   let usage;
-  if (opts.initialUsage !== undefined && opts.initialUsage !== null) {
-    usage = { ...freshUsage(), ...opts.initialUsage };
-  } else if (opts.resetBudget === true) {
-    usage = freshUsage();
+  if (opts.resetBudget === true) {
+    // The ONLY authorised reset path: initialUsage (or fresh usage)
+    // applies as-is.
+    usage = { ...freshUsage(), ...(opts.initialUsage ?? {}) };
   } else {
     usage = freshUsage();
     const prev = db.prepare("SELECT usage_json FROM plan_executions WHERE plan_id = ? AND plan_version = ? ORDER BY rowid DESC LIMIT 1").get(planId, plan.version);
@@ -375,6 +379,17 @@ export function runPlanDryRun(db, planId, opts = {}) {
       }
       for (const key of CUMULATIVE_KEYS) {
         if (typeof prevUsage[key] === "number" && prevUsage[key] >= 0) usage[key] = prevUsage[key];
+      }
+    }
+    // Without a reset, a supplied initialUsage must NEVER reduce an
+    // accumulated counter: element-wise maximum over every cumulative
+    // counter. {} keeps the full previous consumption; a partial value
+    // like { llmCalls: 1 } only raises that counter if it exceeds the
+    // stored one; lower values lose to the stored ones.
+    if (opts.initialUsage !== undefined && opts.initialUsage !== null) {
+      for (const key of CUMULATIVE_KEYS) {
+        const supplied = opts.initialUsage[key];
+        if (typeof supplied === "number" && supplied > usage[key]) usage[key] = supplied;
       }
     }
   }
