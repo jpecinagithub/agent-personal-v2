@@ -589,14 +589,17 @@ async function ensureProfilesPerson() {
 // (defect P2 2026-10-29): without this, typed input that was never
 // explicitly saved was rebuilt away when the profile was reopened.
 // A draft save never touches the live profile. If the autosave
-// itself fails (e.g. invalid input), navigation still continues and
-// the failure is visible in the edit view when it is reopened.
+// itself fails (e.g. invalid input or a network failure), navigation
+// is BLOCKED (residual P2 2026-10-29): the user stays on the edit
+// view with the form exactly as typed and the error shown, instead
+// of losing both the edit and the error. Returns true when there
+// was nothing to save or the save succeeded, false on failure.
 async function autosaveOpenEdit() {
-  if (!saveOpenProfileEdit) return;
-  try { await saveOpenProfileEdit(); } catch { /* navigation continues */ }
+  if (!saveOpenProfileEdit) return true;
+  try { await saveOpenProfileEdit(); return true; } catch { return false; }
 }
-$("nav-person").onclick = async () => { await autosaveOpenEdit(); showScreen("person"); await refreshPersonList(); };
-$("nav-profiles").onclick = async () => { await autosaveOpenEdit(); showScreen("profiles"); await ensureProfilesPerson(); await refreshProfiles(); };
+$("nav-person").onclick = async () => { if (!(await autosaveOpenEdit())) return; showScreen("person"); await refreshPersonList(); };
+$("nav-profiles").onclick = async () => { if (!(await autosaveOpenEdit())) return; showScreen("profiles"); await ensureProfilesPerson(); await refreshProfiles(); };
 showScreen("person");
 const lines = (id) => $(id).value.split("\n").map((l) => l.trim()).filter(Boolean);
 const pairs = (id) => lines(id).map((l) => { const [a, b] = l.split(",").map((s) => s.trim()); return [a, b]; });
@@ -1281,7 +1284,7 @@ async function openProfileEdit(p, confirmedCvs, stored) {
         body.employment_ids = hasSelectionCheckboxes(empSel) ? checkedIdsIn(empSel) : [];
         body.education_ids = hasSelectionCheckboxes(eduSel) ? checkedIdsIn(eduSel) : [];
       }
-      await call("/api/drafts/" + draftId, "PUT", { body }); draftOut.textContent = "Borrador guardado"; } catch (e) { draftOut.textContent = "Error: " + e.message; } };
+      await call("/api/drafts/" + draftId, "PUT", { body }); draftOut.textContent = "Borrador guardado"; } catch (e) { draftOut.textContent = "Error: " + e.message; throw e; } };
     saveOpenProfileEdit = saveBtn.onclick;
     const confirmBtn = document.createElement("button");
     confirmBtn.textContent = "Confirmar borrador";

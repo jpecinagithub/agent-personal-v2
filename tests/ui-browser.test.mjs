@@ -1134,3 +1134,102 @@ test("browser P2: 'Ver persona actual' dump shows no authorisations or sponsorsh
     await stopApp(app);
   }
 });
+
+test("browser P2 residual: failed autosave blocks navigation and preserves the form and its error", async () => {
+  // WHY (residual P2 on 8551e21, Persona/Perfiles conformity withheld):
+  // the 8551e21 fix deliberately let navigation continue when the
+  // autosave failed, and the save handler swallowed the error (it set
+  // the error text but never rethrew, so the autosave looked
+  // successful). A failed save must now block the switch, keep the
+  // typed form exactly as typed, and keep the error visible.
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ full_name: "Test Person", email: "test.person@example.test" }) });
+    assert.equal(created.status, 201);
+    const personId = (await (await fetch(`${base}/api/person`)).json()).person.id;
+    const profileRes = await fetch(`${base}/api/profiles`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personId, name: "Finanzas", body: { desired_roles: ["Finance Manager"] } }) });
+    assert.equal(profileRes.status, 201);
+    await app.page.click("#nav-profiles");
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
+    await app.page.locator("#profiles-list .profile-card").first().getByRole("button", { name: "Editar" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Guardar borrador"));
+    const editForm = app.page.locator("#profile-edit-form");
+    // The user's exact sequence: change the position, enter an
+    // invalid salary range (min 70000 > max 50000).
+    await editForm.locator("textarea").nth(0).fill("Senior Finance Manager");
+    // Edit-form inputs in order: template, currency, min, max, period.
+    await editForm.locator("input").nth(2).fill("70000");
+    await editForm.locator("input").nth(3).fill("50000");
+    await app.page.click("#nav-person");
+    // Navigation must be BLOCKED: still on the edit view, Persona hidden.
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("must not exceed max"));
+    assert.equal(await app.page.locator("#profile-edit-view").isVisible(), true, "failed autosave must keep the edit view open");
+    assert.equal(await app.page.locator("#person-screen").isVisible(), false, "failed autosave must not switch to Persona");
+    assert.ok(((await app.page.locator("#profile-edit-form").textContent()) ?? "").includes("Error: salary_expectations.min must not exceed max"), "backend validation error stays visible");
+    assert.equal(await editForm.locator("textarea").nth(0).inputValue(), "Senior Finance Manager", "typed position preserved");
+    assert.equal(await editForm.locator("input").nth(2).inputValue(), "70000", "typed salary min preserved");
+    assert.equal(await editForm.locator("input").nth(3).inputValue(), "50000", "typed salary max preserved");
+    // Correct the range: navigation must now succeed and the
+    // corrected values must persist on reopen.
+    await editForm.locator("input").nth(3).fill("80000");
+    await app.page.click("#nav-person");
+    await app.page.waitForFunction(() => (/** @type {HTMLElement|null} */ (document.querySelector("#person-screen")))?.offsetParent !== null);
+    assert.equal(await app.page.locator("#person-screen").isVisible(), true, "corrected save must allow the switch");
+    await app.page.click("#nav-profiles");
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
+    await app.page.locator("#profiles-list .profile-card").first().getByRole("button", { name: "Editar" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Guardar borrador"));
+    assert.equal(await app.page.locator("#profile-edit-form").locator("textarea").nth(0).inputValue(), "Senior Finance Manager", "corrected values persist on reopen");
+    assert.equal(await app.page.locator("#profile-edit-form").locator("input").nth(2).inputValue(), "70000");
+    assert.equal(await app.page.locator("#profile-edit-form").locator("input").nth(3).inputValue(), "80000");
+    // Explicit discard still discards: back to the list, reopen shows
+    // the live values, not the draft's.
+    await app.page.click("#profile-edit-back");
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
+    await app.page.locator("#profiles-list .profile-card").first().getByRole("button", { name: "Editar" }).click();
+    // Wait for the REBUILT form, not just for "Guardar borrador"
+    // text: the previous (hidden) edit form still contains that text
+    // and the old value, so a text wait can read stale content.
+    await app.page.waitForFunction(() => (/** @type {HTMLTextAreaElement|null} */ (document.querySelector("#profile-edit-form textarea")))?.value === "Finance Manager");
+    assert.equal(await app.page.locator("#profile-edit-form").locator("textarea").nth(0).inputValue(), "Finance Manager", "explicit discard still drops the draft");
+  } finally {
+    await stopApp(app);
+  }
+});
+
+test("browser P2 residual: network failure on autosave blocks navigation through the same path", async () => {
+  // Same failure path as the 400 case, with a simulated network
+  // failure instead of a backend rejection: navigation blocked, form
+  // and error preserved, and the switch succeeds once the network
+  // is back.
+  const app = await startApp();
+  try {
+    const port = /** @type {import("node:net").AddressInfo} */ (app.server.address()).port;
+    const base = `http://127.0.0.1:${port}`;
+    const created = await fetch(`${base}/api/person`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ full_name: "Test Person", email: "test.person@example.test" }) });
+    assert.equal(created.status, 201);
+    const personId = (await (await fetch(`${base}/api/person`)).json()).person.id;
+    const profileRes = await fetch(`${base}/api/profiles`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personId, name: "Finanzas", body: { desired_roles: ["Finance Manager"] } }) });
+    assert.equal(profileRes.status, 201);
+    await app.page.click("#nav-profiles");
+    await app.page.waitForFunction(() => (document.querySelector("#profiles-list")?.textContent ?? "").includes("Finanzas"));
+    await app.page.locator("#profiles-list .profile-card").first().getByRole("button", { name: "Editar" }).click();
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Guardar borrador"));
+    const editForm = app.page.locator("#profile-edit-form");
+    await editForm.locator("textarea").nth(0).fill("Senior Finance Manager");
+    await app.page.route("**/api/drafts/**", (route) => route.abort());
+    await app.page.click("#nav-person");
+    await app.page.waitForFunction(() => (document.querySelector("#profile-edit-form")?.textContent ?? "").includes("Error:"));
+    assert.equal(await app.page.locator("#profile-edit-view").isVisible(), true, "network failure must keep the edit view open");
+    assert.equal(await app.page.locator("#person-screen").isVisible(), false, "network failure must not switch to Persona");
+    assert.equal(await editForm.locator("textarea").nth(0).inputValue(), "Senior Finance Manager", "typed position preserved through a network failure");
+    await app.page.unroute("**/api/drafts/**");
+    await app.page.click("#nav-person");
+    await app.page.waitForFunction(() => (/** @type {HTMLElement|null} */ (document.querySelector("#person-screen")))?.offsetParent !== null);
+    assert.equal(await app.page.locator("#person-screen").isVisible(), true, "switch succeeds once the network is back");
+  } finally {
+    await stopApp(app);
+  }
+});
