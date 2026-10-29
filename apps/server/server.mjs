@@ -48,6 +48,15 @@ import { scanAndRecord, listRejectedInstructions } from "../../packages/shared/u
 import { preflightCheck, decideAuto } from "../../packages/shared/preflight.mjs";
 import { runF4Flow } from "../../packages/shared/f4-flow.mjs";
 import { buildProfileView } from "../../packages/shared/search-run.mjs";
+// F5: semantic answers and canonical documents (preview only: no
+// attempts, no queue candidates, no final actions).
+import { resolveSemantic, listAliases, evaluateSemantic } from "../../packages/shared/semantic.mjs";
+import {
+  buildResumeContent, buildCoverLetterContent, createDocument,
+  editDocument, listDocumentVersions, getDocumentVersion,
+  getLatestValidatedVersion, listDocuments, renderVersionContent,
+  prepareAttachment,
+} from "../../packages/shared/documents.mjs";
 import { getConfirmedFact } from "../../packages/shared/facts.mjs";
 import { profileCv } from "../../packages/shared/profiles.mjs";
 
@@ -868,6 +877,75 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, ver
         // Flow facts: questions were asked against the chosen profile's
         // assessment; surface the chosen profile's selected state too.
         return send(res, 200, { flow, selectedProfile: body.personId ? getSelectedProfile(db, body.personId) : null });
+      }
+      // F5: semantic answers and canonical documents. Generation and
+      // preview only: no route here creates an attempt, enqueues a
+      // candidate or performs a final action.
+      if (req.method === "POST" && url.pathname === "/api/semantic/resolve") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        if (!body.personId) throw new Error("personId is required");
+        return send(res, 200, { answer: resolveSemantic(db, body.personId, { text: body.text ?? "", concept: body.concept ?? "", scope: body.scope ?? "", premise: body.premise ?? null }) });
+      }
+      if (req.method === "GET" && url.pathname === "/api/semantic/aliases") {
+        const personId = url.searchParams.get("personId");
+        if (!personId) return send(res, 400, { error: "personId is required" });
+        return send(res, 200, { aliases: listAliases(db, personId) });
+      }
+      if (req.method === "POST" && url.pathname === "/api/semantic/evaluate") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        if (!body.personId) throw new Error("personId is required");
+        if (!Array.isArray(body.cases)) throw new Error("cases must be an array");
+        return send(res, 200, { evaluation: evaluateSemantic(db, body.personId, body.cases) });
+      }
+      if (req.method === "POST" && url.pathname === "/api/documents") {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        if (!body.personId || !body.profileId) throw new Error("personId and profileId are required");
+        const content = body.kind === "cover_letter"
+          ? buildCoverLetterContent(db, body.personId, body.profileId, { company: body.company ?? "", role: body.role ?? "" })
+          : buildResumeContent(db, body.personId, body.profileId, { company: body.company ?? "", role: body.role ?? "" });
+        const created = createDocument(db, { personId: body.personId, profileId: body.profileId, kind: body.kind ?? "resume", content, gaps: content.gaps });
+        return send(res, 201, { ...created, content });
+      }
+      if (req.method === "GET" && url.pathname === "/api/documents") {
+        const personId = url.searchParams.get("personId");
+        if (!personId) return send(res, 400, { error: "personId is required" });
+        return send(res, 200, { documents: listDocuments(db, personId, url.searchParams.get("profileId")) });
+      }
+      if (req.method === "GET" && url.pathname.startsWith("/api/documents/") && url.pathname.endsWith("/versions")) {
+        return send(res, 200, { versions: listDocumentVersions(db, url.pathname.split("/")[3]) });
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/documents/") && url.pathname.endsWith("/edit")) {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        if (!body.content) throw new Error("content is required");
+        return send(res, 200, { edited: editDocument(db, url.pathname.split("/")[3], body.content) });
+      }
+      if (req.method === "GET" && url.pathname.startsWith("/api/documents/") && url.pathname.endsWith("/download")) {
+        const documentId = url.pathname.split("/")[3];
+        const format = url.searchParams.get("format") ?? "pdf";
+        const versionParam = url.searchParams.get("version");
+        const versionRow = versionParam === null
+          ? getLatestValidatedVersion(db, documentId)
+          : getDocumentVersion(db, documentId, Number(versionParam));
+        if (!versionRow) return send(res, 404, { error: "document version not found" });
+        if (versionRow.status !== "validated") return send(res, 400, { error: `document version ${versionRow.version} is ${versionRow.status}, not validated` });
+        const bytes = renderVersionContent(versionRow.content, format);
+        const mime = format === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/pdf";
+        res.writeHead(200, { "Content-Type": mime, "Content-Disposition": `attachment; filename="document-v${versionRow.version}.${format}"` });
+        return res.end(bytes);
+      }
+      if (req.method === "POST" && url.pathname.startsWith("/api/documents/") && url.pathname.endsWith("/attachments")) {
+        if (!requireControlOrigin(req, res)) return;
+        const body = await readJson(req);
+        const prepared = prepareAttachment(db, {
+          documentId: url.pathname.split("/")[3], version: body.version ?? null,
+          format: body.format, role: body.role, portalRequirements: body.portalRequirements ?? {},
+        });
+        const { bytesLength, ...meta } = prepared;
+        return send(res, 201, { attachment: { ...meta, bytesLength } });
       }
       if (req.method === "GET" && url.pathname.startsWith("/queue/")) {
         const job = getJob(db, url.pathname.split("/")[2]);

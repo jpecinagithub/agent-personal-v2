@@ -490,6 +490,30 @@ desactivar inmediatamente en cualquier momento.</small></p>
 <div id="search-benchmark-out"></div>
 </section>
 
+<section id="f5-section">
+<h2>Respuestas y documentos</h2>
+<p><small>Respuestas canónicas en inglés y documentos generados solo con hechos declarados: nada inventado, nada rellenado con valores plausibles. Generar y previsualizar no crea candidaturas, no encola nada y no envía nada. La autoaplicación sigue desactivada.</small></p>
+<h3>Resolver una pregunta</h3>
+<label for="f5-question">Pregunta (texto libre, en inglés como la haría un portal)</label><input id="f5-question" placeholder="Are you authorized to work in Spain?">
+<label for="f5-person-id">ID de la persona</label><input id="f5-person-id" placeholder="ID de la persona">
+<button id="f5-resolve" type="button">Resolver</button>
+<p class="status" id="f5-resolve-out"></p>
+<h3>Generar documento</h3>
+<label for="f5-doc-person">ID de la persona</label><input id="f5-doc-person" placeholder="ID de la persona">
+<label for="f5-doc-profile">ID del perfil</label><input id="f5-doc-profile" placeholder="ID del perfil">
+<label for="f5-doc-kind">Tipo</label><select id="f5-doc-kind"><option value="resume">Currículum (resume)</option><option value="cover_letter">Carta de presentación (cover letter)</option></select>
+<label for="f5-doc-company">Empresa (opcional)</label><input id="f5-doc-company" placeholder="Acme Corp">
+<label for="f5-doc-role">Puesto (opcional)</label><input id="f5-doc-role" placeholder="Finance Manager">
+<button id="f5-doc-generate" type="button">Generar y previsualizar</button>
+<p class="status" id="f5-doc-out"></p>
+<div id="f5-doc-preview"></div>
+<label for="f5-doc-id">ID del documento (para descargar o preparar adjunto)</label><input id="f5-doc-id" placeholder="ID del documento generado">
+<label for="f5-doc-format">Formato</label><select id="f5-doc-format"><option value="pdf">PDF</option><option value="docx">DOCX</option></select>
+<button id="f5-doc-download" type="button">Descargar</button>
+<button id="f5-doc-attach" type="button">Preparar adjunto</button>
+<p class="status" id="f5-doc-action-out"></p>
+</section>
+
 <script>
 const $ = (id) => document.getElementById(id);
 const show = (el, obj) => { el.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2); };
@@ -1777,6 +1801,33 @@ $("search-benchmark-run").onclick = async () => { try {
     + " · precisión top-20: " + m.top20.correct + "/" + m.top20.size
     + " · ofertas en el corpus: " + m.totalOffers;
 } catch (e) { $("search-benchmark-out").textContent = "Error: " + e.message; } };
+// F5: semantic answers and canonical documents (preview only).
+$("f5-resolve").onclick = async () => { try {
+  const r = await call("/api/semantic/resolve", "POST", { personId: $("f5-person-id").value, text: $("f5-question").value });
+  const a = r.answer;
+  $("f5-resolve-out").textContent = "Respuesta: " + a.kind + (a.value !== undefined ? " = " + a.value : "")
+    + (a.origin ? " (origen: " + a.origin + ")" : "") + (a.reason ? " — " + a.reason : "")
+    + (a.candidates ? " — candidatos: " + a.candidates.map((c) => c.scope + "=" + c.value).join(", ") : "");
+} catch (e) { $("f5-resolve-out").textContent = "Error: " + e.message; } };
+$("f5-doc-generate").onclick = async () => { try {
+  const r = await call("/api/documents", "POST", {
+    personId: $("f5-doc-person").value, profileId: $("f5-doc-profile").value,
+    kind: $("f5-doc-kind").value, company: $("f5-doc-company").value, role: $("f5-doc-role").value,
+  });
+  $("f5-doc-id").value = r.documentId;
+  $("f5-doc-out").textContent = "Documento creado (versión " + r.version + ", " + r.status + "). Brechas fuera del texto: " + (r.content.gaps.length > 0 ? r.content.gaps.join(" · ") : "ninguna");
+  $("f5-doc-preview").textContent = r.content.sections.map((s) => (s.heading ? s.heading + "\n" : "") + s.lines.map((l) => l.text).join("\n")).join("\n\n");
+} catch (e) { $("f5-doc-out").textContent = "Error: " + e.message; } };
+$("f5-doc-download").onclick = () => {
+  const id = $("f5-doc-id").value;
+  if (!id) { $("f5-doc-action-out").textContent = "Error: falta el ID del documento"; return; }
+  window.open("/api/documents/" + encodeURIComponent(id) + "/download?format=" + $("f5-doc-format").value, "_blank");
+  $("f5-doc-action-out").textContent = "Descarga solicitada (solo previsualización: no se envía nada).";
+};
+$("f5-doc-attach").onclick = async () => { try {
+  const r = await call("/api/documents/" + encodeURIComponent($("f5-doc-id").value) + "/attachments", "POST", { format: $("f5-doc-format").value, role: $("f5-doc-kind").value === "cover_letter" ? "cover_letter" : "resume" });
+  $("f5-doc-action-out").textContent = "Adjunto preparado: " + r.attachment.filename + " (" + r.attachment.mime + ", " + r.attachment.bytesLength + " bytes, sha256 " + r.attachment.sha256.slice(0, 12) + "…). Preparado no es recepción del portal.";
+} catch (e) { $("f5-doc-action-out").textContent = "Error: " + e.message; } };
 </script>
 </body>
 </html>

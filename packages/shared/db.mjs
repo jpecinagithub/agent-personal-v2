@@ -70,7 +70,13 @@ export function snapshotProfile(db, profileId) {
 export function updateProfile(db, profileId, body) {
   db.exec("BEGIN IMMEDIATE");
   try {
-    const snapshotId = snapshotProfile(db, profileId);
+    // F5: a snapshot for this version may already exist (e.g. a
+    // document snapshot pinned it first). Same version means same
+    // body — bodies only change through this function, which bumps
+    // the version — so reusing it is correct, and re-inserting would
+    // wrongly fail on the UNIQUE (profile_id, version) constraint.
+    const existing = db.prepare("SELECT id FROM profile_snapshots WHERE profile_id = ? AND version = ?").get(profileId, db.prepare("SELECT version FROM profiles WHERE id = ?").get(profileId)?.version);
+    const snapshotId = existing ? existing.id : snapshotProfile(db, profileId);
     db.prepare("UPDATE profiles SET body_json = ?, version = version + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").run(JSON.stringify(body), profileId);
     db.exec("COMMIT");
     return snapshotId;
