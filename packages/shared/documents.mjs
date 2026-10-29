@@ -175,19 +175,27 @@ export function buildCoverLetterContent(db, personId, profileId, { company = "",
  * Genuine system template furniture (cover-letter greeting, generic
  * interest/closing sentences, target-company line). ONLY a line that
  * is ENTIRELY template furniture may skip reference validation via
- * the template flag: every pattern below is anchored end-to-end, so
- * a claim smuggled after a template prefix ("…position. I have a PhD
- * from MIT") is validated as an ordinary claim. The two lines whose
- * tail is user-supplied (greeting sign-off, target company) reject
- * any tail carrying claim content (degree/language/employment
- * wording or an em-dash claim separator) instead of trusting the
- * prefix.
+ * the template flag. Parameters carried by furniture (company names)
+ * are controlled, not trusted: a parameter is a SINGLE entity, so it
+ * must never contain claim wording (degree/language/employment
+ * claims, "I hold/I have/I speak" content) or a second sentence
+ * carrying such a claim. School/college/university words inside a
+ * company NAME are legitimate ("Greenfield School" is a company, not
+ * a personal claim) and are therefore NOT claim wording here — the
+ * previous guard rejected them and broke destination companies.
  */
-const SYSTEM_TEMPLATE_PATTERNS = [
-  /^Dear (.* )?Hiring Team,$/,
-  /^I am writing to express my interest in (the .+ position( at .+)?|a position matching my profile)\.$/,
-  /^I would welcome the opportunity to discuss how my background fits this position\.$/,
-];
+/** Claim wording that must never hide inside a template parameter. */
+const PARAM_CLAIM_WORDS = /(\bi\s+(hold|have|has|had|speak|spoke|am|was|were|worked|managed|led|earned|completed|graduated|studied)\b|\bmy\s+(degree|education|experience)\b|\b(phd|doctorate|degree|bachelor|fluent|fluently|hablo)\b|\b\d+\s+years?\s+of\s+experience\b)/i;
+
+function companyParamHasClaim(rest) {
+  const t = String(rest ?? "").trim();
+  if (PARAM_CLAIM_WORDS.test(t)) return true;
+  // A second sentence carrying a personal-claim verb is smuggling,
+  // even without a degree keyword ("Acme. I worked there for years").
+  const sentences = t.split(/[.?!]\s+/);
+  return sentences.length > 1 && sentences.slice(1).some((s) =>
+    /\b(i|we|he|she|they|you)\s+(hold|have|has|had|speak|spoke|am|was|were|worked|managed|led|earned|completed|graduated|studied)\b/i.test(s));
+}
 
 function templateTailHasClaim(tail) {
   return /(i (have|speak|worked|am|hold)|my (experience|education|degree|skills)|degree|phd|doctorate|university|college|institute|school|fluent|hablo|speak)/i.test(tail)
@@ -196,14 +204,18 @@ function templateTailHasClaim(tail) {
 
 function isSystemTemplate(text) {
   const t = String(text ?? "").trim();
-  if (SYSTEM_TEMPLATE_PATTERNS.some((re) => re.test(t))) return true;
+  const greeting = t.match(/^Dear (.* )?Hiring Team,$/);
+  if (greeting) return !greeting[1] || !companyParamHasClaim(greeting[1].trim());
+  const interest = t.match(/^I am writing to express my interest in (?:the (.+?) position(?: at (.+))?|a position matching my profile)\.$/);
+  if (interest) return !interest[2] || !companyParamHasClaim(interest[2].trim());
+  if (/^I would welcome the opportunity to discuss how my background fits this position\.$/.test(t)) return true;
   if (t.startsWith("Sincerely,")) {
     const rest = t.slice("Sincerely,".length).trim();
     return rest !== "" && !templateTailHasClaim(rest);
   }
   if (t.startsWith("Target company:")) {
     const rest = t.slice("Target company:".length).trim();
-    return rest !== "" && !templateTailHasClaim(rest);
+    return rest !== "" && !companyParamHasClaim(rest);
   }
   return false;
 }
@@ -247,49 +259,95 @@ function isEducationClaim(text) {
   return ["university", "college", "institute", "school"].some((w) => words.has(w));
 }
 
-function significantTokens(text) {
-  const stop = new Set(["university", "college", "institute", "school", "of", "the", "and", "de", "la"]);
-  return new Set(claimWords(text).filter((w) => w.length >= 4 && !stop.has(w)));
+
+/**
+ * Does one reference actually SUPPORT an education claim — fully, not
+ * partially? A history education entry supports it only when ALL
+ * asserted fields match that SAME entry: level group, subject,
+ * institution and dates (see educationRefSupports). A skills ref, an
+ * employment ref, or any unrelated fact never supports an education
+ * claim, however the client flags the line.
+ */
+function escapeRegExp(s) {
+  return String(s ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** A year range asserted in free text, if any ("2020 – 2024", "January 2020 – June 2024", "2020 – Present"). */
+function claimYearRange(text) {
+  const m = String(text ?? "").match(/(\d{4})\s*[–—-]\s*(?:[A-Za-z]+\s+)?(\d{4}|Present|Unknown)/);
+  return m ? { startYear: m[1], end: m[2] } : null;
+}
+
+/** Years mentioned in free text outside a range. */
+function claimYears(text) {
+  return [...new Set((String(text ?? "").match(/\b\d{4}\b/g) || []))];
 }
 
 /**
- * Does one reference actually SUPPORT an education claim (not merely
- * exist)? A history education entry supports it only when its level
- * group matches the claimed level group (exact level rule: a BSc
- * entry never supports a PhD claim, even with shared institution
- * tokens) AND, when the claim names subject tokens, one of them
- * overlaps the entry's title/institution. A claim naming no subject
- * ("PhD") is supported by any same-level entry. A generic claim
- * ("degree in …") claims no specific level, so token overlap decides.
- * A highest_education fact follows the same rule on its value text.
- * A skills ref, an employment ref, or any unrelated fact never
- * supports an education claim, however the client flags the line.
+ * Do the dates asserted in a line match ONE held entry? A range must
+ * match start and end exactly (end is a year, "Present" only with
+ * current:true, "Unknown" otherwise); a lone year must be the entry's
+ * start or end year. No range and no years asserted: nothing to check.
  */
+function entryDatesMatch(text, entry) {
+  const range = claimYearRange(text);
+  const startYear = entry?.start ? String(entry.start).match(/\d{4}/)?.[0] ?? null : null;
+  const endYear = entry?.end ? String(entry.end).match(/\d{4}/)?.[0] ?? null : null;
+  if (range) {
+    if (!startYear || startYear !== range.startYear) return false;
+    const expectedEnd = endYear ?? (entry?.current === true ? "Present" : "Unknown");
+    return range.end === expectedEnd;
+  }
+  const years = claimYears(text);
+  if (years.length === 0) return true;
+  if (!startYear && !endYear) return false;
+  return years.every((y) => y === startYear || y === endYear);
+}
+
+/** The held history entry behind a ref: the stored entry first (it carries `current`), else the ref's snapshot. */
+function resolveHistoryEntry(db, personId, ref, entryKind) {
+  const person = getPerson(db, personId);
+  const list = entryKind === "education" ? (person?.details?.education ?? []) : (person?.details?.employment ?? []);
+  return list.find((e) => e.id === ref.id) ?? ref.value ?? null;
+}
+
+/** Subject tokens of an education claim: claim words minus level words, stopwords, furniture, institution words and dates. */
+function educationSubjectTokens(claimText, institutionWords) {
+  const stop = new Set(["university", "college", "institute", "school", "of", "the", "and", "de", "la", "at", "in", "from", "my", "education", "includes", "include", "a", "an", "is", "with"]);
+  const months = new Set(["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]);
+  return new Set(claimWords(claimText).filter((w) =>
+    !EDUCATION_LEVEL_KEYS.includes(w) && !stop.has(w) && !institutionWords.has(w) && !months.has(w)
+    && !/^\d{4}$/.test(w) && w !== "present" && w !== "unknown"));
+}
+
 function educationRefSupports(db, personId, ref, claimText) {
-  const levels = claimLevels(claimText);
-  const tokens = significantTokens(claimText);
-  const overlaps = (a, b) => [...a].some((t) => b.has(t));
   const specificClaim = new Set([...levelGroups(claimText)].filter((g) => g !== "generic"));
-  // True when the supporting text is at the claimed level AND (the
-  // claim names no subject, or a subject token overlaps the support).
-  const levelAndSubjectOk = (supportText, supportTokens) => {
+  const claimWordSet = new Set(claimWords(claimText));
+  // ALL asserted fields must match this ONE source: level group,
+  // every subject token in the support title, every significant
+  // institution token in the claim, and asserted dates in the entry.
+  // A claim naming no subject ("PhD") is supported by any same-level
+  // entry; a generic claim ("degree in …") claims no specific level,
+  // so subject overlap decides.
+  const checkSupport = (supportText, supportTitleWords, supportInstitutionWords, supportEntry) => {
     if (specificClaim.size > 0) {
       const supportGroups = levelGroups(supportText);
       if (![...specificClaim].some((g) => supportGroups.has(g))) return false;
-      if (tokens.size === 0) return true;
-      return overlaps(tokens, supportTokens);
     }
-    if (overlaps(levels, claimLevels(supportText))) return true;
-    return overlaps(tokens, supportTokens);
+    const subjects = educationSubjectTokens(claimText, supportInstitutionWords);
+    if (![...subjects].every((tok) => supportTitleWords.has(tok))) return false;
+    const instSignificant = new Set([...supportInstitutionWords].filter((w) => w.length >= 4));
+    if (![...instSignificant].every((tok) => claimWordSet.has(tok))) return false;
+    if (supportEntry) return entryDatesMatch(claimText, supportEntry);
+    const range = claimYearRange(claimText);
+    if (range && !(supportText.includes(range.startYear) && (/\d{4}/.test(range.end) ? supportText.includes(range.end) : true))) return false;
+    return true;
   };
   if (ref.kind === "history" && ref.entryKind === "education") {
-    const entry = ref.value ?? (() => {
-      const person = getPerson(db, personId);
-      return (person?.details?.education ?? []).find((e) => e.id === ref.id);
-    })();
+    const entry = resolveHistoryEntry(db, personId, ref, "education");
     if (!entry) return false;
-    const supportTokens = new Set([...significantTokens(entry.title ?? ""), ...significantTokens(entry.institution ?? "")]);
-    return levelAndSubjectOk(`${entry.title ?? ""} ${entry.institution ?? ""}`, supportTokens);
+    const supportText = `${entry.title ?? ""} ${entry.institution ?? ""}`;
+    return checkSupport(supportText, new Set(claimWords(entry.title ?? "")), new Set(claimWords(entry.institution ?? "")), entry);
   }
   if (ref.kind === "fact") {
     const row = db.prepare("SELECT * FROM declared_facts WHERE id = ? AND person_id = ? AND confirmation_state = 'confirmed'").get(ref.id, personId);
@@ -297,9 +355,38 @@ function educationRefSupports(db, personId, ref, claimText) {
     let value;
     try { value = JSON.parse(row.value_json); } catch { return false; }
     const valueText = typeof value === "string" ? value : JSON.stringify(value);
-    return levelAndSubjectOk(valueText, significantTokens(valueText));
+    return checkSupport(valueText, new Set(claimWords(valueText)), new Set(), null);
   }
   return false;
+}
+
+/**
+ * Does one employment history reference FULLY support an employment
+ * line? ALL asserted fields must match that SAME entry. A shaped
+ * resume line ("Title — Employer (dates)") must match title,
+ * employer and dates field by field, so an unchanged employer can no
+ * longer carry an invented title and invented dates. An unshaped line
+ * (a cover-letter argument) must contain no significant token outside
+ * furniture, dates and the entry's own title/employer words, and its
+ * dates must match the entry.
+ */
+function employmentRefSupports(db, personId, ref, claimText) {
+  const entry = resolveHistoryEntry(db, personId, ref, "employment");
+  if (!entry) return false;
+  const text = String(claimText ?? "");
+  const shaped = text.match(/^(.+?)\s+[–—-]\s+(.+?)\s*\(([^)]*)\)\s*$/);
+  if (shaped) {
+    const titleOk = !isNonEmptyString(entry.title) || shaped[1].trim().toLowerCase() === String(entry.title).toLowerCase();
+    const employerOk = !isNonEmptyString(entry.employer) || shaped[2].trim().toLowerCase() === String(entry.employer).toLowerCase();
+    return titleOk && employerOk && entryDatesMatch(text, entry);
+  }
+  const furniture = new Set(["my", "experience", "as", "at", "is", "directly", "relevant", "to", "this", "role", "worked", "for", "with", "in", "of", "the", "a", "an", "and", "from", "on", "i", "we", "he", "she", "they", "you", "me", "him", "her", "us", "them", "have", "has", "had", "was", "were", "been", "be", "am", "are", "since", "until", "during", "between", "currently", "previously", "formerly"]);
+  const months = new Set(["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]);
+  const entryWords = new Set([...claimWords(entry.title ?? ""), ...claimWords(entry.employer ?? "")]);
+  const tokens = claimWords(text).filter((w) =>
+    !furniture.has(w) && !months.has(w) && !/^\d{4}$/.test(w) && w !== "present" && w !== "unknown");
+  if (!tokens.every((tok) => entryWords.has(tok))) return false;
+  return entryDatesMatch(text, entry);
 }
 
 /**
@@ -362,10 +449,36 @@ function languageNameMatches(entryLang, claimed) {
   return e === claimed || (e.includes(claimed) && claimed.length >= 4) || (claimed.includes(e) && e.length >= 4);
 }
 
-function languageRefSupports(db, personId, ref, lang) {
+const LEVEL_WORDS = ["native", "fluent", "beginner", "intermediate", "advanced", "elementary", "proficient", "a1", "a2", "b1", "b2", "c1", "c2"];
+
+function normalizeLevel(w) {
+  const l = String(w ?? "").toLowerCase();
+  return l === "fluently" ? "fluent" : l;
+}
+
+/**
+ * The level a line asserts for a language, if any: "Mandarin: native"
+ * (colon form) or a level word near the language name ("I speak
+ * Mandarin fluently"). Null when the line asserts no level — then the
+ * language name alone is what must be backed.
+ */
+function languageLevelClaimed(text, lang) {
+  const lower = String(text ?? "").toLowerCase();
+  const colon = lower.match(new RegExp(`\\b${escapeRegExp(lang)}\\s*:\\s*([a-z][a-z0-9]*)`));
+  if (colon) {
+    const n = normalizeLevel(colon[1]);
+    if (LEVEL_WORDS.includes(n)) return n;
+  }
+  const prox = lower.match(new RegExp(`\\b${escapeRegExp(lang)}\\b.{0,40}?\\b(native|fluent|fluently|beginner|intermediate|advanced|elementary|proficient|a1|a2|b1|b2|c1|c2)\\b`))
+    || lower.match(new RegExp(`\\b(native|fluent|fluently|beginner|intermediate|advanced|elementary|proficient|a1|a2|b1|b2|c1|c2)\\b.{0,40}?\\b${escapeRegExp(lang)}\\b`));
+  return prox ? normalizeLevel(prox[1]) : null;
+}
+
+function languageRefSupports(db, personId, ref, lang, claimedLevel = null) {
+  const levelOk = (heldLevel) => claimedLevel === null || normalizeLevel(heldLevel) === claimedLevel;
   if (ref.kind === "person" && ref.field === "languages") {
     const value = ref.value ?? getPerson(db, personId)?.details?.languages;
-    return Array.isArray(value) && value.some((l) => languageNameMatches(l.language, lang));
+    return Array.isArray(value) && value.some((l) => languageNameMatches(l.language, lang) && levelOk(l.level));
   }
   if (ref.kind === "fact") {
     const row = db.prepare("SELECT * FROM declared_facts WHERE id = ? AND person_id = ? AND confirmation_state = 'confirmed'").get(ref.id, personId);
@@ -374,7 +487,10 @@ function languageRefSupports(db, personId, ref, lang) {
     try { value = JSON.parse(row.value_json); } catch { return false; }
     const valueText = typeof value === "string" ? value : JSON.stringify(value);
     if (!new RegExp(`\\b${lang}\\b`, "i").test(valueText)) return false;
-    return /language/i.test(row.concept) || /language|level|proficiency/i.test(row.concept);
+    if (!( /language/i.test(row.concept) || /language|level|proficiency/i.test(row.concept))) return false;
+    if (claimedLevel === null) return true;
+    const normalized = valueText.toLowerCase().replace(/\bfluently\b/g, "fluent");
+    return new RegExp(`\\b${escapeRegExp(claimedLevel)}\\b`).test(normalized);
   }
   return false;
 }
@@ -401,11 +517,139 @@ function heldSkills(db, personId, profileId, skillsRefs) {
   return Array.isArray(profile?.body?.skills) ? profile.body.skills : [];
 }
 
-function authorisationRefSupports(db, personId, ref, parsedScope) {
+/** Polarity of a stored fact value: "yes" for yes/true/authorised/required, "no" for no/false, else null. */
+function factPolarity(value) {
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (["yes", "true", "authorised", "authorized", "required"].includes(v)) return "yes";
+    if (["no", "false", "not required", "not_required"].includes(v)) return "no";
+    return null;
+  }
+  if (value && typeof value === "object") {
+    if (value.value !== undefined) return factPolarity(value.value);
+    if (value.answer !== undefined) return factPolarity(value.answer);
+  }
+  return null;
+}
+
+/**
+ * Does one fact support an authorisation/sponsorship claim — scope
+ * AND polarity? A positive claim needs a positive ("yes") backing
+ * fact; a "no" fact can never support a "yes" claim, and vice versa.
+ */
+function authorisationRefSupports(db, personId, ref, parsedClaim) {
   if (ref.kind !== "fact") return false;
   const row = db.prepare("SELECT * FROM declared_facts WHERE id = ? AND person_id = ? AND confirmation_state = 'confirmed'").get(ref.id, personId);
-  if (!row || row.concept !== "work_authorisation") return false;
-  return !parsedScope || row.scope === parsedScope;
+  if (!row || row.concept !== parsedClaim.concept) return false;
+  if (parsedClaim.scope && row.scope !== parsedClaim.scope) return false;
+  let value;
+  try { value = JSON.parse(row.value_json); } catch { return false; }
+  const polarity = factPolarity(value);
+  if (polarity === null) return false;
+  return polarity === (parsedClaim.negated ? "no" : "yes");
+}
+
+/** Quantified assertions in a line: money, scaled numbers, percentages, headcounts, experience durations. */
+function quantitiesClaimed(text) {
+  const s = String(text ?? "");
+  const out = [];
+  const used = [];
+  const push = (start, end, q) => {
+    if (used.some(([a, b]) => start < b && end > a)) return;
+    used.push([start, end]);
+    out.push(q);
+  };
+  const num = (raw) => Number(String(raw).replace(/,/g, ""));
+  for (const m of s.matchAll(/(EUR|USD|GBP|CHF|€|\$|£)\s*([\d,]+(?:\.\d+)?)\s*(million|billion|thousand)?/gi)) {
+    push(m.index, m.index + m[0].length, { raw: m[0], kind: "money", number: num(m[2]), scale: m[3]?.toLowerCase() ?? null, currency: m[1] });
+  }
+  for (const m of s.matchAll(/([\d,]+(?:\.\d+)?)\s*(million|billion|thousand)\b/gi)) {
+    push(m.index, m.index + m[0].length, { raw: m[0], kind: "scaled", number: num(m[1]), scale: m[2].toLowerCase(), currency: null });
+  }
+  for (const m of s.matchAll(/([\d,]+(?:\.\d+)?)\s*%/g)) {
+    push(m.index, m.index + m[0].length, { raw: m[0], kind: "percent", number: num(m[1]), scale: null, currency: null });
+  }
+  for (const m of s.matchAll(/\bteam of\s+([\d,]+)/gi)) {
+    push(m.index, m.index + m[0].length, { raw: m[0], kind: "headcount", number: num(m[1]), scale: null, currency: null });
+  }
+  for (const m of s.matchAll(/([\d,]+)\s+(people|employees|direct reports|team members)\b/gi)) {
+    push(m.index, m.index + m[0].length, { raw: m[0], kind: "headcount", number: num(m[1]), scale: null, currency: null });
+  }
+  for (const m of s.matchAll(/([\d,]+)\s+years?\s+of\s+experience/gi)) {
+    push(m.index, m.index + m[0].length, { raw: m[0], kind: "experience_years", number: num(m[1]), scale: null, currency: null });
+  }
+  return out;
+}
+
+const SCALE_MULTIPLIER = { thousand: 1e3, million: 1e6, billion: 1e9 };
+const CURRENCY_ALIASES = { eur: ["eur", "€"], usd: ["usd", "$"], gbp: ["gbp", "£"], chf: ["chf"] };
+
+/** Backing text behind one reference (fact value, history entry, or profile/person field value). */
+function refSourceText(db, personId, profileId, ref) {
+  if (ref.kind === "fact") {
+    const row = db.prepare("SELECT value_json FROM declared_facts WHERE id = ? AND person_id = ?").get(ref.id, personId);
+    if (!row) return "";
+    try { const v = JSON.parse(row.value_json); return typeof v === "string" ? v : JSON.stringify(v); } catch { return row.value_json; }
+  }
+  if (ref.kind === "history") {
+    const entry = resolveHistoryEntry(db, personId, ref, ref.entryKind);
+    return entry ? JSON.stringify(entry) : "";
+  }
+  if (ref.kind === "profile") {
+    if (ref.value !== undefined) return JSON.stringify(ref.value);
+    const profile = getProfileFull(db, profileId);
+    return JSON.stringify(profile?.body?.[ref.field] ?? "");
+  }
+  if (ref.kind === "person") {
+    if (ref.value !== undefined) return JSON.stringify(ref.value);
+    const person = getPerson(db, personId);
+    return JSON.stringify(person?.details?.[ref.field] ?? "");
+  }
+  return "";
+}
+
+/** Total held employment span in whole years (union of entry intervals; unknown ends excluded). */
+function heldEmploymentYears(db, personId) {
+  const person = getPerson(db, personId);
+  const intervals = [];
+  for (const e of person?.details?.employment ?? []) {
+    const sy = e?.start ? Number(String(e.start).match(/\d{4}/)?.[0] ?? NaN) : NaN;
+    if (!Number.isFinite(sy)) continue;
+    let ey = e?.end ? Number(String(e.end).match(/\d{4}/)?.[0] ?? NaN) : NaN;
+    if (!Number.isFinite(ey)) ey = e?.current === true ? new Date().getFullYear() : NaN;
+    if (Number.isFinite(ey) && ey >= sy) intervals.push([sy, ey]);
+  }
+  intervals.sort((a, b) => a[0] - b[0]);
+  let total = 0;
+  let cur = null;
+  for (const [sy, ey] of intervals) {
+    if (!cur || sy > cur[1]) { if (cur) total += cur[1] - cur[0]; cur = [sy, ey]; }
+    else cur[1] = Math.max(cur[1], ey);
+  }
+  if (cur) total += cur[1] - cur[0];
+  return total;
+}
+
+/** Does ONE reference back a quantified assertion (same source: value AND unit must both be there)? */
+function quantityBackedByRef(db, personId, profileId, ref, q, lineHasEmploymentRef) {
+  if (q.kind === "experience_years") {
+    if (lineHasEmploymentRef && heldEmploymentYears(db, personId) >= q.number) return true;
+    return refSourceText(db, personId, profileId, ref).toLowerCase().includes(String(q.number));
+  }
+  const src = refSourceText(db, personId, profileId, ref).toLowerCase();
+  const nums = [...src.matchAll(/[\d,]+(?:\.\d+)?/g)].map((m) => Number(m[0].replace(/,/g, "")));
+  const expanded = q.scale ? q.number * SCALE_MULTIPLIER[q.scale] : null;
+  if (expanded !== null && nums.includes(expanded)) return true;
+  if (!nums.includes(q.number)) return false;
+  if (q.kind === "percent") return src.includes("%");
+  if (q.kind === "headcount") return /(people|employees|direct reports|team members)/.test(src);
+  if (q.scale) return src.includes(q.scale);
+  if (q.currency) {
+    const aliases = CURRENCY_ALIASES[q.currency.toLowerCase()] ?? [q.currency.toLowerCase()];
+    return aliases.some((a) => src.includes(a));
+  }
+  return false;
 }
 
 /** Check one stored reference against the current retained set. */
@@ -449,6 +693,35 @@ export function checkRef(db, personId, profileId, ref) {
 }
 
 /**
+ * Does a section heading itself STATE a claim? Headings carry no
+ * references, so any claim-like heading can never validate — but
+ * plain labels ("Experience", "Education", "Skills") and name headers
+ * are not claims and stay valid. Covers education, history entries,
+ * language claims ("I speak Mandarin fluently."), authorisation /
+ * sponsorship claims, quantified assertions and skill lists.
+ */
+function headingStatesClaim(heading, person) {
+  if (isEducationClaim(heading)) return true;
+  const historyEntries = [
+    ...(person?.details?.employment ?? []).map((e) => ({ title: e.title, org: e.employer })),
+    ...(person?.details?.education ?? []).map((e) => ({ title: e.title, org: e.institution })),
+  ];
+  if (historyEntries.some((e) => isNonEmptyString(e.title) && isNonEmptyString(e.org)
+    && heading.toLowerCase().includes(String(e.title).toLowerCase())
+    && heading.toLowerCase().includes(String(e.org).toLowerCase()))) return true;
+  if (languagesClaimed(heading).length > 0) return true;
+  const parsed = parseQuestionText(heading);
+  if (parsed.concept === "work_authorisation" || parsed.concept === "sponsorship_required") return true;
+  if (quantitiesClaimed(heading).length > 0) return true;
+  if (/\b(experience as|worked\s+(as|at|for)|employed\s+(as|at|by))\b/i.test(heading)) return true;
+  if (skillListClaimed(heading)) return true;
+  return false;
+}
+
+/** First-person experience/achievement verbs: a sentence using them asserts more than a held skill name. */
+const ACTION_VERBS = /\b(I|my)\b[^.]*\b(managed|led|increased|reduced|delivered|built|created|improved|achieved|earned|won|founded|started|ran|supervised|coordinated|developed|designed|implemented|drove|grew|negotiated|launched)\b/i;
+
+/**
  * Revalidate edited content before it becomes a version: language
  * must be English, every non-template line must carry references, and
  * every reference must still hold against the retained set. Returns
@@ -470,14 +743,7 @@ export function revalidateContent(db, personId, profileId, content) {
       // institution) are conflicts.
       if (typeof section.heading === "string" && section.heading.trim() !== "") {
         const heading = section.heading;
-        const historyEntries = [
-          ...(person?.details?.employment ?? []).map((e) => ({ title: e.title, org: e.employer })),
-          ...(person?.details?.education ?? []).map((e) => ({ title: e.title, org: e.institution })),
-        ];
-        const headingStatesHistory = historyEntries.some((e) => isNonEmptyString(e.title) && isNonEmptyString(e.org)
-          && heading.toLowerCase().includes(String(e.title).toLowerCase())
-          && heading.toLowerCase().includes(String(e.org).toLowerCase()));
-        if (isEducationClaim(heading) || headingStatesHistory) {
+        if (headingStatesClaim(heading, person)) {
           conflicts.push(`section heading states a claim but carries no references: "${String(heading).slice(0, 80)}"`);
         }
       }
@@ -511,9 +777,11 @@ export function revalidateContent(db, personId, profileId, content) {
           }
         }
         // Language: every claimed language needs a language source
-        // naming it; a skill fact about another skill never supports it.
+        // naming it AND asserting the same level when one is claimed
+        // ("Mandarin: native" is not backed by a Mandarin A1 entry);
+        // a skill fact about another skill never supports it.
         for (const lang of languagesClaimed(l.text)) {
-          const supported = l.refs.some((ref) => languageRefSupports(db, personId, ref, lang));
+          const supported = l.refs.some((ref) => languageRefSupports(db, personId, ref, lang, languageLevelClaimed(l.text, lang)));
           if (!supported) conflicts.push(`language claim not supported by its references: "${String(l.text).slice(0, 80)}"`);
         }
         // Skills: a listed skill must be held; a single-phrase line
@@ -539,11 +807,12 @@ export function revalidateContent(db, personId, profileId, content) {
             }
           }
         }
-        // Authorisation: needs a work_authorisation fact for the
-        // claimed scope (any scope when the claim names no country).
+        // Authorisation/sponsorship: needs a fact for the claimed
+        // concept AND scope AND polarity — a "no" fact can never
+        // support a "yes" claim, and vice versa.
         const parsedClaim = parseQuestionText(l.text);
-        if (parsedClaim.concept === "work_authorisation") {
-          const supported = l.refs.some((ref) => authorisationRefSupports(db, personId, ref, parsedClaim.scope));
+        if (parsedClaim.concept === "work_authorisation" || parsedClaim.concept === "sponsorship_required") {
+          const supported = l.refs.some((ref) => authorisationRefSupports(db, personId, ref, parsedClaim));
           if (!supported) conflicts.push(`authorisation claim not supported by its references: "${String(l.text).slice(0, 80)}"`);
         }
         // Employment: a line claiming employment experience without
@@ -554,6 +823,38 @@ export function revalidateContent(db, personId, profileId, content) {
         }
         if (historyRefs.length > 0 && !historyRefs.some((ref) => historyRefMatchesText(db, personId, ref, l.text))) {
           conflicts.push(`claim text does not match its history reference: "${String(l.text).slice(0, 80)}"`);
+        }
+        // Employment: ALL asserted fields (title, employer, dates)
+        // must match ONE entry — an unchanged employer can no longer
+        // carry an invented title or invented dates.
+        for (const ref of historyRefs.filter((r) => r.entryKind === "employment")) {
+          if (!employmentRefSupports(db, personId, ref, l.text)) {
+            conflicts.push(`employment claim not fully supported by its history reference: "${String(l.text).slice(0, 80)}"`);
+          }
+        }
+        // Quantified assertions: money, scaled numbers, percentages,
+        // headcounts and experience durations must be backed by ONE
+        // reference carrying that value and unit — a valid ref plus
+        // an unbacked quantity is a conflict.
+        const lineHasEmploymentRef = historyRefs.some((r) => r.entryKind === "employment");
+        for (const q of quantitiesClaimed(l.text)) {
+          const backed = l.refs.some((ref) => quantityBackedByRef(db, personId, profileId, ref, q, lineHasEmploymentRef));
+          if (!backed) conflicts.push(`quantified assertion not supported by its references: "${q.raw}" in "${String(l.text).slice(0, 80)}"`);
+        }
+        // Action sentences backed only by skill refs assert experience
+        // or achievement, not a held skill name — they need an
+        // employment or fact reference backing the action itself.
+        if (skillsRefs.length > 0 && !skillListClaimed(l.text) && ACTION_VERBS.test(l.text)
+          && !historyRefs.some((r) => r.entryKind === "employment") && !l.refs.some((r) => r.kind === "fact")) {
+          conflicts.push(`experience/achievement claim not supported by an employment or fact reference: "${String(l.text).slice(0, 80)}"`);
+        }
+        // Bare contact values backed by a person field must BE that
+        // value — editing the text while keeping the ref is not backing.
+        for (const ref of l.refs.filter((r) => r.kind === "person" && (r.field === "email" || r.field === "phone"))) {
+          const t = String(l.text ?? "").trim();
+          if (typeof ref.value === "string" && !/\s/.test(t) && t !== ref.value) {
+            conflicts.push(`line text does not match its person reference: "${String(l.text).slice(0, 80)}"`);
+          }
         }
       }
     }

@@ -86,12 +86,12 @@ const COUNTRY_NAMES = {
  * Shapes handled (all share the same contract: main clause only;
  * premise gating still needs an EXPLICIT premise argument, never a
  * leftover answer): leading "If …, …" (with optional "then"),
- * leading "provided that/as long as …, …", trailing ", if …",
- * trailing ", provided that/as long as …", "… unless …", and trailing
- * "… provided that/as long as …". A trailing bare "if" without a
- * comma splits only when the trailing clause itself identifies a
- * premise concept, so a main clause that merely mentions "if" is
- * never torn apart.
+ * leading "Unless …, …", leading "provided that/as long as …, …",
+ * trailing ", if …", trailing ", provided that/as long as …",
+ * "… unless …", and trailing "… provided that/as long as …". A
+ * trailing bare "if" without a comma splits only when the trailing
+ * clause itself identifies a premise concept, so a main clause that
+ * merely mentions "if" is never torn apart.
  */
 function identifiesConcept(text) {
   const lower = String(text ?? "").toLowerCase();
@@ -101,6 +101,12 @@ function identifiesConcept(text) {
 export function splitConditional(text) {
   const s = String(text ?? "").trim();
   let m = s.match(/^if\s+(.+?),\s*(?:then\s+)?(.+)$/i);
+  if (m) return { premiseClause: m[1].trim(), mainClause: m[2].trim() };
+  // Leading "Unless …, …": without this, the whole question parses
+  // as the premise concept ("Unless you are authorized…, do you
+  // require sponsorship?" answered authorisation instead of
+  // sponsorship). The main clause is read exactly as for leading If.
+  m = s.match(/^unless\s+(.+?),\s*(.+)$/i);
   if (m) return { premiseClause: m[1].trim(), mainClause: m[2].trim() };
   m = s.match(/^(?:provided that|as long as)\s+(.+?),\s*(.+)$/i);
   if (m) return { premiseClause: m[1].trim(), mainClause: m[2].trim() };
