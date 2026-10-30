@@ -580,7 +580,11 @@ function skillMatches(item, skill) {
   const a = claimWords(item);
   const b = claimWords(skill);
   if (a.length === 0 || b.length === 0) return false;
-  return a.every((w) => b.includes(w)) || b.every((w) => a.includes(w));
+  // The claim must not ADD tokens beyond the held skill: a held
+  // subset ("Excel") never backs a qualified claim ("Excel expert",
+  // "advanced Excel"). A subset claim ("Excel" for held
+  // "Microsoft Excel") adds nothing and still passes.
+  return a.every((w) => b.includes(w));
 }
 
 /**
@@ -594,6 +598,24 @@ function skillColonQualifier(item, held) {
   if (!m || m[2].trim() === "") return null;
   const name = m[1].trim().toLowerCase();
   if (held.some((s) => String(s).toLowerCase() === name)) return m[2].trim();
+  return null;
+}
+
+/**
+ * Space-form qualifier: "Excel expert" / "advanced Excel" with only
+ * "Excel" held. The leftover tokens beyond a held skill's tokens are
+ * an unbacked qualifier — the same silent degradation as the colon
+ * form, not a weaker pass. Returns the qualifier, else null.
+ */
+function skillSpaceQualifier(item, held) {
+  const words = claimWords(item);
+  if (words.length < 2) return null;
+  for (const s of held) {
+    const h = claimWords(s);
+    if (h.length > 0 && h.length < words.length && h.every((w) => words.includes(w))) {
+      return words.filter((w) => !h.includes(w)).join(" ");
+    }
+  }
   return null;
 }
 
@@ -816,6 +838,21 @@ function isKnownStructuralHeading(heading, person) {
 const ACTION_VERB_WORDS = ["managed", "led", "increased", "reduced", "delivered", "built", "created", "improved", "achieved", "earned", "won", "founded", "started", "ran", "supervised", "coordinated", "developed", "designed", "implemented", "drove", "grew", "negotiated", "launched", "received", "awarded"];
 const ACTION_VERBS = new RegExp(`\\b(I|my)\\b[^.]*\\b(${ACTION_VERB_WORDS.join("|")})\\b`, "i");
 
+/** Award-role words stripped when matching a nominal award claim ("Winner of X") against an award fact. */
+const AWARD_ROLE_WORDS = ["winner", "winners", "recipient", "recipients", "laureate", "laureates"];
+
+/**
+ * Content trigger for award claims, independent of verb shape: a
+ * nominal form ("Winner of X", "Recipient of X", "X Prize winner",
+ * bare award nouns) asserts an award exactly like "I won X" does.
+ * The structural section label exempts nothing.
+ */
+function isAwardClaim(text) {
+  const s = String(text ?? "");
+  return /\b(winner|recipient|laureate)s?\s+of\b/i.test(s)
+    || /\b(prize|award|medal|honou?r|distinction)s?\b/i.test(s);
+}
+
 const ACHIEVEMENT_STOP = new Set([
   "i", "my", "me", "mine", "the", "a", "an", "at", "in", "on", "for", "of", "to",
   "and", "or", "was", "were", "is", "am", "are", "been", "be", "have", "has",
@@ -848,7 +885,8 @@ function achievementRefSupports(db, personId, profileId, ref, text) {
   const valueText = typeof value === "string" ? value : JSON.stringify(value);
   const valueWords = new Set(claimWords(`${row.concept} ${valueText}`));
   const tokens = achievementTokens(text);
-  if (AWARD_CONCEPT.test(row.concept) && tokens.length > 0 && tokens.every((t) => valueWords.has(t))) return true;
+  const awardTokens = tokens.filter((t) => !AWARD_ROLE_WORDS.includes(t));
+  if (AWARD_CONCEPT.test(row.concept) && awardTokens.length > 0 && awardTokens.every((t) => valueWords.has(t))) return true;
   const qs = quantitiesClaimed(text);
   if (qs.length > 0 && qs.every((q) => quantityBackedByRef(db, personId, profileId, ref, q, false))) {
     const quantityWords = new Set(qs.flatMap((q) => claimWords(q.raw)));
@@ -858,9 +896,54 @@ function achievementRefSupports(db, personId, profileId, ref, text) {
   return false;
 }
 
-/** Phone-like strings in text: international (+…) or 3-3-4 grouped. Date ranges and bare years never match (no + prefix, no 3-3-4 grouping, en/em dashes excluded). */
+/** Phone-like strings in text: international (+…), 3-3-4 / 3-3-3 grouped, or a bare digit run of phone-plausible length (9–15). Date ranges and bare years never match (no + prefix, no grouping, below the length threshold, en/em dashes excluded). */
 function phonesClaimed(text) {
-  return String(text ?? "").match(/(?:\+\d[\d\s().-]{6,}\d|\b\d{3}[\s().-]\d{3}[\s().-]\d{4}\b)/g) ?? [];
+  return String(text ?? "").match(/(?:\+\d[\d\s().-]{6,}\d|\b\d{3}[\s().-]\d{3}[\s().-]\d{3,4}\b|\b\d{9,15}\b)/g) ?? [];
+}
+
+/** Digits of a phone string, separators and a leading "+" stripped. */
+function phoneDigits(s) {
+  return String(s ?? "").replace(/[\s().-]/g, "").replace(/^\+/, "");
+}
+
+/**
+ * National significant part of a held phone, parsed ONLY when the
+ * held string itself separates the country code ("+34 600 123 456"
+ * → "600123456"). Without an explicit separator the country code
+ * cannot be identified reliably, so only full-digit equality counts.
+ */
+function heldPhoneNationalDigits(heldRaw) {
+  const m = String(heldRaw ?? "").match(/^\+\d{1,3}[\s().-]+(.+)$/);
+  return m ? m[1].replace(/[\s().-]/g, "") : null;
+}
+
+/** A claimed phone matches iff it equals the held phone's digits or its national significant part as held. */
+function phoneMatches(claimed, heldRaw) {
+  const c = phoneDigits(claimed);
+  const h = phoneDigits(heldRaw);
+  if (!c || !h) return false;
+  if (c === h) return true;
+  const national = heldPhoneNationalDigits(heldRaw);
+  return national !== null && c === national;
+}
+
+/**
+ * A standalone phrase line: short, no sentence structure, no colon
+ * (language/skill/company forms), no employment/education date
+ * shape, no email, no phone, no quantity. Such a line asserts a
+ * single held item (role, title, skill, language, place, name) and
+ * must name one — regardless of which ref kinds accompany it.
+ */
+function isStandalonePhrase(stripped) {
+  if (!stripped) return false;
+  if (/[.?!]\s+\S/.test(stripped)) return false;
+  if (/\b(am|is|are|was|were|speak|speaks|have|has|hold|held|worked|managed|led)\b/i.test(stripped)) return false;
+  if (/[—:]/.test(stripped) || /\(\d{4}/.test(stripped)) return false;
+  if (/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/.test(stripped)) return false;
+  if (phonesClaimed(stripped).length > 0) return false;
+  if (quantitiesClaimed(stripped).length > 0) return false;
+  const words = claimWords(stripped);
+  return words.length >= 1 && words.length <= 6;
 }
 
 /**
@@ -933,7 +1016,7 @@ export function revalidateContent(db, personId, profileId, content) {
           const listed = skillListClaimed(l.text);
           if (listed) {
             for (const item of listed) {
-              const qual = skillColonQualifier(item, held);
+              const qual = skillColonQualifier(item, held) || skillSpaceQualifier(item, held);
               if (qual) conflicts.push(`skill qualifier "${qual}" is not held on the profile: "${String(l.text).slice(0, 80)}"`);
               if (!held.some((s) => skillMatches(item, s))) conflicts.push(`skill "${item}" is not held on the profile: "${String(l.text).slice(0, 80)}"`);
             }
@@ -945,7 +1028,7 @@ export function revalidateContent(db, personId, profileId, content) {
             for (const item of items) {
               const words = claimWords(item);
               if (words.length > 0 && words.length <= 5 && !/^(my|i|we|the|a|an)\b/i.test(item) && !/[.!?]\s+\S/.test(item)) {
-                const qual = skillColonQualifier(item, held);
+                const qual = skillColonQualifier(item, held) || skillSpaceQualifier(item, held);
                 if (qual) conflicts.push(`skill qualifier "${qual}" is not held on the profile: "${String(l.text).slice(0, 80)}"`);
                 if (!held.some((s) => skillMatches(item, s))) conflicts.push(`skill "${item}" is not held on the profile: "${String(l.text).slice(0, 80)}"`);
               }
@@ -1015,13 +1098,45 @@ export function revalidateContent(db, personId, profileId, content) {
             }
           }
         }
+        // Content-triggered phrase check: when a standalone phrase
+        // carries NO role, history or skills reference, its content
+        // must still name something held (role, employment title,
+        // skill, language, education title/institution, location or
+        // the person's name). A valid ref of another type never
+        // exempts it — "Chief Executive Officer" with only an
+        // authorisation ref is a conflict although the ref itself is
+        // confirmed. Lines already judged by the role, history,
+        // skills, language, education, authorisation, achievement,
+        // contact or quantity checks are skipped.
+        if (roleRefs.length === 0 && historyRefs.length === 0 && skillsRefs.length === 0
+          && !ACTION_VERBS.test(l.text) && !isAwardClaim(l.text)
+          && languagesClaimed(l.text).length === 0 && !isEducationClaim(l.text)) {
+          const phrase = String(l.text ?? "").trim().replace(/[.。]\s*$/, "").replace(/^(role|target role|desired role)\s*:\s*/i, "");
+          if (isStandalonePhrase(phrase)) {
+            const profileBody = getProfileFull(db, profileId)?.body ?? {};
+            const heldPhrases = new Set();
+            const addPhrase = (v) => { if (typeof v === "string" && v.trim()) heldPhrases.add(v.trim().toLowerCase()); };
+            (profileBody.desired_roles ?? []).forEach(addPhrase);
+            (profileBody.skills ?? []).forEach(addPhrase);
+            (profileBody.locations ?? []).forEach(addPhrase);
+            for (const e of presentedHistory(person.details, profileBody).employment) { addPhrase(e.title); addPhrase(e.employer); }
+            for (const e of presentedHistory(person.details, profileBody).education) { addPhrase(e.title); addPhrase(e.institution); }
+            for (const lang of person.details?.languages ?? []) addPhrase(lang.language);
+            addPhrase(person.details?.full_name);
+            const norm = phrase.toLowerCase();
+            const words = claimWords(phrase);
+            const backed = [...heldPhrases].some((h) => h === norm
+              || (claimWords(h).length === words.length && claimWords(h).every((w) => words.includes(w))));
+            if (!backed) conflicts.push(`standalone phrase not held: "${String(l.text).slice(0, 80)}"`);
+          }
+        }
         // Achievement/action sentences: support is checked by
         // CONTENT, not by reference type. A sentence asserting an
         // achievement needs a source naming that achievement — an
         // award fact naming it, a quantity-backed fact, or an
         // employment entry whose own words cover it — never an
         // unrelated fact, however confirmed, and never a bare skill.
-        if (ACTION_VERBS.test(l.text)) {
+        if (ACTION_VERBS.test(l.text) || isAwardClaim(l.text)) {
           const supported = l.refs.some((ref) => achievementRefSupports(db, personId, profileId, ref, l.text));
           if (!supported) conflicts.push(`achievement/action claim not supported by its references: "${String(l.text).slice(0, 80)}"`);
         }
@@ -1029,15 +1144,22 @@ export function revalidateContent(db, personId, profileId, content) {
         // equal a held contact value — labels or prefixes
         // ("Contact: …") never skip the comparison.
         const heldEmail = person?.details?.email ? String(person.details.email).toLowerCase() : null;
-        const heldPhoneNorm = person?.details?.phone ? String(person.details.phone).replace(/[\s().-]/g, "") : null;
+        const heldPhoneRaw = person?.details?.phone ? String(person.details.phone) : null;
+        // Bare digit runs are ambiguous: a run that exactly equals a
+        // held quantity/identifier value (e.g. an amount) is that
+        // value, not a phone — only then is it skipped here.
+        const heldDigitRuns = new Set();
+        for (const ref of l.refs) {
+          for (const run of String(refSourceText(db, personId, profileId, ref)).match(/\d{9,15}/g) ?? []) heldDigitRuns.add(run);
+        }
         for (const email of String(l.text ?? "").match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) ?? []) {
           if (!heldEmail || email.toLowerCase() !== heldEmail) {
             conflicts.push(`contact email in text does not match the held email: "${String(l.text).slice(0, 80)}"`);
           }
         }
         for (const phone of phonesClaimed(l.text)) {
-          const norm = phone.replace(/[\s().-]/g, "");
-          if (!heldPhoneNorm || norm !== heldPhoneNorm) {
+          if (/^\d{9,15}$/.test(phone) && heldDigitRuns.has(phone)) continue;
+          if (!heldPhoneRaw || !phoneMatches(phone, heldPhoneRaw)) {
             conflicts.push(`contact phone in text does not match the held phone: "${String(l.text).slice(0, 80)}"`);
           }
         }
