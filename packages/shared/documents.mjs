@@ -947,6 +947,74 @@ function isStandalonePhrase(stripped) {
 }
 
 /**
+ * A "Label: value" line asserts the VALUE, never the label: a label
+ * must never be a route around validation ("Position: CEO" evaded
+ * the standalone-phrase check only because it kept its colon).
+ * "Target company:" is the deliberate exception — it is parameter
+ * content governed by the single-entity template rule, not a
+ * personal claim, so it is NOT in this list.
+ */
+const CLAIM_LABEL_RE = /^(position|role|title|target role|desired role|location|employer|company|language|skill|skills)\s*:\s*(.+)$/i;
+const TITLE_LABELS = new Set(["position", "role", "title", "target role", "desired role"]);
+
+/**
+ * Does ONE reference actually support a standalone phrase? Content
+ * alone is never enough anymore (user decision, F5 original scope:
+ * every claim line carries references to a retained source backing
+ * it): a held phrase accompanied only by an unrelated confirmed
+ * fact is a conflict, however true the phrase itself is. "At least
+ * one supporting ref" is the rule — unrelated extra refs do not
+ * spoil a line that also has a supporting one.
+ */
+function phraseRefSupports(db, personId, profileId, ref, phrase) {
+  const norm = String(phrase ?? "").trim().toLowerCase();
+  const stringEquals = (v) => typeof v === "string" && v.trim().toLowerCase() === norm;
+  if (ref.kind === "profile") {
+    const v = ref.value !== undefined ? ref.value : (getProfileFull(db, profileId)?.body?.[ref.field]);
+    return stringEquals(v) || (Array.isArray(v) && v.some(stringEquals));
+  }
+  if (ref.kind === "person") {
+    const v = ref.value !== undefined ? ref.value : (getPerson(db, personId)?.details?.[ref.field]);
+    if (stringEquals(v)) return true;
+    // Languages are stored as objects: a languages ref supports the
+    // bare language name it names.
+    return Array.isArray(v) && v.some((x) => (typeof x === "string" && stringEquals(x))
+      || (x && typeof x.language === "string" && x.language.trim().toLowerCase() === norm));
+  }
+  if (ref.kind === "history") {
+    const entry = resolveHistoryEntry(db, personId, ref, ref.entryKind);
+    if (!entry) return false;
+    const fields = ref.entryKind === "education" ? [entry.title, entry.institution] : [entry.title, entry.employer];
+    return fields.some(stringEquals);
+  }
+  if (ref.kind === "fact") {
+    const row = db.prepare("SELECT value_json FROM declared_facts WHERE id = ? AND person_id = ?").get(ref.id, personId);
+    if (!row) return false;
+    let v;
+    try { v = JSON.parse(row.value_json); } catch { v = row.value_json; }
+    // A fact supports a phrase only when its value IS the phrase
+    // (e.g. a declared desired-role/language fact). A "yes"/"no"
+    // authorisation value never supports a title, skill or name.
+    return stringEquals(v);
+  }
+  return false;
+}
+
+/** Does ONE reference support one part of a title-label value? */
+function titleLabelSupports(db, personId, profileId, ref, part) {
+  if (ref.kind === "profile" && ref.field === "desired_roles") {
+    const v = ref.value !== undefined ? ref.value : (getProfileFull(db, profileId)?.body?.desired_roles);
+    const vals = Array.isArray(v) ? v : [v];
+    return vals.some((x) => typeof x === "string" && x.trim().toLowerCase() === part);
+  }
+  if (ref.kind === "history" && ref.entryKind === "employment") {
+    const entry = resolveHistoryEntry(db, personId, ref, "employment");
+    return !!entry?.title && String(entry.title).toLowerCase() === part;
+  }
+  return false;
+}
+
+/**
  * Revalidate edited content before it becomes a version: language
  * must be English, every non-template line must carry references, and
  * every reference must still hold against the retained set. Returns
@@ -984,6 +1052,65 @@ export function revalidateContent(db, personId, profileId, content) {
         for (const ref of l.refs) {
           const problem = checkRef(db, personId, profileId, ref);
           if (problem) conflicts.push(problem);
+        }
+        // Label-prefixed lines are judged on their VALUE, never on
+        // the label: a label must never be a route around
+        // validation. Title labels are judged as title claims (held
+        // + at least one supporting ref); other labels as held
+        // content + at least one supporting ref. "Target company:"
+        // is excluded on purpose: it is parameter content governed
+        // by the single-entity template rule (isSystemTemplate).
+        const labelMatch = String(l.text ?? "").trim().match(CLAIM_LABEL_RE);
+        if (labelMatch) {
+          const label = labelMatch[1].toLowerCase();
+          const value = labelMatch[2].trim().replace(/[.。]\s*$/, "");
+          const profileBody = getProfileFull(db, profileId)?.body ?? {};
+          if (TITLE_LABELS.has(label)) {
+            const bare = value.replace(/^(i am|i'm|my (position|role|title) is)\s+/i, "");
+            const parts = bare.split(/\s*,\s*|\s+and\s+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+            const heldRoles = new Set((profileBody.desired_roles ?? []).map((v) => String(v).toLowerCase()));
+            const employmentTitles = new Set();
+            for (const e of presentedHistory(person.details, profileBody).employment) {
+              if (e.title) employmentTitles.add(String(e.title).toLowerCase());
+            }
+            if (parts.length === 0) {
+              conflicts.push(`title label with no value: "${String(l.text).slice(0, 80)}"`);
+            } else if (!parts.every((p) => heldRoles.has(p) || employmentTitles.has(p))) {
+              conflicts.push(`title label value not held on the profile: "${String(l.text).slice(0, 80)}"`);
+            } else if (!parts.every((p) => l.refs.some((ref) => titleLabelSupports(db, personId, profileId, ref, p)))) {
+              conflicts.push(`title label value not supported by its references: "${String(l.text).slice(0, 80)}"`);
+            }
+            continue;
+          }
+          if (label === "language") {
+            const claimed = languagesClaimed(value);
+            if (claimed.length > 0) {
+              for (const lang of claimed) {
+                const supported = l.refs.some((ref) => languageRefSupports(db, personId, ref, lang, languageLevelClaimed(value, lang)));
+                if (!supported) conflicts.push(`language label value not supported by its references: "${String(l.text).slice(0, 80)}"`);
+              }
+              continue;
+            }
+          }
+          const heldPhrases = new Set();
+          const addPhrase = (v) => { if (typeof v === "string" && v.trim()) heldPhrases.add(v.trim().toLowerCase()); };
+          (profileBody.desired_roles ?? []).forEach(addPhrase);
+          (profileBody.skills ?? []).forEach(addPhrase);
+          (profileBody.locations ?? []).forEach(addPhrase);
+          for (const e of presentedHistory(person.details, profileBody).employment) { addPhrase(e.title); addPhrase(e.employer); }
+          for (const e of presentedHistory(person.details, profileBody).education) { addPhrase(e.title); addPhrase(e.institution); }
+          for (const lang of person.details?.languages ?? []) addPhrase(lang.language);
+          addPhrase(person.details?.full_name);
+          const norm = value.toLowerCase();
+          const words = claimWords(value);
+          const heldOk = [...heldPhrases].some((h) => h === norm
+            || (claimWords(h).length === words.length && claimWords(h).every((w) => words.includes(w))));
+          if (!heldOk) {
+            conflicts.push(`labelled value not held: "${String(l.text).slice(0, 80)}"`);
+          } else if (!l.refs.some((ref) => phraseRefSupports(db, personId, profileId, ref, value))) {
+            conflicts.push(`labelled value not supported by its references: "${String(l.text).slice(0, 80)}"`);
+          }
+          continue;
         }
         const historyRefs = l.refs.filter((ref) => ref.kind === "history");
         // Claim-to-support: a reference must actually support the
@@ -1077,7 +1204,7 @@ export function revalidateContent(db, personId, profileId, content) {
         // other checks (quantities, employment, achievements).
         const roleRefs = l.refs.filter((r) => r.kind === "profile" && r.field === "desired_roles");
         if (roleRefs.length > 0) {
-          const stripped = String(l.text ?? "").trim().replace(/[.。]\s*$/, "").replace(/^(role|target role|desired role)\s*:\s*/i, "");
+          const stripped = String(l.text ?? "").trim().replace(/[.。]\s*$/, "").replace(/^(role|target role|desired role|position|title)\s*:\s*/i, "");
           const sentenceLike = /[.?!]\s+\S/.test(stripped)
             || /\b(am|is|are|was|were|speak|speaks|have|has|hold|held|worked|managed|led)\b/i.test(stripped);
           if (stripped !== "" && !sentenceLike) {
@@ -1111,7 +1238,7 @@ export function revalidateContent(db, personId, profileId, content) {
         if (roleRefs.length === 0 && historyRefs.length === 0 && skillsRefs.length === 0
           && !ACTION_VERBS.test(l.text) && !isAwardClaim(l.text)
           && languagesClaimed(l.text).length === 0 && !isEducationClaim(l.text)) {
-          const phrase = String(l.text ?? "").trim().replace(/[.。]\s*$/, "").replace(/^(role|target role|desired role)\s*:\s*/i, "");
+          const phrase = String(l.text ?? "").trim().replace(/[.。]\s*$/, "").replace(/^(role|target role|desired role|position|title)\s*:\s*/i, "");
           if (isStandalonePhrase(phrase)) {
             const profileBody = getProfileFull(db, profileId)?.body ?? {};
             const heldPhrases = new Set();
@@ -1128,6 +1255,13 @@ export function revalidateContent(db, personId, profileId, content) {
             const backed = [...heldPhrases].some((h) => h === norm
               || (claimWords(h).length === words.length && claimWords(h).every((w) => words.includes(w))));
             if (!backed) conflicts.push(`standalone phrase not held: "${String(l.text).slice(0, 80)}"`);
+            // User decision (F5 original scope): held content alone
+            // is never enough — the phrase also needs at least one
+            // reference that REALLY backs it. "Accountant" with only
+            // an authorisation ref is a conflict, however true it is.
+            else if (!l.refs.some((ref) => phraseRefSupports(db, personId, profileId, ref, phrase))) {
+              conflicts.push(`standalone phrase not supported by its references: "${String(l.text).slice(0, 80)}"`);
+            }
           }
         }
         // Achievement/action sentences: support is checked by

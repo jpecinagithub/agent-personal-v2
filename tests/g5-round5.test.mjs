@@ -77,10 +77,12 @@ test("G5R5-2: 'Chief Executive Officer' with only an authorisation ref fails; he
   const content = buildResumeContent(s.db, s.personId, s.profileId, {});
   const doc = makeDoc(s, content);
   expectBlocked(s, doc.documentId, addLine(content, "Skills", "Chief Executive Officer", [{ kind: "fact", id: authId }]));
-  // Content-based semantics: a phrase naming something actually held
-  // validates even when its ref is of another kind; only invented
-  // content is blocked.
-  const { result } = edited(s, doc.documentId, addLine(content, "Skills", "Accountant", [{ kind: "fact", id: authId }]));
+  // SUPERSEDED in round 6 by the user's decision (F5 original scope):
+  // held content alone is never enough — every claim needs at least
+  // one reference that REALLY backs it. "Accountant" with only an
+  // authorisation ref is now a conflict, however true the phrase is.
+  expectBlocked(s, doc.documentId, addLine(content, "Skills", "Accountant", [{ kind: "fact", id: authId }]));
+  const { result } = edited(s, doc.documentId, addLine(content, "Skills", "Accountant", [{ kind: "profile", field: "desired_roles", value: ["Accountant"] }]));
   assert.equal(result.status, "validated", result.conflicts.join("; "));
 });
 
