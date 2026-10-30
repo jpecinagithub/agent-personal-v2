@@ -185,21 +185,41 @@ export function buildCoverLetterContent(db, personId, profileId, { company = "",
  * previous guard rejected them and broke destination companies.
  */
 /** Claim wording that must never hide inside a template parameter. */
-const PARAM_CLAIM_WORDS = /(\bi\s+(hold|have|has|had|speak|spoke|am|was|were|worked|managed|led|earned|completed|graduated|studied)\b|\bmy\s+(degree|education|experience)\b|\b(phd|doctorate|degree|bachelor|fluent|fluently|hablo)\b|\b\d+\s+years?\s+of\s+experience\b)/i;
+const PARAM_CLAIM_WORDS = /(\bi\s+(hold|have|has|had|speak|spoke|am|was|were|worked|managed|led|earned|completed|graduated|studied)\b|\bmy\s+(degree|education|experience)\b|\b(phd|doctorate|degree|bachelor|fluent|fluently|hablo|nobel|prize|winner|award|awarded)\b|\b\d+\s+years?\s+of\s+experience\b)/i;
+
+/** Abbreviations and initials after which a period is not a sentence break ("St. Louis", "U.S. Steel", "Acme Inc."). */
+const PARAM_ABBREVIATIONS = new Set(["st", "inc", "ltd", "co", "corp", "mr", "mrs", "ms", "dr", "jr", "sr", "vs", "dept", "no", "ave", "blvd", "rd"]);
+
+/**
+ * Does the text smuggle a second sentence? A sentence break (a
+ * terminator followed by further content) is smuggling unless the
+ * break follows a known abbreviation or a single initial — a template
+ * parameter must DEMONSTRATE it is a single entity, so banned-word
+ * searching alone is never enough.
+ */
+function hasSmuggledSentence(t) {
+  const parts = String(t ?? "").split(/(?<=[.?!])\s+/);
+  if (parts.length <= 1) return false;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const raw = parts[i].trim().split(/\s+/).pop() ?? "";
+    if (/^[A-Za-z](\.[A-Za-z])+\.?$/.test(raw)) continue; // initials: "U.S."
+    const lastToken = raw.replace(/[.?!]+$/, "").toLowerCase();
+    if (lastToken.length > 1 && !PARAM_ABBREVIATIONS.has(lastToken)) return true;
+  }
+  return false;
+}
 
 function companyParamHasClaim(rest) {
   const t = String(rest ?? "").trim();
+  if (t.includes("@")) return true; // an email is never a company name
   if (PARAM_CLAIM_WORDS.test(t)) return true;
-  // A second sentence carrying a personal-claim verb is smuggling,
-  // even without a degree keyword ("Acme. I worked there for years").
-  const sentences = t.split(/[.?!]\s+/);
-  return sentences.length > 1 && sentences.slice(1).some((s) =>
-    /\b(i|we|he|she|they|you)\s+(hold|have|has|had|speak|spoke|am|was|were|worked|managed|led|earned|completed|graduated|studied)\b/i.test(s));
+  return hasSmuggledSentence(t);
 }
 
 function templateTailHasClaim(tail) {
-  return /(i (have|speak|worked|am|hold)|my (experience|education|degree|skills)|degree|phd|doctorate|university|college|institute|school|fluent|hablo|speak)/i.test(tail)
-    || /\s[–—-]\s/.test(tail);
+  return /(i (have|speak|worked|am|hold)|my (experience|education|degree|skills)|degree|phd|doctorate|university|college|institute|school|fluent|hablo|speak|nobel|prize|winner|award)/i.test(tail)
+    || /\s[–—-]\s/.test(tail)
+    || hasSmuggledSentence(tail);
 }
 
 function isSystemTemplate(text) {
@@ -283,20 +303,59 @@ function claimYears(text) {
   return [...new Set((String(text ?? "").match(/\b\d{4}\b/g) || []))];
 }
 
+const MONTH_NUMBERS = {
+  january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+  july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+};
+
+/** A date range asserted in free text, with months when asserted ("December 2020 – June 2024", "2020 – Present"). A non-month word before a year ("Fixture 2020") is not a month. */
+function claimDateRange(text) {
+  const m = String(text ?? "").match(/(?:([A-Za-z]+)\s+)?(\d{4})\s*[–—-]\s*(?:([A-Za-z]+)\s+)?(\d{4}|Present|Unknown)/);
+  if (!m) return null;
+  return {
+    startMonth: m[1] ? (MONTH_NUMBERS[m[1].toLowerCase()] ?? null) : null,
+    startYear: m[2],
+    endMonth: m[3] ? (MONTH_NUMBERS[m[3].toLowerCase()] ?? null) : null,
+    end: m[4],
+  };
+}
+
+/** Held month (1–12) of an entry boundary, or null when the held date is year-only or absent. */
+function entryMonth(entry, field) {
+  const v = entry?.[field];
+  if (!v) return null;
+  const m = String(v).match(/^\d{4}-(\d{2})/);
+  return m ? Number(m[1]) : null;
+}
+
 /**
- * Do the dates asserted in a line match ONE held entry? A range must
- * match start and end exactly (end is a year, "Present" only with
- * current:true, "Unknown" otherwise); a lone year must be the entry's
- * start or end year. No range and no years asserted: nothing to check.
+ * Do the dates asserted in a line match ONE held entry, at the HELD
+ * precision? A range must match start and end; a month asserted in
+ * the claim must equal the held month (January ≠ December with the
+ * same year), and a month asserted where the held date is year-only
+ * invents precision and fails. A boundary asserted without a month
+ * is a year-only assertion and passes on years. "Present" only with
+ * current:true, "Unknown" otherwise. No range and no years asserted:
+ * nothing to check.
  */
 function entryDatesMatch(text, entry) {
-  const range = claimYearRange(text);
+  const range = claimDateRange(text);
   const startYear = entry?.start ? String(entry.start).match(/\d{4}/)?.[0] ?? null : null;
   const endYear = entry?.end ? String(entry.end).match(/\d{4}/)?.[0] ?? null : null;
   if (range) {
     if (!startYear || startYear !== range.startYear) return false;
-    const expectedEnd = endYear ?? (entry?.current === true ? "Present" : "Unknown");
-    return range.end === expectedEnd;
+    if (range.startMonth !== null) {
+      const held = entryMonth(entry, "start");
+      if (held === null || held !== range.startMonth) return false;
+    }
+    if (range.end === "Present") return entry?.current === true;
+    if (range.end === "Unknown") return !endYear && entry?.current !== true;
+    if (!endYear || endYear !== range.end) return false;
+    if (range.endMonth !== null) {
+      const held = entryMonth(entry, "end");
+      if (held === null || held !== range.endMonth) return false;
+    }
+    return true;
   }
   const years = claimYears(text);
   if (years.length === 0) return true;
@@ -453,25 +512,40 @@ const LEVEL_WORDS = ["native", "fluent", "beginner", "intermediate", "advanced",
 
 function normalizeLevel(w) {
   const l = String(w ?? "").toLowerCase();
+  // Synonyms, not a hierarchy: "mother tongue" IS the native level,
+  // so a native entry backs that wording — but never an A1 entry.
+  if (l.includes("mother tongue") || l.includes("native speaker") || l.includes("first language")) return "native";
   return l === "fluently" ? "fluent" : l;
 }
 
 /**
  * The level a line asserts for a language, if any: "Mandarin: native"
- * (colon form) or a level word near the language name ("I speak
- * Mandarin fluently"). Null when the line asserts no level — then the
- * language name alone is what must be backed.
+ * (colon form), a level word near the language name ("I speak
+ * Mandarin fluently"), or a mother-tongue phrase ("Mandarin: mother
+ * tongue" → native). Null when the line asserts no level. A qualifier
+ * the validator cannot recognise is NEVER degraded to "no level": it
+ * is returned as-is (colon word, ILR-style phrase), so it only
+ * matches a held level that says exactly the same thing — an
+ * uninterpretable qualifier is a conflict, not a weaker pass.
  */
 function languageLevelClaimed(text, lang) {
   const lower = String(text ?? "").toLowerCase();
+  const motherTongue = lower.match(new RegExp(`\\b${escapeRegExp(lang)}\\b.{0,40}?\\b(mother tongue|native speaker|first language)\\b`))
+    || lower.match(new RegExp(`\\b(mother tongue|native speaker|first language)\\b.{0,40}?\\b${escapeRegExp(lang)}\\b`));
+  if (motherTongue) return "native";
   const colon = lower.match(new RegExp(`\\b${escapeRegExp(lang)}\\s*:\\s*([a-z][a-z0-9]*)`));
   if (colon) {
     const n = normalizeLevel(colon[1]);
     if (LEVEL_WORDS.includes(n)) return n;
+    return colon[1];
   }
   const prox = lower.match(new RegExp(`\\b${escapeRegExp(lang)}\\b.{0,40}?\\b(native|fluent|fluently|beginner|intermediate|advanced|elementary|proficient|a1|a2|b1|b2|c1|c2)\\b`))
     || lower.match(new RegExp(`\\b(native|fluent|fluently|beginner|intermediate|advanced|elementary|proficient|a1|a2|b1|b2|c1|c2)\\b.{0,40}?\\b${escapeRegExp(lang)}\\b`));
-  return prox ? normalizeLevel(prox[1]) : null;
+  if (prox) return normalizeLevel(prox[1]);
+  const ilr = lower.match(new RegExp(`\\b${escapeRegExp(lang)}\\b.{0,40}?\\b(second language|professional proficiency|working proficiency|limited proficiency|full proficiency)\\b`))
+    || lower.match(new RegExp(`\\b(second language|professional proficiency|working proficiency|limited proficiency|full proficiency)\\b.{0,40}?\\b${escapeRegExp(lang)}\\b`));
+  if (ilr) return ilr[1];
+  return null;
 }
 
 function languageRefSupports(db, personId, ref, lang, claimedLevel = null) {
@@ -507,6 +581,20 @@ function skillMatches(item, skill) {
   const b = claimWords(skill);
   if (a.length === 0 || b.length === 0) return false;
   return a.every((w) => b.includes(w)) || b.every((w) => a.includes(w));
+}
+
+/**
+ * A "Skill: qualifier" item whose qualifier is not part of the held
+ * skill name asserts an unbacked level ("Excel: expert" with only
+ * "Excel" held) — the same silent degradation as an unrecognised
+ * language level, not a weaker pass. Returns the qualifier, else null.
+ */
+function skillColonQualifier(item, held) {
+  const m = String(item ?? "").match(/^(.+?)\s*:\s*(.+)$/);
+  if (!m || m[2].trim() === "") return null;
+  const name = m[1].trim().toLowerCase();
+  if (held.some((s) => String(s).toLowerCase() === name)) return m[2].trim();
+  return null;
 }
 
 function heldSkills(db, personId, profileId, skillsRefs) {
@@ -631,7 +719,11 @@ function heldEmploymentYears(db, personId) {
   return total;
 }
 
-/** Does ONE reference back a quantified assertion (same source: value AND unit must both be there)? */
+/** Does ONE reference back a quantified assertion? Value, scale and
+ * unit are checked JOINTLY against this SAME source: a matching
+ * number never early-returns before the unit is checked, so a EUR
+ * claim backed by a USD fact is a conflict even when the number
+ * matches. */
 function quantityBackedByRef(db, personId, profileId, ref, q, lineHasEmploymentRef) {
   if (q.kind === "experience_years") {
     if (lineHasEmploymentRef && heldEmploymentYears(db, personId) >= q.number) return true;
@@ -640,16 +732,18 @@ function quantityBackedByRef(db, personId, profileId, ref, q, lineHasEmploymentR
   const src = refSourceText(db, personId, profileId, ref).toLowerCase();
   const nums = [...src.matchAll(/[\d,]+(?:\.\d+)?/g)].map((m) => Number(m[0].replace(/,/g, "")));
   const expanded = q.scale ? q.number * SCALE_MULTIPLIER[q.scale] : null;
-  if (expanded !== null && nums.includes(expanded)) return true;
-  if (!nums.includes(q.number)) return false;
+  const numberOk = expanded !== null ? nums.includes(expanded) : nums.includes(q.number);
+  if (!numberOk) return false;
   if (q.kind === "percent") return src.includes("%");
   if (q.kind === "headcount") return /(people|employees|direct reports|team members)/.test(src);
-  if (q.scale) return src.includes(q.scale);
-  if (q.currency) {
-    const aliases = CURRENCY_ALIASES[q.currency.toLowerCase()] ?? [q.currency.toLowerCase()];
-    return aliases.some((a) => src.includes(a));
+  if (q.kind === "money") {
+    if (!q.currency) return false;
+    const key = q.currency.toLowerCase();
+    const aliases = CURRENCY_ALIASES[key] ?? [key];
+    return aliases.some((a) => (/[a-z]/.test(a) ? new RegExp(`\\b${escapeRegExp(a)}\\b`).test(src) : src.includes(a)));
   }
-  return false;
+  if (q.scale) return src.includes(q.scale);
+  return true;
 }
 
 /** Check one stored reference against the current retained set. */
@@ -693,33 +787,81 @@ export function checkRef(db, personId, profileId, ref) {
 }
 
 /**
- * Does a section heading itself STATE a claim? Headings carry no
- * references, so any claim-like heading can never validate — but
- * plain labels ("Experience", "Education", "Skills") and name headers
- * are not claims and stay valid. Covers education, history entries,
- * language claims ("I speak Mandarin fluently."), authorisation /
- * sponsorship claims, quantified assertions and skill lists.
+ * Headings are default-deny: a heading carries no references, so it
+ * is valid ONLY when it is a known structural label (the labels the
+ * app itself generates, plus genuinely generic section labels) or
+ * the person's name header. Anything else — in particular a heading
+ * stating an award, language, degree, title, employer or any other
+ * personal claim — is a conflict, whether or not a claim detector
+ * recognises its type. Wordlist enumeration of claim types is no
+ * longer the gate.
  */
-function headingStatesClaim(heading, person) {
-  if (isEducationClaim(heading)) return true;
-  const historyEntries = [
-    ...(person?.details?.employment ?? []).map((e) => ({ title: e.title, org: e.employer })),
-    ...(person?.details?.education ?? []).map((e) => ({ title: e.title, org: e.institution })),
-  ];
-  if (historyEntries.some((e) => isNonEmptyString(e.title) && isNonEmptyString(e.org)
-    && heading.toLowerCase().includes(String(e.title).toLowerCase())
-    && heading.toLowerCase().includes(String(e.org).toLowerCase()))) return true;
-  if (languagesClaimed(heading).length > 0) return true;
-  const parsed = parseQuestionText(heading);
-  if (parsed.concept === "work_authorisation" || parsed.concept === "sponsorship_required") return true;
-  if (quantitiesClaimed(heading).length > 0) return true;
-  if (/\b(experience as|worked\s+(as|at|for)|employed\s+(as|at|by))\b/i.test(heading)) return true;
-  if (skillListClaimed(heading)) return true;
-  return false;
+const KNOWN_HEADING_LABELS = new Set([
+  "experience", "education", "skills", "languages", "extra", "summary",
+  "professional summary", "objective", "profile", "contact",
+  "contact information", "work experience", "employment",
+  "employment history", "academic background", "technical skills",
+  "certifications", "awards", "projects", "publications", "references",
+  "interests", "volunteering", "additional information",
+]);
+
+function isKnownStructuralHeading(heading, person) {
+  const h = String(heading ?? "").trim();
+  if (h === "") return true;
+  if (person?.details?.full_name && h === person.details.full_name) return true;
+  return KNOWN_HEADING_LABELS.has(h.toLowerCase());
 }
 
 /** First-person experience/achievement verbs: a sentence using them asserts more than a held skill name. */
-const ACTION_VERBS = /\b(I|my)\b[^.]*\b(managed|led|increased|reduced|delivered|built|created|improved|achieved|earned|won|founded|started|ran|supervised|coordinated|developed|designed|implemented|drove|grew|negotiated|launched)\b/i;
+const ACTION_VERB_WORDS = ["managed", "led", "increased", "reduced", "delivered", "built", "created", "improved", "achieved", "earned", "won", "founded", "started", "ran", "supervised", "coordinated", "developed", "designed", "implemented", "drove", "grew", "negotiated", "launched", "received", "awarded"];
+const ACTION_VERBS = new RegExp(`\\b(I|my)\\b[^.]*\\b(${ACTION_VERB_WORDS.join("|")})\\b`, "i");
+
+const ACHIEVEMENT_STOP = new Set([
+  "i", "my", "me", "mine", "the", "a", "an", "at", "in", "on", "for", "of", "to",
+  "and", "or", "was", "were", "is", "am", "are", "been", "be", "have", "has",
+  "had", "by", "with", "from", "as", "this", "that", "it", "its", "per",
+  "during", "through", ...ACTION_VERB_WORDS,
+]);
+const QUANTITY_NOUNS = new Set(["budget", "revenue", "sales", "team", "people", "employees", "headcount", "cost", "costs", "savings"]);
+const AWARD_CONCEPT = /award|prize|achievement|honou?r|recognition|distinction/i;
+
+/** Significant content tokens of an achievement sentence (verbs, pronouns, furniture and years stripped). */
+function achievementTokens(text) {
+  return claimWords(text).filter((w) => !ACHIEVEMENT_STOP.has(w) && !/^\d{4}$/.test(w));
+}
+
+/**
+ * Does ONE reference support an achievement/action sentence — by
+ * CONTENT, not by type? An award fact must name the achievement; a
+ * fact backing the sentence's quantities must back every quantity
+ * and every remaining token; an employment entry must cover the
+ * sentence with its own words. An unrelated fact, however confirmed,
+ * and a bare skill name never support an achievement.
+ */
+function achievementRefSupports(db, personId, profileId, ref, text) {
+  if (ref.kind === "history" && ref.entryKind === "employment") return employmentRefSupports(db, personId, ref, text);
+  if (ref.kind !== "fact") return false;
+  const row = db.prepare("SELECT * FROM declared_facts WHERE id = ? AND person_id = ? AND confirmation_state = 'confirmed'").get(ref.id, personId);
+  if (!row) return false;
+  let value;
+  try { value = JSON.parse(row.value_json); } catch { return false; }
+  const valueText = typeof value === "string" ? value : JSON.stringify(value);
+  const valueWords = new Set(claimWords(`${row.concept} ${valueText}`));
+  const tokens = achievementTokens(text);
+  if (AWARD_CONCEPT.test(row.concept) && tokens.length > 0 && tokens.every((t) => valueWords.has(t))) return true;
+  const qs = quantitiesClaimed(text);
+  if (qs.length > 0 && qs.every((q) => quantityBackedByRef(db, personId, profileId, ref, q, false))) {
+    const quantityWords = new Set(qs.flatMap((q) => claimWords(q.raw)));
+    const rest = tokens.filter((t) => !quantityWords.has(t));
+    if (rest.every((t) => valueWords.has(t) || QUANTITY_NOUNS.has(t))) return true;
+  }
+  return false;
+}
+
+/** Phone-like strings in text: international (+…) or 3-3-4 grouped. Date ranges and bare years never match (no + prefix, no 3-3-4 grouping, en/em dashes excluded). */
+function phonesClaimed(text) {
+  return String(text ?? "").match(/(?:\+\d[\d\s().-]{6,}\d|\b\d{3}[\s().-]\d{3}[\s().-]\d{4}\b)/g) ?? [];
+}
 
 /**
  * Revalidate edited content before it becomes a version: language
@@ -736,15 +878,14 @@ export function revalidateContent(db, personId, profileId, content) {
   else {
     const person = getPerson(db, personId);
     for (const section of content.sections) {
-      // A heading carries no references, so a heading that itself
-      // STATES a claim can never validate — but a plain label
-      // ("Extra", "Skills") is not a claim. Only claim-like headings
-      // (an education claim, or a history entry's title + employer /
-      // institution) are conflicts.
+      // A heading carries no references, so it is valid ONLY as a
+      // known structural label or the person's name header. Any
+      // other heading is a conflict — headings are default-deny, and
+      // claim-type enumeration is no longer the gate.
       if (typeof section.heading === "string" && section.heading.trim() !== "") {
         const heading = section.heading;
-        if (headingStatesClaim(heading, person)) {
-          conflicts.push(`section heading states a claim but carries no references: "${String(heading).slice(0, 80)}"`);
+        if (!isKnownStructuralHeading(heading, person)) {
+          conflicts.push(`section heading is not a known structural label and carries no references: "${String(heading).slice(0, 80)}"`);
         }
       }
       if (!Array.isArray(section.lines)) { conflicts.push("section lines must be an array"); continue; }
@@ -792,6 +933,8 @@ export function revalidateContent(db, personId, profileId, content) {
           const listed = skillListClaimed(l.text);
           if (listed) {
             for (const item of listed) {
+              const qual = skillColonQualifier(item, held);
+              if (qual) conflicts.push(`skill qualifier "${qual}" is not held on the profile: "${String(l.text).slice(0, 80)}"`);
               if (!held.some((s) => skillMatches(item, s))) conflicts.push(`skill "${item}" is not held on the profile: "${String(l.text).slice(0, 80)}"`);
             }
           } else {
@@ -802,6 +945,8 @@ export function revalidateContent(db, personId, profileId, content) {
             for (const item of items) {
               const words = claimWords(item);
               if (words.length > 0 && words.length <= 5 && !/^(my|i|we|the|a|an)\b/i.test(item) && !/[.!?]\s+\S/.test(item)) {
+                const qual = skillColonQualifier(item, held);
+                if (qual) conflicts.push(`skill qualifier "${qual}" is not held on the profile: "${String(l.text).slice(0, 80)}"`);
                 if (!held.some((s) => skillMatches(item, s))) conflicts.push(`skill "${item}" is not held on the profile: "${String(l.text).slice(0, 80)}"`);
               }
             }
@@ -841,19 +986,59 @@ export function revalidateContent(db, personId, profileId, content) {
           const backed = l.refs.some((ref) => quantityBackedByRef(db, personId, profileId, ref, q, lineHasEmploymentRef));
           if (!backed) conflicts.push(`quantified assertion not supported by its references: "${q.raw}" in "${String(l.text).slice(0, 80)}"`);
         }
-        // Action sentences backed only by skill refs assert experience
-        // or achievement, not a held skill name — they need an
-        // employment or fact reference backing the action itself.
-        if (skillsRefs.length > 0 && !skillListClaimed(l.text) && ACTION_VERBS.test(l.text)
-          && !historyRefs.some((r) => r.entryKind === "employment") && !l.refs.some((r) => r.kind === "fact")) {
-          conflicts.push(`experience/achievement claim not supported by an employment or fact reference: "${String(l.text).slice(0, 80)}"`);
+        // Role/title lines: a title-like line backed by desired_roles
+        // must NAME a held desired role (or, with an employment ref,
+        // that entry's title). An unrelated title backed only by the
+        // ref is a conflict ("Chief Executive Officer" is not backed
+        // by ["Accountant"]). Sentence-like lines are left to the
+        // other checks (quantities, employment, achievements).
+        const roleRefs = l.refs.filter((r) => r.kind === "profile" && r.field === "desired_roles");
+        if (roleRefs.length > 0) {
+          const stripped = String(l.text ?? "").trim().replace(/[.。]\s*$/, "").replace(/^(role|target role|desired role)\s*:\s*/i, "");
+          const sentenceLike = /[.?!]\s+\S/.test(stripped)
+            || /\b(am|is|are|was|were|speak|speaks|have|has|hold|held|worked|managed|led)\b/i.test(stripped);
+          if (stripped !== "" && !sentenceLike) {
+            const heldRoles = new Set();
+            for (const r of roleRefs) if (Array.isArray(r.value)) r.value.forEach((v) => heldRoles.add(String(v).toLowerCase()));
+            const profileBody = getProfileFull(db, profileId)?.body ?? {};
+            if (Array.isArray(profileBody.desired_roles)) profileBody.desired_roles.forEach((v) => heldRoles.add(String(v).toLowerCase()));
+            const employmentTitles = new Set();
+            if (historyRefs.some((r) => r.entryKind === "employment")) {
+              for (const r of historyRefs.filter((x) => x.entryKind === "employment")) {
+                const e = resolveHistoryEntry(db, personId, r, "employment");
+                if (e?.title) employmentTitles.add(String(e.title).toLowerCase());
+              }
+            }
+            const parts = stripped.split(/\s*,\s*|\s+and\s+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+            if (parts.length > 0 && !parts.every((p) => heldRoles.has(p) || employmentTitles.has(p))) {
+              conflicts.push(`role/title line not held on the profile: "${String(l.text).slice(0, 80)}"`);
+            }
+          }
         }
-        // Bare contact values backed by a person field must BE that
-        // value — editing the text while keeping the ref is not backing.
-        for (const ref of l.refs.filter((r) => r.kind === "person" && (r.field === "email" || r.field === "phone"))) {
-          const t = String(l.text ?? "").trim();
-          if (typeof ref.value === "string" && !/\s/.test(t) && t !== ref.value) {
-            conflicts.push(`line text does not match its person reference: "${String(l.text).slice(0, 80)}"`);
+        // Achievement/action sentences: support is checked by
+        // CONTENT, not by reference type. A sentence asserting an
+        // achievement needs a source naming that achievement — an
+        // award fact naming it, a quantity-backed fact, or an
+        // employment entry whose own words cover it — never an
+        // unrelated fact, however confirmed, and never a bare skill.
+        if (ACTION_VERBS.test(l.text)) {
+          const supported = l.refs.some((ref) => achievementRefSupports(db, personId, profileId, ref, l.text));
+          if (!supported) conflicts.push(`achievement/action claim not supported by its references: "${String(l.text).slice(0, 80)}"`);
+        }
+        // Contact values: ANY email or phone in rendered text must
+        // equal a held contact value — labels or prefixes
+        // ("Contact: …") never skip the comparison.
+        const heldEmail = person?.details?.email ? String(person.details.email).toLowerCase() : null;
+        const heldPhoneNorm = person?.details?.phone ? String(person.details.phone).replace(/[\s().-]/g, "") : null;
+        for (const email of String(l.text ?? "").match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) ?? []) {
+          if (!heldEmail || email.toLowerCase() !== heldEmail) {
+            conflicts.push(`contact email in text does not match the held email: "${String(l.text).slice(0, 80)}"`);
+          }
+        }
+        for (const phone of phonesClaimed(l.text)) {
+          const norm = phone.replace(/[\s().-]/g, "");
+          if (!heldPhoneNorm || norm !== heldPhoneNorm) {
+            conflicts.push(`contact phone in text does not match the held phone: "${String(l.text).slice(0, 80)}"`);
           }
         }
       }
