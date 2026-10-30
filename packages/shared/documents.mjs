@@ -1000,7 +1000,7 @@ function phraseRefSupports(db, personId, profileId, ref, phrase) {
   return false;
 }
 
-/** Does ONE reference support one part of a title-label value? */
+/** Does ONE reference support a labelled value AS THE LABEL'S TYPE? */
 function titleLabelSupports(db, personId, profileId, ref, part) {
   if (ref.kind === "profile" && ref.field === "desired_roles") {
     const v = ref.value !== undefined ? ref.value : (getProfileFull(db, profileId)?.body?.desired_roles);
@@ -1010,6 +1010,56 @@ function titleLabelSupports(db, personId, profileId, ref, part) {
   if (ref.kind === "history" && ref.entryKind === "employment") {
     const entry = resolveHistoryEntry(db, personId, ref, "employment");
     return !!entry?.title && String(entry.title).toLowerCase() === part;
+  }
+  return false;
+}
+
+/**
+ * Does ONE reference support a labelled value AS THE LABEL'S TYPE?
+ * Cross-typing fix (G5 round 7): a label declares the value's type,
+ * so only refs of that type can support it — a desired_roles ref
+ * never supports a Skill/Location/Employer/Language value, however
+ * true the string is in some other retained field. Mixed refs still
+ * pass on at least one admissible supporting ref. "company" is read
+ * as the person's employer (employment history); "Target company:"
+ * is NOT in CLAIM_LABEL_RE and stays parameter content under the
+ * single-entity template rule.
+ */
+function labelRefSupports(db, personId, profileId, label, ref, value) {
+  const norm = String(value ?? "").trim().toLowerCase();
+  if (label === "skill" || label === "skills") {
+    if (ref.kind !== "profile" || ref.field !== "skills") return false;
+    const vals = Array.isArray(ref.value) ? ref.value : (getProfileFull(db, profileId)?.body?.skills ?? []);
+    // One-directional, as for skill lines: the claim must not add
+    // tokens beyond the held skill ("Excel expert" never rides on
+    // held "Excel"; a subset claim adds nothing and still passes).
+    return vals.some((s) => typeof s === "string" && skillMatches(value, s));
+  }
+  if (label === "location") {
+    if (ref.kind !== "profile" || ref.field !== "locations") return false;
+    const vals = Array.isArray(ref.value) ? ref.value : (getProfileFull(db, profileId)?.body?.locations ?? []);
+    const elements = vals.filter((v) => typeof v === "string").map((v) => v.trim().toLowerCase());
+    if (elements.includes(norm)) return true;
+    const parts = norm.split(/\s*,\s*|\s+and\s+/).map((p) => p.trim()).filter(Boolean);
+    return parts.length > 1 && parts.every((p) => elements.includes(p));
+  }
+  if (label === "employer" || label === "company") {
+    if (ref.kind !== "history" || ref.entryKind !== "employment") return false;
+    const entry = resolveHistoryEntry(db, personId, ref, "employment");
+    return !!entry?.employer && entry.employer.trim().toLowerCase() === norm;
+  }
+  if (label === "language") {
+    // The label itself declares the type, so the value is parsed as
+    // a language name plus an optional level — never via the
+    // verb/colon heuristics of languagesClaimed, which miss a bare
+    // "Language: Spanish" value entirely.
+    let name = value;
+    const colon = value.indexOf(":");
+    if (colon >= 0) name = value.slice(0, colon).trim();
+    else name = value.replace(/\s*\([^)]*\)\s*$/, "").trim();
+    const lang = name.toLowerCase();
+    if (!lang) return false;
+    return languageRefSupports(db, personId, ref, lang, languageLevelClaimed(value, lang));
   }
   return false;
 }
@@ -1056,10 +1106,12 @@ export function revalidateContent(db, personId, profileId, content) {
         // Label-prefixed lines are judged on their VALUE, never on
         // the label: a label must never be a route around
         // validation. Title labels are judged as title claims (held
-        // + at least one supporting ref); other labels as held
-        // content + at least one supporting ref. "Target company:"
-        // is excluded on purpose: it is parameter content governed
-        // by the single-entity template rule (isSystemTemplate).
+        // + at least one supporting ref); every other label is
+        // judged by a ref of its OWN type (labelRefSupports) —
+        // cross-typing is a conflict even when the string exists in
+        // some other retained field. "Target company:" is excluded
+        // on purpose: it is parameter content governed by the
+        // single-entity template rule (isSystemTemplate).
         const labelMatch = String(l.text ?? "").trim().match(CLAIM_LABEL_RE);
         if (labelMatch) {
           const label = labelMatch[1].toLowerCase();
@@ -1082,33 +1134,16 @@ export function revalidateContent(db, personId, profileId, content) {
             }
             continue;
           }
-          if (label === "language") {
-            const claimed = languagesClaimed(value);
-            if (claimed.length > 0) {
-              for (const lang of claimed) {
-                const supported = l.refs.some((ref) => languageRefSupports(db, personId, ref, lang, languageLevelClaimed(value, lang)));
-                if (!supported) conflicts.push(`language label value not supported by its references: "${String(l.text).slice(0, 80)}"`);
-              }
-              continue;
-            }
-          }
-          const heldPhrases = new Set();
-          const addPhrase = (v) => { if (typeof v === "string" && v.trim()) heldPhrases.add(v.trim().toLowerCase()); };
-          (profileBody.desired_roles ?? []).forEach(addPhrase);
-          (profileBody.skills ?? []).forEach(addPhrase);
-          (profileBody.locations ?? []).forEach(addPhrase);
-          for (const e of presentedHistory(person.details, profileBody).employment) { addPhrase(e.title); addPhrase(e.employer); }
-          for (const e of presentedHistory(person.details, profileBody).education) { addPhrase(e.title); addPhrase(e.institution); }
-          for (const lang of person.details?.languages ?? []) addPhrase(lang.language);
-          addPhrase(person.details?.full_name);
-          const norm = value.toLowerCase();
-          const words = claimWords(value);
-          const heldOk = [...heldPhrases].some((h) => h === norm
-            || (claimWords(h).length === words.length && claimWords(h).every((w) => words.includes(w))));
-          if (!heldOk) {
-            conflicts.push(`labelled value not held: "${String(l.text).slice(0, 80)}"`);
-          } else if (!l.refs.some((ref) => phraseRefSupports(db, personId, profileId, ref, value))) {
-            conflicts.push(`labelled value not supported by its references: "${String(l.text).slice(0, 80)}"`);
+          // Every other label restricts its admissible sources to
+          // its own type (cross-typing fix, G5 round 7): the
+          // supporting ref itself must be of the label's kind. A
+          // value that merely exists in some other retained field,
+          // backed only by a ref of another kind, is a conflict.
+          // "Target company:" is excluded on purpose: it is
+          // parameter content governed by the single-entity
+          // template rule (isSystemTemplate).
+          if (!l.refs.some((ref) => labelRefSupports(db, personId, profileId, label, ref, value))) {
+            conflicts.push(`labelled value not supported by a reference of its own type: "${String(l.text).slice(0, 80)}"`);
           }
           continue;
         }
