@@ -417,7 +417,7 @@ desactivar inmediatamente en cualquier momento.</small></p>
 <option value="review">Recomendar para revisión</option>
 <option value="auto" disabled>Autoaplicar (desactivada)</option>
 </select>
-<label for="search-def-maxjobs">Máximo de ofertas por ejecución</label><input id="search-def-maxjobs" value="100">
+<label for="search-def-maxjobs">Máximo de ofertas elegibles por ejecución</label><input id="search-def-maxjobs" value="100">
 <label for="search-def-maxpages">Máximo de páginas por fuente</label><input id="search-def-maxpages" value="10">
 <button id="search-def-create">Guardar búsqueda</button>
 <button id="search-def-cancel" type="button" hidden>Cancelar edición</button>
@@ -1635,8 +1635,10 @@ function renderSearchDefinitions(definitions) {
     run.textContent = "Ejecutar";
     run.onclick = async () => { try {
       const r = await call("/api/search-definitions/" + d.id + "/run", "POST", {});
+      const causes = (r.summary.causes || []).filter((c) => c.cause).map((c) => c.source + ": " + String(c.cause).slice(0, 160)).join(" | ");
       $("search-run-status").textContent = "Ejecución " + r.run.status + ": " + r.summary.coverage + " (" + r.summary.completed + "/" + r.summary.attempted + " fuentes completadas)"
-        + (r.summary.autoApplyNote ? " — " + r.summary.autoApplyNote : "");
+        + (r.summary.autoApplyNote ? " — " + r.summary.autoApplyNote : "")
+        + (causes ? " — " + causes : "");
       renderSearchResults(r);
     } catch (e) { $("search-run-status").textContent = "Error: " + e.message; } };
     const del = document.createElement("button");

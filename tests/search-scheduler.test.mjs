@@ -11,7 +11,7 @@ import {
   nextRunLocal, instantsForLocalTime, claimRunLock, recoverStuckRuns,
   takeRecoveryRun, hasRecoveryPending, recordSourceFailure,
   recordSourceSuccess, isSourceDue, getBackoffState,
-  createBudget, budgetAllowsJob, budgetAllowsPage, noteJob, notePage,
+  createBudget, budgetAllowsEligibleJob, budgetAllowsPage, noteEligibleJob, notePage,
   budgetDeadlineExceeded, BACKOFF_BASE_MS, BACKOFF_CAP_MS,
 } from "../packages/shared/search-scheduler.mjs";
 import { createSearchDefinition } from "../packages/shared/search-run.mjs";
@@ -133,18 +133,21 @@ test("scheduler: backoff honours Retry-After exactly, otherwise doubles up to th
   assert.equal(state["ashby-catalog"].failures, 12);
 });
 
-test("scheduler: budget caps jobs, pages per source and the deadline", () => {
+test("scheduler: budget caps eligible jobs, pages per source and the deadline", () => {
   const budget = createBudget({ maxJobs: 2, maxPagesPerSource: 1 }, { deadlineMs: 1000, nowMs: 100000 });
-  assert.equal(budgetAllowsJob(budget, 100000), true);
+  assert.equal(budgetAllowsEligibleJob(budget, 100000), true);
   assert.equal(budgetAllowsPage(budget, "greenhouse-catalog", 100000), true);
   notePage(budget, "greenhouse-catalog");
   assert.equal(budgetAllowsPage(budget, "greenhouse-catalog", 100000), false);
   assert.equal(budgetAllowsPage(budget, "lever-catalog", 100000), true);
-  noteJob(budget);
-  assert.equal(budgetAllowsJob(budget, 100000), true);
-  noteJob(budget);
-  assert.equal(budgetAllowsJob(budget, 100000), false);
+  // jobsUsed counts UNIQUE ELIGIBLE offers (user decision 2026-10-31):
+  // the unit mechanics are unchanged (2 notes exhaust a cap of 2), but
+  // callers must only note first-appearance eligible offers.
+  noteEligibleJob(budget);
+  assert.equal(budgetAllowsEligibleJob(budget, 100000), true);
+  noteEligibleJob(budget);
+  assert.equal(budgetAllowsEligibleJob(budget, 100000), false);
   assert.equal(budgetDeadlineExceeded(budget, 100000), false);
   assert.equal(budgetDeadlineExceeded(budget, 101001), true);
-  assert.equal(budgetAllowsJob(budget, 101001), false);
+  assert.equal(budgetAllowsEligibleJob(budget, 101001), false);
 });

@@ -31,8 +31,8 @@ import { presentedHistory, getProfileFull, assertProfileBelongsToPerson } from "
 import { getPerson } from "./person.mjs";
 import {
   claimRunLock, markSlotRun, recordSourceFailure, recordSourceSuccess,
-  isSourceDue, getBackoffState, createBudget, budgetAllowsJob, budgetAllowsPage,
-  noteJob, notePage, budgetDeadlineExceeded, DEFAULT_RUN_DEADLINE_MS,
+  isSourceDue, getBackoffState, createBudget, budgetAllowsEligibleJob, budgetAllowsPage,
+  noteEligibleJob, notePage, budgetDeadlineExceeded, DEFAULT_RUN_DEADLINE_MS,
 } from "./search-scheduler.mjs";
 
 export { importUrl, importCsv, importText };
@@ -495,6 +495,30 @@ function mapConnectorStatus(status) {
 }
 
 /**
+ * Local language detection shared by capture-time eligibility and the
+ * post-capture pass: exactly the same rule in both places, idempotent
+ * (offers that already carry a language are skipped). Only a confident
+ * local detection is trusted; otherwise the language stays unknown and
+ * the filter marks it for review — never guessed. Capture-time use
+ * matters: an offer first seen without a language must be judged with
+ * the same enrichment the ranking later sees, or it could consume
+ * cupo as "eligible" and then be excluded once its real language is
+ * detected (user decision 2026-10-31).
+ * @param {any[]} offers
+ */
+function enrichOfferLanguages(offers) {
+  for (const offer of offers) {
+    if (!offer.language && offer.description) {
+      const detected = detectLanguage(offer.description);
+      if (detected.language !== "unknown" && detected.confidence >= 0.6 && detected.hits >= 5) {
+        offer.language = detected.language;
+        offer.languageMethod = "local";
+      }
+    }
+  }
+}
+
+/**
  * Fetch one ATS source from its verified catalog boards only.
  * startCursors resumes pagination: { [board]: { skip, limit } | number }
  * from a previous run's stored cursors. A board whose stored cursor is
@@ -502,21 +526,38 @@ function mapConnectorStatus(status) {
  * there. Cursors are ALWAYS kept numeric — assigning a cursor object
  * wholesale to skip produced skip=[object Object] and corrupted the
  * stored cursor.
- * @param {any} db @param {string} ats @param {any} fetchFn @param {any} budget @param {string} sourceId @param {any} [startCursors]
- * @returns {Promise<{jobs: any[], cursors: any, boardErrors: any[], status: string, cause: string | null, retryAfterMs: number | null}>}
+ * Cupo rule (user decision 2026-10-31): the budget counts UNIQUE
+ * ELIGIBLE offers only. noteEligible is the run's shared closure: it
+ * enriches the offer's language, evaluates it against the definition's
+ * profile views, and counts it only on first eligible appearance.
+ * Non-eligible offers still flow into jobs (dedupe / ranking /
+ * comparison / persistence are unchanged); only the counter — and
+ * therefore the stop condition — changed. The page budget is
+ * untouched: notePage counts 1 per board in greenhouse/ashby and 1
+ * per 50-posting page in lever, so with maxPagesPerSource = 10 a
+ * 95-board source can stop after 10 boards; that stop is reported
+ * via pageLimitHit + cause instead of silently completing.
+ * @param {any} db @param {string} ats @param {any} fetchFn @param {any} budget @param {string} sourceId @param {any} [startCursors] @param {(offer: any) => boolean} [noteEligible]
+ * @returns {Promise<{jobs: any[], cursors: any, boardErrors: any[], status: string, cause: string | null, retryAfterMs: number | null, pageLimitHit: boolean, eligible: number}>}
  */
-async function fetchAtsSource(db, ats, fetchFn, budget, sourceId, startCursors = {}) {
+async function fetchAtsSource(db, ats, fetchFn, budget, sourceId, startCursors = {}, noteEligible = null) {
   const boards = listBoards(db, { onlyVerified: true, includePaused: false }).filter((b) => b.ats === ats);
   if (boards.length === 0) {
-    return { jobs: [], cursors: {}, boardErrors: [], status: "failed", cause: `no verified catalog boards for ${ats}`, retryAfterMs: null };
+    return { jobs: [], cursors: {}, boardErrors: [], status: "failed", cause: `no verified catalog boards for ${ats}`, retryAfterMs: null, pageLimitHit: false, eligible: 0 };
   }
   const jobs = [];
   const cursors = {};
   const boardErrors = [];
+  let pageLimitHit = false;
+  let eligibleCount = 0;
+  const countJob = (job) => { if (noteEligible && noteEligible(job)) eligibleCount += 1; };
+  const pageNote = () => (ats === "lever"
+    ? `page limit reached: maxPagesPerSource=${budget.maxPagesPerSource} pages of 50 postings consulted`
+    : `page limit reached: maxPagesPerSource=${budget.maxPagesPerSource} counts 1 per board, so at most ${budget.maxPagesPerSource} boards are consulted`);
   for (const board of boards) {
-    if (budgetDeadlineExceeded(budget) || !budgetAllowsJob(budget)) break;
+    if (budgetDeadlineExceeded(budget) || !budgetAllowsEligibleJob(budget)) break;
     if (ats === "greenhouse" || ats === "ashby") {
-      if (!budgetAllowsPage(budget, sourceId)) break;
+      if (!budgetAllowsPage(budget, sourceId)) { pageLimitHit = true; break; }
       notePage(budget, sourceId);
       const result = ats === "greenhouse"
         ? await fetchGreenhouseJobs(board.board, { fetchFn, company: board.company })
@@ -527,8 +568,8 @@ async function fetchAtsSource(db, ats, fetchFn, budget, sourceId, startCursors =
       }
       cursors[board.board] = result.cursor ?? null;
       for (const job of result.jobs) {
-        if (!budgetAllowsJob(budget)) break;
-        noteJob(budget);
+        if (!budgetAllowsEligibleJob(budget)) break;
+        countJob(job);
         jobs.push(job);
       }
     } else if (ats === "lever") {
@@ -539,7 +580,8 @@ async function fetchAtsSource(db, ats, fetchFn, budget, sourceId, startCursors =
       else if (stored && typeof stored === "object" && Number.isFinite(Number(stored.skip))) skip = Number(stored.skip);
       let cursor = null;
       for (;;) {
-        if (budgetDeadlineExceeded(budget) || !budgetAllowsJob(budget) || !budgetAllowsPage(budget, sourceId)) break;
+        if (budgetDeadlineExceeded(budget) || !budgetAllowsEligibleJob(budget)) break;
+        if (!budgetAllowsPage(budget, sourceId)) { pageLimitHit = true; break; }
         notePage(budget, sourceId);
         const result = await fetchLeverPostings(board.board, { fetchFn, skip, limit: 50, company: board.company });
         if (result.status !== "ok") {
@@ -548,8 +590,8 @@ async function fetchAtsSource(db, ats, fetchFn, budget, sourceId, startCursors =
         }
         cursor = result.cursor ?? null;
         for (const job of result.jobs) {
-          if (!budgetAllowsJob(budget)) break;
-          noteJob(budget);
+          if (!budgetAllowsEligibleJob(budget)) break;
+          countJob(job);
           jobs.push(job);
         }
         if (cursor === null || cursor === undefined) break;
@@ -562,16 +604,18 @@ async function fetchAtsSource(db, ats, fetchFn, budget, sourceId, startCursors =
       cursors[board.board] = cursor;
     }
   }
+  const boardCause = boardErrors.length > 0 ? boardErrors.map((e) => `${e.board}: ${e.cause ?? e.status}`).join("; ") : null;
+  const cause = [boardCause, pageLimitHit ? pageNote() : null].filter(Boolean).join("; ") || null;
   if (boardErrors.length > 0 && jobs.length === 0) {
     const statuses = [...new Set(boardErrors.map((e) => e.status))];
     const status = statuses.length === 1 ? mapConnectorStatus(statuses[0]) : "failed";
     const retryAfterMs = boardErrors.find((e) => e.retryAfterMs !== null)?.retryAfterMs ?? null;
-    return { jobs, cursors, boardErrors, status, cause: boardErrors.map((e) => `${e.board}: ${e.cause ?? e.status}`).join("; "), retryAfterMs };
+    return { jobs, cursors, boardErrors, status, cause, retryAfterMs, pageLimitHit, eligible: eligibleCount };
   }
   if (boardErrors.length > 0) {
-    return { jobs, cursors, boardErrors, status: "partial", cause: boardErrors.map((e) => `${e.board}: ${e.cause ?? e.status}`).join("; "), retryAfterMs: null };
+    return { jobs, cursors, boardErrors, status: "partial", cause, retryAfterMs: null, pageLimitHit, eligible: eligibleCount };
   }
-  return { jobs, cursors, boardErrors, status: jobs.length === 0 ? "completed_zero_results" : "completed", cause: null, retryAfterMs: null };
+  return { jobs, cursors, boardErrors, status: jobs.length === 0 ? "completed_zero_results" : "completed", cause, retryAfterMs: null, pageLimitHit, eligible: eligibleCount };
 }
 
 /**
@@ -632,8 +676,32 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
     }
     criteria.sentCanonicalIds = [...sentIds];
 
+    // Eligible-budget accounting (user decision 2026-10-31): the
+    // maxJobs cupo counts UNIQUE ELIGIBLE offers only, shared across
+    // all sources. A non-eligible appearance never reserves its key;
+    // only the first eligible appearance of a strong identity
+    // (canonicalId, same fallback as resolveOfferId below) advances
+    // the counter. Evaluation happens here with the same language
+    // enrichment the ranking later sees (enrichOfferLanguages), so an
+    // offer first seen without a language cannot consume cupo and
+    // then be excluded once its real language is detected.
+    const seenEligibleIdentities = new Set();
+    const noteEligibleOffer = (offer) => {
+      enrichOfferLanguages([offer]);
+      const eligible = profileViews.some((view) => evaluateOffer(offer, criteria, view).eligible);
+      if (!eligible) return false;
+      const key = canonicalId(offer) ?? normalizeUrl(offer.canonicalUrl ?? offer.applyUrl ?? "") ?? offer.title;
+      if (key) {
+        if (seenEligibleIdentities.has(key)) return false;
+        seenEligibleIdentities.add(key);
+      }
+      noteEligibleJob(budget);
+      return true;
+    };
+
     // Per-source fetching. A failed source is recorded, never
     // rendered as zero results; partial results still flow on.
+    const pageLimitNotes = [];
     const perSource = [];
     const cursors = {};
     const sourceErrors = {};
@@ -661,16 +729,25 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
       }
       const ats = ATS_BY_CONNECTOR[sourceId];
       if (ats) {
-        const fetched = await fetchAtsSource(db, ats, fetchFn, budget, sourceId, previousCursors[sourceId] ?? {});
+        const fetched = await fetchAtsSource(db, ats, fetchFn, budget, sourceId, previousCursors[sourceId] ?? {}, noteEligibleOffer);
         cursors[sourceId] = fetched.cursors;
         if (fetched.boardErrors.length > 0) sourceErrors[sourceId] = fetched.boardErrors;
         if (fetched.status === "completed" || fetched.status === "completed_zero_results") recordSourceSuccess(db, definitionId, sourceId);
         else if (fetched.boardErrors.length > 0 && fetched.jobs.length === 0) {
           recordSourceFailure(db, definitionId, sourceId, { retryAfterMs: fetched.retryAfterMs ?? null });
         }
-        perSource.push({ source: sourceId, status: fetched.status, observed: fetched.jobs.length, valid: 0, duplicates: 0, excluded: 0, pending: 0, cause: fetched.cause });
+        perSource.push({ source: sourceId, status: fetched.status, observed: fetched.jobs.length, eligible: fetched.eligible ?? 0, valid: 0, duplicates: 0, excluded: 0, pending: 0, cause: fetched.cause });
+        // A page-limited source that still reports "completed" would
+        // otherwise hide its cause: summarizeRun only surfaces causes
+        // for non-completed sources. Record it here so the run status
+        // line can explain the stop (user decision 2026-10-31, option
+        // 2: keep the limit, make the stop explicable). Partial/failed
+        // sources already carry the page note inside fetched.cause.
+        if (fetched.pageLimitHit && (fetched.status === "completed" || fetched.status === "completed_zero_results")) {
+          pageLimitNotes.push({ source: sourceId, status: fetched.status, cause: fetched.cause });
+        }
         allOffers = allOffers.concat(fetched.jobs);
-        if (!budgetAllowsJob(budget) && fetched.jobs.length > 0) budgetExhausted = budget.truncated;
+        if (!budgetAllowsEligibleJob(budget) && fetched.jobs.length > 0) budgetExhausted = budget.truncated;
         continue;
       }
       if (sourceId === "xai-web") {
@@ -690,12 +767,12 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
           const discoveredJobs = Array.isArray(discovered?.jobs) ? discovered.jobs : (Array.isArray(discovered) ? discovered.filter((v) => v && typeof v === "object") : []);
           const extracted = [];
           let extractFailures = 0;
+          let extractedEligible = 0;
           for (const url of urls) {
-            if (!budgetAllowsJob(budget)) break;
+            if (!budgetAllowsEligibleJob(budget)) break;
             const result = await extractOffer(url, { fetchFn, classifyFn: opts.xaiClassifyFn ?? null });
             if (result.status !== "ok") { extractFailures += 1; continue; }
-            noteJob(budget);
-            extracted.push({
+            const extractedOffer = {
               source: "xai-web", ats: "xai-web", tenant: (() => { try { return new URL(result.url).hostname; } catch { return "unknown"; } })(),
               postingId: null, canonicalUrl: result.url, applyUrl: "",
               title: result.title ?? "unknown", company: result.company ?? null,
@@ -706,7 +783,9 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
               language: result.language ?? null, languageMethod: result.languageMethod ?? null,
               sponsorship: "unknown", relocation: "unknown", publishedAt: result.publishedAt ?? null,
               firstSeenAt: result.firstSeenAt, evidence: { canonicalVerified: true, ...(result.evidence ?? {}) },
-            });
+            };
+            if (noteEligibleOffer(extractedOffer)) extractedEligible += 1;
+            extracted.push(extractedOffer);
           }
           // Discovered jobs go through the SAME validation pipeline
           // as every other candidate (T-V2-029): an LLM assertion is
@@ -716,15 +795,14 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
           // reason and never reaches eligibility/ranking.
           let discoveryFailures = 0;
           for (const job of discoveredJobs) {
-            if (!budgetAllowsJob(budget)) break;
+            if (!budgetAllowsEligibleJob(budget)) break;
             const url = job.canonicalUrl ?? job.url ?? null;
             if (!url) { discoveryFailures += 1; continue; }
             const validation = await validateDiscovery(url, { fetchFn, expectedTitle: job.title ?? null, expectedCompany: job.company ?? null });
             if (!validation.verified) { discoveryFailures += 1; continue; }
             const result = await extractOffer(url, { fetchFn, classifyFn: opts.xaiClassifyFn ?? null });
             if (result.status !== "ok") { discoveryFailures += 1; continue; }
-            noteJob(budget);
-            extracted.push({
+            const extractedOffer = {
               source: "xai-web", ats: "xai-web", tenant: (() => { try { return new URL(result.url).hostname; } catch { return "unknown"; } })(),
               postingId: null, canonicalUrl: result.url, applyUrl: "",
               title: result.title ?? "unknown", company: result.company ?? null,
@@ -735,13 +813,15 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
               language: result.language ?? null, languageMethod: result.languageMethod ?? null,
               sponsorship: "unknown", relocation: "unknown", publishedAt: result.publishedAt ?? null,
               firstSeenAt: result.firstSeenAt, evidence: { canonicalVerified: true, discoveryVerified: true, ...(result.evidence ?? {}) },
-            });
+            };
+            if (noteEligibleOffer(extractedOffer)) extractedEligible += 1;
+            extracted.push(extractedOffer);
           }
           const failureNotes = [];
           if (extractFailures > 0) failureNotes.push(`${extractFailures} discovered URL(s) failed extraction`);
           if (discoveryFailures > 0) failureNotes.push(`${discoveryFailures} discovered job(s) failed validation/extraction and were dropped`);
           if (failureNotes.length > 0) sourceErrors[sourceId] = [...(sourceErrors[sourceId] ?? []), ...failureNotes.map((reason) => ({ reason }))];
-          perSource.push({ source: sourceId, status: "completed", observed: urls.length + discoveredJobs.length, valid: 0, duplicates: 0, excluded: 0, pending: 0, cause: failureNotes.length > 0 ? failureNotes.join("; ") : null });
+          perSource.push({ source: sourceId, status: "completed", observed: urls.length + discoveredJobs.length, eligible: extractedEligible, valid: 0, duplicates: 0, excluded: 0, pending: 0, cause: failureNotes.length > 0 ? failureNotes.join("; ") : null });
           allOffers = allOffers.concat(extracted);
         } catch (err) {
           recordSourceFailure(db, definitionId, sourceId, {});
@@ -758,18 +838,10 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
     }
 
     // Language detection for offers that do not already carry one
-    // (ATS listings rarely state it). Only a confident local
-    // detection is trusted; otherwise the language stays unknown and
-    // the filter marks it for review — never guessed.
-    for (const offer of allOffers) {
-      if (!offer.language && offer.description) {
-        const detected = detectLanguage(offer.description);
-        if (detected.language !== "unknown" && detected.confidence >= 0.6 && detected.hits >= 5) {
-          offer.language = detected.language;
-          offer.languageMethod = "local";
-        }
-      }
-    }
+    // (ATS listings rarely state it). Same shared function as the
+    // capture-time enrichment: idempotent, so offers already enriched
+    // during capture are skipped here.
+    enrichOfferLanguages(allOffers);
 
     // Dedupe (strong identity only), then already-sent exclusion,
     // then pending-equivalence flagging (weak groups stay for review
@@ -847,6 +919,7 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
     const resolveSourceEntry = (offer) => bySource.get(offer.source) ?? bySource.get(ATS_TO_CONNECTOR[offer.source]) ?? null;
     for (const entry of perSource) {
       entry.valid = 0; entry.duplicates = 0; entry.excluded = 0; entry.pending = 0;
+      if (entry.eligible === undefined) entry.eligible = 0;
     }
     for (const offer of kept) {
       const entry = resolveSourceEntry(offer);
@@ -880,6 +953,7 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
     const runStatus = anyFailure ? "partial" : "completed";
     const counts = {
       observed: allOffers.length,
+      eligible: budget.jobsUsed,
       unique: unique.length,
       duplicates: duplicates.length,
       uncertainGroups: uncertainGroups.length,
@@ -901,6 +975,11 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
     if (opts.slotKey) markSlotRun(db, definitionId, opts.slotKey);
     const summary = {
       ...summaryBase,
+      // Page-limit stops on otherwise-completed sources are not in
+      // summarizeRun's causes (it only surfaces non-completed
+      // sources); append them so the UI status line can explain the
+      // stop instead of silently reporting full coverage.
+      causes: [...summaryBase.causes, ...pageLimitNotes],
       runStatus,
       autoApplyDisabled: true,
       actionRequested: definition.action,

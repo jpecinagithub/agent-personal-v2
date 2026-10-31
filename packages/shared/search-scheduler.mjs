@@ -21,7 +21,11 @@
 //   (nextAttemptAt = now + retryAfterMs); otherwise backoff doubles
 //   from a 60 s base and is capped at 24 h. A success clears it.
 // - Budget: pure helpers (createBudget / budgetAllows* / note*) cap
-//   total jobs, pages per source and the run deadline.
+//   unique eligible jobs, pages per source and the run deadline.
+//   The maxJobs cupo counts UNIQUE ELIGIBLE offers only (user decision
+//   2026-10-31, G3 conformity reopened): jobsUsed advances only when
+//   noteEligibleJob is called for a first-appearance eligible offer;
+//   offers that fail the filter never consume cupo.
 import { randomUUID } from "node:crypto";
 
 export const BACKOFF_BASE_MS = 60000;
@@ -317,6 +321,9 @@ export function getBackoffState(db, definitionId) {
 /**
  * @param {any} limits {maxJobs, maxPagesPerSource, deadlineMs?}
  * @param {{deadlineMs?: number, nowMs?: number}} [opts]
+ * NOTE: maxJobs counts UNIQUE ELIGIBLE offers (see noteEligibleJob),
+ * not offers fetched. A run keeps fetching while eligible uniques are
+ * below maxJobs (and the deadline / page budgets allow).
  */
 export function createBudget(limits, { deadlineMs = undefined, nowMs = Date.now() } = {}) {
   const maxJobs = limits?.maxJobs ?? Number.POSITIVE_INFINITY;
@@ -330,8 +337,9 @@ export function budgetDeadlineExceeded(budget, now = Date.now()) {
   return new Date(now).getTime() > budget.deadlineMs;
 }
 
-/** @param {any} budget @param {Date | number | string} [now] */
-export function budgetAllowsJob(budget, now = Date.now()) {
+/** True while the run may still count another unique eligible offer.
+ * @param {any} budget @param {Date | number | string} [now] */
+export function budgetAllowsEligibleJob(budget, now = Date.now()) {
   return !budgetDeadlineExceeded(budget, now) && budget.jobsUsed < budget.maxJobs;
 }
 
@@ -340,8 +348,11 @@ export function budgetAllowsPage(budget, source, now = Date.now()) {
   return !budgetDeadlineExceeded(budget, now) && (budget.pagesUsedBySource[source] ?? 0) < budget.maxPagesPerSource;
 }
 
-/** @param {any} budget */
-export function noteJob(budget) {
+/** Count ONE unique eligible offer toward the maxJobs cupo. Callers
+ * must have already established eligibility and first appearance:
+ * calling this for a non-eligible or duplicate offer would consume
+ * cupo that belongs to a real result. @param {any} budget */
+export function noteEligibleJob(budget) {
   budget.jobsUsed += 1;
   if (budget.jobsUsed >= budget.maxJobs) budget.truncated = true;
   return budget;
