@@ -253,3 +253,68 @@ test("page limit: a source stops after maxPagesPerSource boards with an explicab
   assert.ok(out.summary.causes.some((c) => c.source === "greenhouse-catalog" && /page limit/.test(c.cause ?? "")),
     "the page-limit cause must reach summary.causes: " + JSON.stringify(out.summary.causes));
 });
+
+test("eligible budget: a full cupo skips xai-web without calling its search", async () => {
+  const db = freshDb();
+  const personId = makePerson(db);
+  const profileId = makeProfile(db, personId);
+  const requested = [];
+  const fetchFn = ghMock({ aaa: [ghJob("a-1", "Finance Manager")] }, requested);
+  await addVerifiedBoard(db, "Aaa Corp", "aaa", fetchFn);
+  requested.length = 0;
+  const def = makeDefinition(db, personId, profileId, { sources: ["greenhouse-catalog", "xai-web"], limits: { maxJobs: 1, maxPagesPerSource: 10 } });
+  let xaiCalls = 0;
+  const xaiSearchFn = async () => { xaiCalls += 1; return []; };
+  const out = await runSearchDefinition(db, def.id, { fetchFn, xaiSearchFn });
+  assert.equal(xaiCalls, 0, "xai-web must not be searched once the cupo is full");
+  const xai = out.summary.perSource.find((s) => s.source === "xai-web");
+  assert.equal(xai.status, "skipped_budget");
+  assert.equal(xai.observed, 0);
+  assert.equal(xai.eligible, 0);
+  assert.match(xai.cause ?? "", /maxJobs=1/);
+  assert.equal(out.summary.coverage, "partial", "a skipped source must not leave coverage complete");
+  assert.ok(out.summary.causes.some((c) => c.source === "xai-web" && /eligible budget exhausted/.test(c.cause ?? "")),
+    "the skip cause must reach summary.causes: " + JSON.stringify(out.summary.causes));
+  const run = listSearchRuns(db, { definitionId: def.id }).find((r) => r.id === out.runId);
+  assert.equal(run.counts.budgetTruncated, true);
+  assert.equal(run.status, "partial");
+});
+
+test("eligible budget: a full cupo skips a later ATS instead of reporting completed_zero_results", async () => {
+  const db = freshDb();
+  const personId = makePerson(db);
+  const profileId = makeProfile(db, personId);
+  const leverRequested = [];
+  const leverPosting = {
+    id: "lv-1", text: "Finance Manager", hostedUrl: "https://example.test/jobs/lv-1",
+    applyUrl: "https://example.test/jobs/lv-1/apply",
+    categories: { location: "Hybrid, Logroño, ES", commitment: "Full-time", team: "Finance" },
+    descriptionPlain: BODY, createdAt: "2026-10-27T00:00:00Z",
+  };
+  const fetchFn = async (url) => {
+    const t = String(url);
+    const m = t.match(/\/boards\/([^/]+)\/jobs/);
+    if (t.includes("boards-api.greenhouse.io") && m) return resp(200, m[1] === "aaa" ? [ghJob("a-1", "Finance Manager")] : []);
+    if (t.includes("api.lever.co")) { leverRequested.push(t); return resp(200, [leverPosting]); }
+    return resp(404, { error: "not found" });
+  };
+  await addVerifiedBoard(db, "Aaa Corp", "aaa", fetchFn);
+  const leverBoard = addBoard(db, { company: "Lev", ats: "lever", board: "levtest" });
+  const ver = await verifyBoard(db, leverBoard.id, { fetchFn });
+  assert.equal(ver.ok, true, JSON.stringify(ver));
+  leverRequested.length = 0;
+  const def = makeDefinition(db, personId, profileId, { sources: ["greenhouse-catalog", "lever-catalog"], limits: { maxJobs: 1, maxPagesPerSource: 10 } });
+  const out = await runSearchDefinition(db, def.id, { fetchFn });
+  assert.equal(leverRequested.length, 0, "the second ATS must never be consulted once the cupo is full");
+  const lever = out.summary.perSource.find((s) => s.source === "lever-catalog");
+  assert.equal(lever.status, "skipped_budget");
+  assert.equal(lever.observed, 0);
+  assert.equal(lever.eligible, 0);
+  assert.match(lever.cause ?? "", /maxJobs=1/);
+  assert.equal(out.summary.coverage, "partial", "a skipped source must not leave coverage complete");
+  assert.ok(out.summary.causes.some((c) => c.source === "lever-catalog" && /eligible budget exhausted/.test(c.cause ?? "")),
+    "the skip cause must reach summary.causes: " + JSON.stringify(out.summary.causes));
+  const run = listSearchRuns(db, { definitionId: def.id }).find((r) => r.id === out.runId);
+  assert.equal(run.counts.budgetTruncated, true);
+  assert.equal(run.status, "partial");
+});

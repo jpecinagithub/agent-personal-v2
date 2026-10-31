@@ -43,7 +43,7 @@ const ATS_BY_CONNECTOR = {
   "ashby-catalog": "ashby",
 };
 
-const RUN_FAILURE_STATUSES = new Set(["failed", "rate_limited", "blocked", "unavailable", "partial"]);
+const RUN_FAILURE_STATUSES = new Set(["failed", "rate_limited", "blocked", "unavailable", "partial", "skipped_budget"]);
 
 // ------------------------------------------------------------------
 // Search definitions (search_definitions).
@@ -707,6 +707,19 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
     const sourceErrors = {};
     let allOffers = [];
     let budgetExhausted = false;
+    // Eligible-budget skip (defect found in review of 10b2f17):
+    // once the cupo of unique eligible offers is full, no further
+    // source may be consulted — not even xai-web, whose search call
+    // would be pure waste — and a skipped source must never masquerade
+    // as completed_zero_results. It is recorded as skipped_budget
+    // (non-completed in summarizeRun, so coverage stays partial and
+    // the cause reaches summary.causes) and budgetExhausted keeps
+    // counts.budgetTruncated true (including the maxJobs=0 edge,
+    // where noteEligibleJob never ran and budget.truncated is false).
+    const pushSkippedBudget = (sourceId) => {
+      budgetExhausted = true;
+      perSource.push({ source: sourceId, status: "skipped_budget", observed: 0, eligible: 0, valid: 0, duplicates: 0, excluded: 0, pending: 0, cause: `skipped: eligible budget exhausted (maxJobs=${budget.maxJobs} reached)` });
+    };
     for (const sourceId of definition.sources) {
       if (budgetDeadlineExceeded(budget)) {
         budgetExhausted = true;
@@ -729,6 +742,14 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
       }
       const ats = ATS_BY_CONNECTOR[sourceId];
       if (ats) {
+        if (!budgetAllowsEligibleJob(budget)) {
+          pushSkippedBudget(sourceId);
+          // Nothing was fetched, so the resume cursor is carried
+          // forward untouched instead of being wiped from this run's
+          // cursors_json (previousCursors comes from the last run).
+          cursors[sourceId] = previousCursors[sourceId] ?? {};
+          continue;
+        }
         const fetched = await fetchAtsSource(db, ats, fetchFn, budget, sourceId, previousCursors[sourceId] ?? {}, noteEligibleOffer);
         cursors[sourceId] = fetched.cursors;
         if (fetched.boardErrors.length > 0) sourceErrors[sourceId] = fetched.boardErrors;
@@ -751,6 +772,10 @@ export async function runSearchDefinition(db, definitionId, opts = {}) {
         continue;
       }
       if (sourceId === "xai-web") {
+        if (!budgetAllowsEligibleJob(budget)) {
+          pushSkippedBudget(sourceId);
+          continue;
+        }
         if (!opts.xaiSearchFn) {
           perSource.push({ source: sourceId, status: "failed", observed: 0, valid: 0, duplicates: 0, excluded: 0, pending: 0, cause: "xai not verified" });
           continue;
