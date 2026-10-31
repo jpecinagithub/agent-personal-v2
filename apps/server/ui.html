@@ -420,6 +420,7 @@ desactivar inmediatamente en cualquier momento.</small></p>
 <label for="search-def-maxjobs">Máximo de ofertas por ejecución</label><input id="search-def-maxjobs" value="100">
 <label for="search-def-maxpages">Máximo de páginas por fuente</label><input id="search-def-maxpages" value="10">
 <button id="search-def-create">Guardar búsqueda</button>
+<button id="search-def-cancel" type="button" hidden>Cancelar edición</button>
 <button id="search-def-refresh" type="button">Actualizar búsquedas</button>
 <p class="status" id="search-def-status"></p>
 <div id="search-definitions-list"></div>
@@ -1572,6 +1573,9 @@ $("settings-refresh").onclick = refreshSettings;
 // resultados para revisión, nunca intentos de envío.
 // ------------------------------------------------------------------
 const searchProfileNames = new Map();
+let editingDefinitionId = null;
+function exitSearchEditMode() { editingDefinitionId = null; $("search-def-create").textContent = "Guardar búsqueda"; $("search-def-cancel").hidden = true; }
+$("search-def-cancel").onclick = () => { exitSearchEditMode(); $("search-def-status").textContent = "Edición cancelada."; };
 const splitList = (value) => String(value || "").split(",").map((s) => s.trim()).filter(Boolean);
 async function refreshSearchProfiles() {
   if (!personId) { $("search-def-status").textContent = "guarda primero una persona"; return; }
@@ -1637,7 +1641,33 @@ function renderSearchDefinitions(definitions) {
     const del = document.createElement("button");
     del.textContent = "Eliminar";
     del.onclick = async () => { if (!confirm("¿Eliminar la búsqueda " + d.name + "? Se borrarán también sus ejecuciones y resultados.")) return; try { await call("/api/search-definitions/" + d.id, "DELETE"); $("search-def-status").textContent = "Búsqueda eliminada: " + d.name; await refreshSearchDefinitions(); } catch (e) { $("search-def-status").textContent = "Error: " + e.message; } };
-    row.append(label, dup, pause, run, del);
+    const edit = document.createElement("button");
+    edit.textContent = "Editar";
+    edit.onclick = async () => { try {
+      await refreshSearchProfiles();
+      const data = await call("/api/search-definitions/" + d.id, "GET");
+      const def = data.definition; const c = def.criteria || {};
+      const titles = c.titles || {}; const locs = c.locations || {}; const sched = def.schedule || {};
+      $("search-def-name").value = def.name || "";
+      if (def.profileIds && def.profileIds[0]) $("search-def-profile").value = def.profileIds[0];
+      $("search-def-titles").value = (titles.any || []).join(", ");
+      $("search-def-titles-exclude").value = (titles.exclude || []).join(", ");
+      $("search-def-countries").value = (locs.countries || []).join(", ");
+      $("search-def-modes").value = (c.workModes || []).join(", ");
+      const srcs = def.sources || c.sources || [];
+      document.querySelectorAll("#search-sources input[type=checkbox]").forEach((cb) => { cb.checked = srcs.includes(cb.value); });
+      $("search-def-timezone").value = sched.timezone || "Europe/Madrid";
+      $("search-def-times").value = (sched.localTimes || []).join(", ");
+      $("search-def-action").value = def.action || "save";
+      $("search-def-maxjobs").value = (def.limits && def.limits.maxJobs) || 100;
+      $("search-def-maxpages").value = (def.limits && def.limits.maxPagesPerSource) || 10;
+      editingDefinitionId = d.id;
+      $("search-def-create").textContent = "Guardar cambios";
+      $("search-def-cancel").hidden = false;
+      $("search-def-status").textContent = "Editando: " + def.name + " — revisa el formulario arriba y pulsa Guardar cambios.";
+      $("search-def-name").scrollIntoView();
+    } catch (e) { $("search-def-status").textContent = "Error: " + e.message; } };
+    row.append(label, dup, pause, run, edit, del);
     list.appendChild(row);
   }
 }
@@ -1672,8 +1702,14 @@ async function refreshSearchDefinitions() {
   renderSearchDefinitions(data.definitions);
 }
 $("search-def-create").onclick = async () => { try {
-  const r = await call("/api/search-definitions", "POST", searchDefinitionFromForm());
-  $("search-def-status").textContent = "Búsqueda guardada: " + r.definition.name;
+  if (editingDefinitionId) {
+    const r = await call("/api/search-definitions/" + editingDefinitionId, "PUT", searchDefinitionFromForm());
+    $("search-def-status").textContent = "Búsqueda actualizada: " + r.definition.name;
+    exitSearchEditMode();
+  } else {
+    const r = await call("/api/search-definitions", "POST", searchDefinitionFromForm());
+    $("search-def-status").textContent = "Búsqueda guardada: " + r.definition.name;
+  }
   await refreshSearchDefinitions();
 } catch (e) { $("search-def-status").textContent = "Error: " + e.message; } };
 $("search-def-refresh").onclick = async () => { try { await refreshSearchDefinitions(); } catch (e) { $("search-def-status").textContent = "Error: " + e.message; } };
