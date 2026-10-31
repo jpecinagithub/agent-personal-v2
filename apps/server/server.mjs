@@ -36,7 +36,7 @@ import {
   compileViewForDefinition,
 } from "../../packages/shared/search-run.mjs";
 import { listConnectors, getConnector, pauseConnector, resumeConnector } from "../../packages/shared/search-registry.mjs";
-import { addBoard, getBoard, listBoards, pauseBoard, verifyBoard } from "../../packages/shared/company-catalog.mjs";
+import { addBoard, deleteBoard, getBoard, listBoards, pauseBoard, verifyBoard } from "../../packages/shared/company-catalog.mjs";
 import { buildSearchUrl, importUrl, importCsv, importText } from "../../packages/shared/linkedin.mjs";
 import { extractOffer } from "../../packages/shared/offer-extract.mjs";
 // F4: analysis, plan and limits (T-V2-035..040).
@@ -618,6 +618,12 @@ export function createServer({ dataDir, port = 0, recoverIntervalMs = 30000, ver
         const id = url.pathname.split("/")[3];
         if (!getBoard(db, id)) return send(res, 404, { error: "board not found" });
         return send(res, 200, { board: pauseBoard(db, id, body.paused !== false) });
+      }
+      if (req.method === "DELETE" && url.pathname.startsWith("/api/company-boards/")) {
+        if (!requireControlOrigin(req, res)) return;
+        const id = url.pathname.split("/")[3];
+        if (!getBoard(db, id)) return send(res, 404, { error: "board not found" });
+        return send(res, 200, { ok: true, board: deleteBoard(db, id) });
       }
       if (req.method === "POST" && url.pathname === "/api/linkedin/build-url") {
         if (!requireControlOrigin(req, res)) return;

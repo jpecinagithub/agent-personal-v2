@@ -8,6 +8,7 @@ import path from "node:path";
 import { openDatabase } from "../packages/shared/db.mjs";
 import {
   addBoard,
+  deleteBoard,
   getBoardByAtsBoard,
   listBoards,
   pauseBoard,
@@ -117,4 +118,32 @@ test("T-V2-029: SmartRecruiters boards catalogue but never verify in F3", async 
   assert.equal(result.ok, false);
   assert.equal(result.reason, "unsupported_ats");
   assert.equal(getBoardByAtsBoard(db, "smartrecruiters", "ubisoft2").verified_at, null);
+});
+
+test("deleteBoard removes one row and leaves the others intact", () => {
+  const db = setup();
+  const keep = addBoard(db, { company: "Keep Corp", ats: "greenhouse", board: "keep" });
+  const drop = addBoard(db, { company: "Drop Corp", ats: "lever", board: "drop" });
+  const removed = deleteBoard(db, drop.id);
+  assert.equal(removed.company, "Drop Corp");
+  assert.equal(getBoardByAtsBoard(db, "lever", "drop"), null);
+  assert.equal(listBoards(db).length, 1);
+  assert.equal(listBoards(db)[0].id, keep.id);
+});
+
+test("deleteBoard throws on an unknown id instead of silently succeeding", () => {
+  const db = setup();
+  addBoard(db, { company: "Keep Corp", ats: "greenhouse", board: "keep" });
+  assert.throws(() => deleteBoard(db, "no-such-id"), /board not found/);
+  assert.equal(listBoards(db).length, 1);
+});
+
+test("deleteBoard works on verified and paused boards alike", async () => {
+  const db = setup();
+  const row = addBoard(db, { company: "Example Corp", ats: "lever", board: "example" });
+  const verified = await verifyBoard(db, row.id, { fetchFn: async () => jsonRes([{ id: "l-1", text: "Finance Manager", hostedUrl: "https://jobs.lever.co/example/l-1" }]) });
+  assert.equal(verified.ok, true);
+  pauseBoard(db, row.id, true);
+  deleteBoard(db, row.id);
+  assert.equal(listBoards(db).length, 0);
 });

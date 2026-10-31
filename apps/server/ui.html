@@ -1716,7 +1716,10 @@ async function refreshBoards() {
     const pause = document.createElement("button");
     pause.textContent = b.paused ? "Reanudar" : "Pausar";
     pause.onclick = async () => { try { await call("/api/company-boards/" + b.id + "/pause", "POST", { paused: !b.paused }); await refreshBoards(); } catch (e) { $("board-status").textContent = "Error: " + e.message; } };
-    row.append(label, verify, pause);
+    const del = document.createElement("button");
+    del.textContent = "Eliminar";
+    del.onclick = async () => { if (!confirm("¿Eliminar " + b.company + " (" + b.ats + "/" + b.board + ") del catálogo?")) return; try { await call("/api/company-boards/" + b.id, "DELETE"); $("board-status").textContent = "Empresa eliminada: " + b.company; await refreshBoards(); } catch (e) { $("board-status").textContent = "Error: " + e.message; } };
+    row.append(label, verify, pause, del);
     list.appendChild(row);
   }
 }

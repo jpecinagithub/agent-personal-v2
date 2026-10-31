@@ -147,6 +147,21 @@ export function pauseBoard(db, id, paused = true) {
 }
 
 /**
+ * Delete a board. A paused or unverified board deletes just like a
+ * verified one; deleting a board never deletes offers or runs — no
+ * other table references company_boards (run cursors hold board slugs
+ * as plain JSON, not foreign keys). Throws when the id does not exist,
+ * so a missing board is never reported as silently deleted.
+ * @param {any} db @param {string} id
+ */
+export function deleteBoard(db, id) {
+  const row = getBoard(db, id);
+  if (!row) throw new Error("board not found");
+  db.prepare("DELETE FROM company_boards WHERE id = ?").run(id);
+  return row;
+}
+
+/**
  * The usability gate for the search core: returns the board only when
  * it exists, is verified (verified_at set) and is not paused.
  * Anything else throws — an unverified board is REJECTED, never
