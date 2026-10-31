@@ -1688,14 +1688,17 @@ function renderSearchResults(runData) {
     note.textContent = "Excluidas: " + profile.excludedCount + " · ya enviadas: " + profile.sentExcludedCount + " · pendientes de equivalencia: " + profile.pendingCount;
     box.appendChild(note);
   }
-  const compHead = document.createElement("h3");
-  compHead.textContent = "Comparación por perfil";
-  box.appendChild(compHead);
-  for (const entry of runData.comparison || []) {
-    const row = document.createElement("div");
-    const best = entry.bestProfileId ? (searchProfileNames.get(entry.bestProfileId) || "perfil") : "ningún perfil elegible";
-    row.textContent = (entry.offer.title || "") + " — mejor perfil: " + best + (entry.bestTotal !== null ? " (" + entry.bestTotal + ")" : "");
-    box.appendChild(row);
+  const eligibleComparison = (runData.comparison || []).filter((entry) => entry.bestProfileId);
+  if (eligibleComparison.length > 0) {
+    const compHead = document.createElement("h3");
+    compHead.textContent = "Comparación por perfil";
+    box.appendChild(compHead);
+    for (const entry of eligibleComparison) {
+      const row = document.createElement("div");
+      const best = searchProfileNames.get(entry.bestProfileId) || "perfil";
+      row.textContent = (entry.offer.title || "") + " — mejor perfil: " + best + (entry.bestTotal !== null ? " (" + entry.bestTotal + ")" : "");
+      box.appendChild(row);
+    }
   }
 }
 async function refreshSearchDefinitions() {
