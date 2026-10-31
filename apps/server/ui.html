@@ -1578,6 +1578,7 @@ function exitSearchEditMode() { editingDefinitionId = null; $("search-def-create
 $("search-def-cancel").onclick = () => { exitSearchEditMode(); $("search-def-status").textContent = "Edición cancelada."; };
 const splitList = (value) => String(value || "").split(",").map((s) => s.trim()).filter(Boolean);
 async function refreshSearchProfiles() {
+  if (!personId) await ensureProfilesPerson();
   if (!personId) { $("search-def-status").textContent = "guarda primero una persona"; return; }
   const data = await call("/api/profiles?personId=" + personId, "GET");
   const select = $("search-def-profile");
