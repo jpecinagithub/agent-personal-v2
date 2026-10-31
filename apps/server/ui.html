@@ -1634,7 +1634,10 @@ function renderSearchDefinitions(definitions) {
         + (r.summary.autoApplyNote ? " — " + r.summary.autoApplyNote : "");
       renderSearchResults(r);
     } catch (e) { $("search-run-status").textContent = "Error: " + e.message; } };
-    row.append(label, dup, pause, run);
+    const del = document.createElement("button");
+    del.textContent = "Eliminar";
+    del.onclick = async () => { if (!confirm("¿Eliminar la búsqueda " + d.name + "? Se borrarán también sus ejecuciones y resultados.")) return; try { await call("/api/search-definitions/" + d.id, "DELETE"); $("search-def-status").textContent = "Búsqueda eliminada: " + d.name; await refreshSearchDefinitions(); } catch (e) { $("search-def-status").textContent = "Error: " + e.message; } };
+    row.append(label, dup, pause, run, del);
     list.appendChild(row);
   }
 }
